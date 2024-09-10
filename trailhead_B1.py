@@ -12,6 +12,7 @@ from qiskit.quantum_info import Operator
 from qiskit_aer.primitives import Sampler
 
 from decompose_pauli import to_pauli_vec, from_pauli_vec
+from Trotter_evol import Trotter_evol2
 
 # Eq 14.
 _HE = np.array([[0,0,0,0], 
@@ -101,25 +102,6 @@ def Trotter_evol(state, circuits, order=1):
         circuit = circuit.compose(_c)
     return circuit
 
-def Trotter_evol2(state, circuits, time, Dt, order=1, steps=1):
-    circuit = QuantumCircuit(2, 2)
-    if order == 1:
-        dt = Dt/steps
-        for _ in range(steps):
-            for _c in circuits:
-                circuit = circuit.compose(_c.assign_parameters({time: dt}))
-    
-    if order == 2:
-        dt = Dt/steps
-        for _ in range(steps):
-            _circuits, _fcircuit = circuits[:-1], circuits[-1]
-            _circuits = [_c.assign_parameters({time: dt/2}) for _c in _circuits]
-            _fcircuit = _fcircuit.assign_parameters({time: dt})
-            _circuits = _circuits + [_fcircuit,] + list(reversed(_circuits))
-            for _c in _circuits:
-                circuit = circuit.compose(_c)
-    return circuit
-
 sampler = Sampler()
 dt = 0.5
 Trotter_steps = [Tstep1_circ(3+17/6, -1.5, -1.5, dt), 
@@ -144,8 +126,8 @@ print(sampler.run(circuit).result().quasi_dists[0][0])
 #     except KeyError:
 #         probs_trotter.append(0)
 
-def run_Trotter(tmin, tmax, nsteps, order, steps):
-    dts = np.linspace(tmin, tmax, nsteps)
+def run_Trotter(tmin, tmax, tsteps, order, trotter_steps):
+    dts = np.linspace(tmin, tmax, tsteps)
     probs = []
     time = Parameter("time")
     for _dt in dts:
@@ -153,7 +135,7 @@ def run_Trotter(tmin, tmax, nsteps, order, steps):
         Trotter_steps = [Tstep1_circ(3+17/6, -1.5, -1.5, time), 
                         Tstep2_circ(-1/4, -1/4, 1/6, time), 
                         Tstep3_circ(-0.5, -0.5, time)]
-        circuit = Trotter_evol2([], Trotter_steps, time, _dt, order=order, steps=steps)
+        circuit = Trotter_evol2([], Trotter_steps, time, _dt, order=order, nsteps=trotter_steps)
         circuit.measure_all()
         try:
             probs.append(sampler.run(circuit).result().quasi_dists[0][0])
