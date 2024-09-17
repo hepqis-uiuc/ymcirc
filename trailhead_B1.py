@@ -9,7 +9,8 @@ from scipy.linalg import expm
 from qiskit.circuit import QuantumCircuit, Parameter
 from qiskit.quantum_info import Operator
 
-from qiskit_aer.primitives import Sampler
+from qiskit_aer.primitives import Sampler#, Estimator
+from qiskit.primitives import Estimator
 
 from decompose_pauli import to_pauli_vec, from_pauli_vec
 from Trotter_evol import Trotter_evol2
@@ -35,6 +36,23 @@ def check_H_specification():
 
 def H(gsq):
     return (gsq/2)*_HE + (1/gsq)*_HB
+
+def electric_energy(gsq):
+    E2 = lambda p, q: (p**2 + q**2 + p*q + 3*p + 3*q)/3  # Eq 3.
+    _E2 = np.array([[E2(0,0), 0, 0, 0], 
+                    [0, E2(1,0), 0, 0], 
+                    [0, 0, E2(0,1), 0], 
+                    [0, 0, 0, E2(1,1)]])
+    return 4*gsq/2*_E2
+
+def electric_EV(gsq, t):
+    psi_i = np.array([1, 0, 0, 0])
+    _H = H(gsq)
+    psi_t = np.dot(expm(-1j*t*_H), psi_i)
+    E2 = electric_energy(gsq)
+    psiE2psi = np.dot(np.conjugate(psi_t), np.dot(E2, psi_t))
+
+    return np.abs(psiE2psi)
 
 # For Trotterization, the Pauli decomposition is grouped into commuting sets.
 def H1_H2_H3(gsq):
@@ -102,30 +120,6 @@ def Trotter_evol(state, circuits, order=1):
         circuit = circuit.compose(_c)
     return circuit
 
-sampler = Sampler()
-dt = 0.5
-Trotter_steps = [Tstep1_circ(3+17/6, -1.5, -1.5, dt), 
-                 Tstep3_circ(-0.5, -0.5, dt),
-                 Tstep2_circ(-1/4, -1/4, 1/6, dt), 
-                 ]
-circuit = Trotter_evol([], Trotter_steps)
-circuit.measure_all()
-print(sampler.run(circuit).result().quasi_dists[0][0])
-
-# dts_trotter = np.linspace(0, 1, 10)
-# probs_trotter = []
-# for dt in dts_trotter:
-#     sampler = Sampler()
-#     Trotter_steps = [Tstep1_circ(3+17/6, -1.5, -1.5, dt), 
-#                  Tstep2_circ(-1/4, -1/4, 1/6, dt), 
-#                  Tstep3_circ(-0.5, -0.5, dt)]
-#     circuit = Trotter_evol([], Trotter_steps)
-#     circuit.measure_all()
-#     try:
-#         probs_trotter.append(sampler.run(circuit).result().quasi_dists[0][0])
-#     except KeyError:
-#         probs_trotter.append(0)
-
 def run_Trotter(tmin, tmax, tsteps, order, trotter_steps):
     dts = np.linspace(tmin, tmax, tsteps)
     probs = []
@@ -143,39 +137,88 @@ def run_Trotter(tmin, tmax, tsteps, order, trotter_steps):
             probs.append(0)
     return dts, probs
 
-dts = np.linspace(0, 5, 100)
-probs = [np.abs(expm(-1j*dt*H(1))[0,0])**2 for dt in dts]
+def run_Trotter_electric(tmin, tmax, tsteps, order, trotter_steps):
+    dts = np.linspace(tmin, tmax, tsteps)
+    evs = []
+    time = Parameter("time")
+    for _dt in dts:
+        estimator = Estimator()
+        Trotter_steps = [Tstep1_circ(3+17/6, -1.5, -1.5, time), 
+                        Tstep2_circ(-1/4, -1/4, 1/6, time), 
+                        Tstep3_circ(-0.5, -0.5, time)]
+        circuit = Trotter_evol2([], Trotter_steps, time, _dt, order=order, nsteps=trotter_steps)
+        job = estimator.run(circuit, Operator(electric_energy(1.)), run_options={'nshots': 1000})
+        evs.append(job.result().values[0])
 
-dts_trotter11, probs_trotter11 = run_Trotter(0, 2, 40, 1, 1)
-dts_trotter21, probs_trotter21 = run_Trotter(0, 2, 40, 2, 1)
-dts_trotter14, probs_trotter14 = run_Trotter(0, 5, 100, 1, 4)
-dts_trotter24, probs_trotter24 = run_Trotter(0, 5, 100, 2, 4)
-dts_trotter12, probs_trotter12 = run_Trotter(0, 5, 100, 1, 2)
-dts_trotter13, probs_trotter13 = run_Trotter(0, 5, 100, 1, 3)
-dts_trotter16, probs_trotter16 = run_Trotter(0, 5, 100, 1, 6)
+    return dts, evs
 
-fig, ax = plt.subplots()
-ax.set_ylim([0.0, 1.2])
-ax.set_xlim([0, 5])
-ax.set_ylabel("P(0)")
-ax.set_xlabel("time")
-ax.plot(dts, probs, 'k-', label='exact')
-ax.plot(dts_trotter11, probs_trotter11, 'o--', ms=2, label='1 step')
-ax.plot(dts_trotter12, probs_trotter12, 'o--', ms=2, label = '2 steps')
-#ax.plot(dts_trotter13, probs_trotter13, 'o--', ms=2)
-#ax.plot(dts_trotter21, probs_trotter21, 'o--', ms=2)
-ax.plot(dts_trotter14, probs_trotter14, 'o--', ms=2, label='4 steps')
-#ax.plot(dts_trotter24, probs_trotter24, 'o--', ms=2)
-ax.plot(dts_trotter16, probs_trotter16, 'o--', ms=2, label='6 steps')
-plt.legend()
-#plt.show()
-plt.savefig("./trailhead_Fig6.pdf")
+def Trotter_exact():
+    H1, H2, H3 = H1_H2_H3(1)
+    H1 = H1 + H3
+    dts = np.linspace(0, 5, 100)
+    _res = [np.dot(expm(-1j*dt/2*H1), np.dot(expm(-1j*dt*H2), expm(-1j*dt/2*H1))) for dt in dts]
+    probs = [np.abs(_r[0,0])**2 for _r in _res]
+    return probs
 
-#dt = Parameter("dt")
-#print(Tstep1_circ(3+17/6, -1.5, -1.5, dt))
-#Tstep1_circ(3+17/6, -1.5, -1.5, dt).assign_parameters({dt: 0.1})
+def plot_state_evol():
+    dts = np.linspace(0, 5, 100)
+    probs = [np.abs(expm(-1j*dt*H(1))[0,0])**2 for dt in dts]
+    probs2 = Trotter_exact()
+
+    dts_trotter11, probs_trotter11 = run_Trotter(0, 2, 40, 1, 1)
+    dts_trotter21, probs_trotter21 = run_Trotter(0, 2, 40, 2, 1)
+    dts_trotter14, probs_trotter14 = run_Trotter(0, 5, 100, 1, 4)
+    dts_trotter24, probs_trotter24 = run_Trotter(0, 5, 100, 2, 4)
+    dts_trotter12, probs_trotter12 = run_Trotter(0, 5, 100, 1, 2)
+    dts_trotter13, probs_trotter13 = run_Trotter(0, 5, 100, 1, 3)
+    dts_trotter16, probs_trotter16 = run_Trotter(0, 5, 100, 1, 6)
+
+    fig, ax = plt.subplots()
+    ax.set_ylim([0.0, 1.2])
+    ax.set_xlim([0, 5])
+    ax.set_ylabel("P(0)")
+    ax.set_xlabel("time")
+    ax.plot(dts, probs, 'k-', label='exact')
+    ax.plot(dts, probs2, 'b-', label='Trotter2')
+    ax.plot(dts_trotter11, probs_trotter11, 'o--', ms=2, label='1 step')
+    ax.plot(dts_trotter12, probs_trotter12, 'o--', ms=2, label = '2 steps')
+    #ax.plot(dts_trotter13, probs_trotter13, 'o--', ms=2)
+    #ax.plot(dts_trotter21, probs_trotter21, 'o--', ms=2)
+    ax.plot(dts_trotter14, probs_trotter14, 'o--', ms=2, label='4 steps')
+    #ax.plot(dts_trotter24, probs_trotter24, 'o--', ms=2)
+    ax.plot(dts_trotter16, probs_trotter16, 'o--', ms=2, label='6 steps')
+    plt.legend()
+    plt.show()
+    #plt.savefig("./trailhead_Fig6.pdf")
+
+def plot_electric_energy():
+    dts = np.linspace(0, 5, 100)
+    Es_exact = [electric_EV(1, dt) for dt in dts]
+    dts4, evs4 = run_Trotter_electric(0, 5, 100, 2, 4)
+    dts6, evs6 = run_Trotter_electric(0, 5, 100, 2, 6)
+    #print(f"{Es_exact = }")
+    #print(f"{evs = }")
+
+    fig, ax = plt.subplots()
+    ax.set_ylim([0.0, 1.2])
+    ax.set_xlim([0, 5])
+    ax.set_ylabel("Elec. Energy")
+    ax.set_xlabel("time")
+    ax.plot(dts, Es_exact, 'k-', label='exact')
+    ax.plot(dts, evs4, 'o', ms=2, label='4 steps')
+    ax.plot(dts, evs6, 'o', ms=2, label='6 steps')
+
+    plt.legend()
+    plt.show()
+    #plt.savefig("./trailhead_Fig6b.pdf")
 
 if __name__ == "__main__":
     check_H_specification()
     test_H_decomposition()
     test_Trotter_circuits()
+    #Trotter_exact()
+    #plot_state_evol()
+    #print(electric_EV(1, 4))
+    #run_Trotter_electric(0, 5, 100, 2, 8)
+    plot_electric_energy()
+
