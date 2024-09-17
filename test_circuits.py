@@ -15,6 +15,7 @@ op = Operator(op)
 #print(op)
 
 # Circuit form of operator.
+# Syntax is cy(control, target).
 circ = QuantumCircuit(2, 2)
 Rhalf = Operator(RXGate(alpha/2))
 circ.append(Rhalf, [0,])
