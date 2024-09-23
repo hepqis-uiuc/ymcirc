@@ -86,6 +86,9 @@ def Tstep2_circ(th_xx, th_yy, th_zz, dt=None):
     circ.rzz(2*th_zz*dt, 0, 1)
     return circ
 
+def Tstep2_circ_v2(th_xx, th_yy, th_zz, dt):
+    "Eq. 19 of trailhead. Alternative to using rxx, ryy builtins."
+
 def Tstep3_circ(th_IX, th_XI, dt=None):
     if dt is None:
         dt = Parameter("dt")

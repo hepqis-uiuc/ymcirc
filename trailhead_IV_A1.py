@@ -45,7 +45,7 @@ def Hspec(sector='++'):
 
 def H(gsq, sector='++'):
     _HE, _HB = Hspec(sector)
-    return (gsq/2)*_HE + (1/gsq)*_HB
+    return (gsq/2)*_HE + 1/(2*gsq)*_HB
 
 def check_H_specification():
     _HE, _HB = Hspec(sector='++')
@@ -74,11 +74,28 @@ def test_H_decomposition(gsq):
     print(np.allclose(H1 + H2 + H3, H(gsq), rtol=1e-16))
 
 def Tstep3_circ(th_ZX, th_XZ, dt):
-    pass
+    "Eq. 43 of trailhead."
+    circ = QuantumCircuit(2, 2)
+    circ.h(1)
+    circ.cx(1, 0)
+    circ.h(1)
+    circ.rz(2*th_ZX*dt, 1)
+    circ.rz(2*th_XZ*dt, 0)
+    circ.h(1)
+    circ.cx(1, 0)
+    circ.h(1)
+
+    return circ
 
 def test_Trotter_circuits():
-    pass
+    H1, H2, H3 = H1_H2_H3(1)
+    dt = 0.2
+    circ3 = Tstep3_circ(-1/3, 1/(6*np.sqrt(2)), dt)
+    eHtest = expm(-1j*(dt)*H3)
+    print(Operator.from_circuit(circ3))
+    print(eHtest)
+    print(Operator.from_circuit(circ3) == Operator(eHtest))
 
 if __name__ == "__main__":
-    check_H_specification()
     test_H_decomposition(1)
+    test_Trotter_circuits()
