@@ -89,6 +89,23 @@ def Tstep2_circ(th_xx, th_yy, th_zz, dt=None):
     circ.rzz(2*th_zz*dt, 0, 1)
     return circ
 
+def Tstep2_circ_v2(th_xx, th_yy, th_zz, dt):
+    "Eq. 19 of trailhead. Alternative to using rxx, ryy builtins."
+    circ = QuantumCircuit(2, 2)
+    circ.cx(1, 0)
+    circ.rx(2*th_xx*dt, 1)
+    circ.h(1)
+    circ.rz(2*th_zz*dt, 0)
+    circ.cx(1, 0)
+    circ.s(1)
+    circ.h(1)
+    circ.rz(-2*th_yy*dt, 0)
+    circ.cx(1, 0)
+    # Note these last two steps differ from trailhead (phase -> -phase).
+    circ.rx(-2*np.pi/4, 1)
+    circ.rx(2*np.pi/4, 0)
+    return circ
+
 def Tstep3_circ(th_IX, th_XI, dt=None):
     if dt is None:
         dt = Parameter("dt")
@@ -105,8 +122,10 @@ def test_Trotter_circuits():
     print(Operator.from_circuit(circ1) == Operator(eHtest))
 
     circ2 = Tstep2_circ(-1/4, -1/4, 1/6, dt)
+    circ2_v2 = Tstep2_circ_v2(-1/4, -1/4, 1/6, dt)
     eHtest = expm(-1j*(dt)*H2)
     print(Operator.from_circuit(circ2) == Operator(eHtest))
+    print(Operator.from_circuit(circ2_v2) == Operator(eHtest))
 
     circ3 = Tstep3_circ(-0.5, -0.5, dt)
     eHtest = expm(-1j*(dt)*H3)
