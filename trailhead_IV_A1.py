@@ -186,8 +186,33 @@ def plot_electric_energy():
     #plt.show()
     plt.savefig("./trailhead_Fig11b.pdf")
 
+def scaled_eigenvalues():
+    gsq_values = np.linspace(np.sqrt(0.5), 2, 100)
+    e1, e2, e3, e4 = [], [], [], []  # Store results here.
+    for gsq in gsq_values:
+        evals, evecs = np.linalg.eig(H(gsq))
+        for _eval, res in zip(sorted(gsq*evals), [e1, e2, e3, e4]):
+            res.append(_eval)
+    
+    #return e1, e2, e3, e4
+
+    fig, ax = plt.subplots()
+    ax.set_title("H++ sector")
+    ax.set_ylim([0.0, 10])
+    xvals = 1/gsq_values**4
+    print(xvals)
+   # ax.set_xlim(xlim)
+    ax.set_ylabel("$g^2$*eval")
+    ax.set_xlabel("$1/g^4$")
+    for _evals in [e1, e2, e3, e4]:
+        ax.plot(xvals, _evals)
+    #plt.show()
+    plt.savefig("./trailhead_Fig11a.pdf")
+
+
 if __name__ == "__main__":
     test_H_decomposition(1)
     test_Trotter_circuits()
     #plot_state_evol()
-    plot_electric_energy()
+    #plot_electric_energy()
+    scaled_eigenvalues()
