@@ -47,6 +47,16 @@ def H(gsq, sector='++'):
     _HE, _HB = Hspec(sector)
     return (gsq/2)*_HE + 1/(2*gsq)*_HB
 
+def electric_EV(gsq, t):
+    psi_i = np.array([1, 0, 0, 0])
+    _H = H(gsq)
+    _HE, _ = Hspec(sector='++')
+    psi_t = np.dot(expm(-1j*t*_H), psi_i)
+    E2 = _HE
+    psiE2psi = np.dot(np.conjugate(psi_t), np.dot(E2, psi_t))
+    
+    return np.abs(psiE2psi)
+
 def check_H_specification():
     _HE, _HB = Hspec(sector='++')
     print(remove_zero_entries(to_pauli_vec(_HE)))  # Eq 41.
@@ -158,8 +168,26 @@ def plot_state_evol():
     #plt.show()
     plt.savefig("./trailhead_Fig12a.pdf")
 
+def plot_electric_energy():
+    xlim = [0, 30]
+    dts = np.linspace(*xlim, xlim[1]*10)
+    Es_exact = [electric_EV(1, dt) for dt in dts]
+
+    fig, ax = plt.subplots()
+    ax.set_ylim([0.0, 2.5])
+    ax.set_xlim(xlim)
+    ax.set_ylabel("<E^2>")
+    ax.set_xlabel("time")
+    ax.plot(dts, Es_exact, 'k-', label='exact')
+    #ax.plot(dts, evs4, 'o', ms=2, label='4 steps')
+    #ax.plot(dts, evs6, 'o', ms=2, label='6 steps')
+
+    plt.legend()
+    #plt.show()
+    plt.savefig("./trailhead_Fig11b.pdf")
 
 if __name__ == "__main__":
     test_H_decomposition(1)
     test_Trotter_circuits()
-    plot_state_evol()
+    #plot_state_evol()
+    plot_electric_energy()
