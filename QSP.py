@@ -7,8 +7,9 @@ logging.basicConfig(level=logging.DEBUG)
 
 import numpy as np
 
+from qiskit import QuantumRegister
 from qiskit.circuit import QuantumCircuit
-from qiskit.quantum_info import Operator
+from qiskit.quantum_info import Operator, Statevector
 
 
 def one_locations(binary_string):
@@ -51,16 +52,17 @@ def prepare_basis_state(i, m):
         circ.x(loc)
     return circ
 
-def test_oracle(oracle, results):
+def test_oracle(oracle, specification):
     m = 4
-    #for i in range(2**(m/2)):
-    for i in (2, 0):
-        circ = prepare_basis_state(i, m)
-        circ.compose(oracle)
-        print(Operator.from_circuit(circ))
+    A = int(2**(m/2))
+    N = 2**m
+    for i, j in specification:
+        sv = Statevector.from_int(i, N)
+        sv = sv.evolve(Operator.from_circuit(oracle))
+        print(sv == Statevector.from_int(i+A*j, N))
 
 def test():
-    print(one_locations('10011'))
+    #print(one_locations('10011'))
     #print(oracle_1sparse([(2, 1),]))
     #print(oracle_1sparse([(0, 3),]))
     #print(oracle_1sparse([(0, 3), (2, 1)]))
@@ -68,8 +70,10 @@ def test():
     #circ_11 = QuantumCircuit(4,4)
     #circ_11.mcx([0,1], [2, 3])
 
-    oracle = oracle_1sparse([(2, 1), (0, 3)])
-    test_oracle(oracle, None)
+    spec = [(2, 1), (1, 2), (0, 3), (3, 0)]
+    oracle = oracle_1sparse(spec)
+    print(oracle)
+    test_oracle(oracle, spec)
 
     '''
     circ_11 = QuantumCircuit(4,4)
@@ -77,6 +81,23 @@ def test():
     circ_11.x(1)
     result = circ_11.compose(oracle)
     print(result)
+    '''
+    '''
+    reg_a = QuantumRegister(3, 'a')
+    number_a = QuantumCircuit(reg_a)
+    number_a.initialize(2) # Number 2; |010>
+    #print(Operator.from_circuit(number_a))
+
+    sv = Statevector([1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0])
+    #print(sv.evolve(Operator.from_circuit(oracle)))
+    sv = Statevector.from_int(12, 16)
+    #print(sv)
+
+    svi = Statevector.from_int(2, 16)
+    print(svi)
+    svf = svi.evolve(Operator.from_circuit(oracle))
+    svf2 = Statevector.from_int(2+1*4, 16)
+    print(svf == svf2)
     '''
 
 if __name__ == "__main__":
