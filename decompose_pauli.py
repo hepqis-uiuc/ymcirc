@@ -97,6 +97,8 @@ def pauli_string_to_mat(pauli_string):
     op = functools.reduce(sp.kron, ops_primitive)
     return op.toarray()
 
+def remove_zero_entries(_d):
+    return {x:_d[x] for x in _d if (_d[x] != 0)}
 
 # See also gen_random_pauli_dict(m) in Psfam_documentation.ipynb
 
@@ -135,7 +137,6 @@ def from_pauli_vec(pauli_vec):
 #             C_vec["".join(C_string)] = coefficient
 #
 #     return C_vec
-
 
 def test():
     mat = [[1, 0, 0, 0], [0, 0, 0, 1], [0, 1, 0, 0], [0, 1, 0, 0]]  # for example...

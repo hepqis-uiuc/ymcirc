@@ -12,7 +12,7 @@ from qiskit.quantum_info import Operator
 from qiskit_aer.primitives import Sampler#, Estimator
 from qiskit.primitives import Estimator
 
-from decompose_pauli import to_pauli_vec, from_pauli_vec
+from decompose_pauli import to_pauli_vec, from_pauli_vec, remove_zero_entries
 from Trotter_evol import Trotter_evol2
 
 # Eq 14.
@@ -25,9 +25,6 @@ _HB = np.array([[3,-1/2,-1/2,0],
                 [-1/2,3,-1/2,-1/2], 
                 [-1/2,-1/2,3,-1/2], 
                 [0,-1/2,-1/2,3]])
-
-def remove_zero_entries(_d):
-    return {x:_d[x] for x in _d if (_d[x] != 0)}
 
 def check_H_specification():
     print(remove_zero_entries(to_pauli_vec(3*_HE)))  # Eq 15.
@@ -68,9 +65,9 @@ def H1_H2_H3(gsq):
     #print(f"{H3 = }")
     return from_pauli_vec(H1), from_pauli_vec(H2), from_pauli_vec(H3)
 
-def test_H_decomposition():
-    H1, H2, H3 = H1_H2_H3(1)
-    print(((H1 + H2 + H3)==H(1)).all())
+def test_H_decomposition(gsq):
+    H1, H2, H3 = H1_H2_H3(gsq)
+    print(((H1 + H2 + H3)==H(gsq)).all())
 
 def Tstep1_circ(th_II, th_IZ, th_ZI, dt=None):
     if dt is None:
@@ -233,7 +230,7 @@ def plot_electric_energy():
 
 if __name__ == "__main__":
     check_H_specification()
-    test_H_decomposition()
+    test_H_decomposition(1)
     test_Trotter_circuits()
     #Trotter_exact()
     #plot_state_evol()
