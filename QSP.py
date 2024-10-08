@@ -25,7 +25,7 @@ def zero_locations(binary_string):
 
 # TODO infer m and N from specification, or make this an argument to the function?
 specification = [(0, 2), (2, 0), (1, 3), (3, 1)]
-def oracle_1sparse(specs):
+def oracle_1sparse(specs: list[tuple[int, int]]):
     "|i>|0> --> |i>|j>"
     m = 2
     N = 2**m
@@ -82,7 +82,7 @@ def flatten(iterable) -> list:
 
     return result
 
-
+# TODO do we need to compute the operations on the scratch register?
 def oracle_integer_comparator(specs: list[tuple[int, int]]):
     """
     |i>|j>|0> --> |i>|j>|i > j>
@@ -90,17 +90,13 @@ def oracle_integer_comparator(specs: list[tuple[int, int]]):
     Takes i and j to be length k bit strings (if one is smaller, it is padded).
     Initializes a scratch quantum register of k qubits.
     """
+    # For later convenience.
     n_qubits_i_or_j = get_min_qubit_requirements(flatten(specs))
     n_total_qubits = 3*n_qubits_i_or_j + 1
     i_reg_zero_idx = 0
     j_reg_zero_idx = n_qubits_i_or_j
     scratch_reg_zero_idx = 2*n_qubits_i_or_j
     output_reg_idx = n_total_qubits - 1
-    
-    # if n_qubits_i_or_j < 1:
-    #     raise ValueError("Must specify a positive integer number of qubits.")
-
-    N = 2**n_qubits_i_or_j  # Dimensionality of the Hilbert space
 
     circ = QuantumCircuit(n_total_qubits)
 
@@ -114,7 +110,7 @@ def oracle_integer_comparator(specs: list[tuple[int, int]]):
     circ.x(j_reg_zero_idx)
     for k in range(1, n_qubits_i_or_j):
         i_reg_idx = k
-        j_reg_idx = j_reg_zero_idx + (k - 1)
+        j_reg_idx = j_reg_zero_idx + k
         scratch_reg_ctrl_idx = scratch_reg_zero_idx + (k - 1)
         scratch_reg_tgt_idx = scratch_reg_zero_idx + k
         circ.x(j_reg_idx)
@@ -122,6 +118,10 @@ def oracle_integer_comparator(specs: list[tuple[int, int]]):
         circ.mcx([i_reg_idx, j_reg_idx, scratch_reg_ctrl_idx], scratch_reg_tgt_idx)
         circ.x(scratch_reg_ctrl_idx)
         circ.x(j_reg_idx)
+
+    # Save the reversed circuit for working on the scratch qubits
+    # for a final cleanup step.
+    cleanup_circuit = circ.reverse_ops()
 
     # Bitwise scan through scratch register.
     # If there is a |1>, set the output register to |1>.
@@ -132,7 +132,7 @@ def oracle_integer_comparator(specs: list[tuple[int, int]]):
         tgt_idx = output_reg_idx
         circ.cx(scratch_reg_ctrl_idx, tgt_idx)
 
-    return circ
+    return circ.compose(cleanup_circuit)
 
 def test_oracle_1sparse(oracle, specification):
     m = 4
@@ -151,8 +151,26 @@ def test_flatten():
     print(flatten([(1, 3), (3, 1), (2, 4), (4, 2)]))
     print(flatten([(1, 2), 3, [4]]) == [1, 2, 3, 4])
 
-def test_oracle_integer_comparator(oracle, n_qubits):
-    raise NotImplementedError()
+def test_oracle_integer_comparator(oracle, specification):
+    # Qubits per i, j, and scratch registers
+    m = get_min_qubit_requirements(flatten(specification))
+    N = 2**m
+    assert m == 3
+
+    for i, j in specification:
+        print(f"Testing |i>|j> = |{i}>|{j}>")
+        output_reg_value = 1 if i > j else 0
+        print("Expected output reg value:", output_reg_value)
+        # sv = Statevector.from_int(i, N).tensor(Statevector.from_int(j, N)).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(0, 2))
+        # sv_expected = Statevector.from_int(i, N).tensor(Statevector.from_int(j, N)).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(output_reg_value, 2))
+        # sv_evolved = sv.evolve(Operator.from_circuit(oracle))
+        sv = Statevector.from_int(0, 2).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(j, N)).tensor(Statevector.from_int(i, N))
+        sv_expected = Statevector.from_int(output_reg_value, 2).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(j, N)).tensor(Statevector.from_int(i, N))
+        sv_evolved = sv.evolve(Operator.from_circuit(oracle))
+        print("Initialized state vector:\n", sv.to_dict())
+        print("Expected state vector:\n", sv_expected.to_dict())
+        print("Evolved state vector:\n", sv_evolved.to_dict())
+        print("Equal:", sv_expected == sv_evolved)
         
 def test():
     #print(one_locations('10011'))
@@ -200,11 +218,11 @@ def test():
     print("Testing oracle_integer_comparator...")
     
 
-    specifications = [(1, 2), (2, 1), (7, 4), (4, 7)]
-    oracle_cmp = oracle_integer_comparator(specs=specifications)
+    spec = [(1, 2), (2, 1), (7, 4), (4, 7)]
+    oracle_cmp = oracle_integer_comparator(specs=spec)
     print(oracle_cmp)
+    test_oracle_integer_comparator(oracle_cmp, spec)
     
 
 if __name__ == "__main__":
     test()
-    
