@@ -5,7 +5,7 @@ from collections.abc import Iterable
 import logging
 logger = logging.getLogger(__name__)
 #logging.basicConfig(level=logging.INFO)
-logging.basicConfig(level=logging.DEBUG)
+#logging.basicConfig(level=logging.DEBUG)
 
 import numpy as np
 
@@ -82,20 +82,58 @@ def flatten(iterable) -> list:
 
     return result
 
-# TODO do we need to compute the operations on the scratch register?
+# TODO deal with edge cases in this oracle.
 def oracle_integer_comparator(specs: list[tuple[int, int]]):
     """
-    |i>|j>|0> --> |i>|j>|i > j>
+    |0>|i>|j> --> | i>j >|i>|j>
 
     Takes i and j to be length k bit strings (if one is smaller, it is padded).
     Initializes a scratch quantum register of k qubits.
+
+    Assumes little-endian indexing.
     """
+    # # For later convenience.
+    # n_qubits_i_or_j = get_min_qubit_requirements(flatten(specs))
+    # n_total_qubits = 3*n_qubits_i_or_j + 1
+    # j_reg_zero_idx = 0
+    # j_reg_most_sig_idx = j_reg_zero_idx + (n_qubits_i_or_j - 1)
+    # i_reg_zero_idx = n_qubits_i_or_j
+    # i_reg_most_sig_idx = i_reg_zero_idx + (n_qubits_i_or_j - 1)
+    # scratch_reg_zero_idx = 2*n_qubits_i_or_j
+    # scratch_reg_most_sig_idx = scratch_reg_zero_idx + (n_qubits_i_or_j - 1)
+    # output_reg_idx = n_total_qubits - 1
+
+    # circ = QuantumCircuit(n_total_qubits)
+
+    # # Bitwise scan through |i> and |j> registers.
+    # # Set corresponding scratch qubit in intermediate |a>
+    # # register to 1 if |i> has a 1 where |j> is 0,
+    # # and NO OTHER more-significant scratch qubits have been
+    # # flipped.
+    # circ.mcx([i_reg_most_sig_idx, j_reg_most_sig_idx], scratch_reg_most_sig_idx, ctrl_state="01")
+    # for k in range(1, n_qubits_i_or_j):
+    #     i_reg_idx = i_reg_most_sig_idx - k
+    #     j_reg_idx = j_reg_most_sig_idx - k
+    #     scratch_reg_ctrl_idx = scratch_reg_most_sig_idx - (k - 1)
+    #     scratch_reg_tgt_idx = scratch_reg_most_sig_idx - k
+    #     #circ.mcx([i_reg_idx, j_reg_idx, scratch_reg_ctrl_idx], scratch_reg_tgt_idx, ctrl_state="001")
+    #     circ.mcx([i_reg_idx, j_reg_idx], scratch_reg_tgt_idx, ctrl_state="01")
+    #     # Equivalent to inclusive OR
+    #     ctrl_state_all_off = '0' * k
+    #     circ.x(scratch_reg_tgt_idx)
+    #     circ.mcx([idx for idx in range(scratch_reg_most_sig_idx, scratch_reg_tgt_idx, -1)], scratch_reg_tgt_idx, ctrl_state=ctrl_state_all_off)
+
+    # return circ
+
     # For later convenience.
     n_qubits_i_or_j = get_min_qubit_requirements(flatten(specs))
     n_total_qubits = 3*n_qubits_i_or_j + 1
-    i_reg_zero_idx = 0
-    j_reg_zero_idx = n_qubits_i_or_j
+    j_reg_zero_idx = 0
+    j_reg_most_sig_idx = j_reg_zero_idx + (n_qubits_i_or_j - 1)
+    i_reg_zero_idx = n_qubits_i_or_j
+    i_reg_most_sig_idx = i_reg_zero_idx + (n_qubits_i_or_j - 1)
     scratch_reg_zero_idx = 2*n_qubits_i_or_j
+    scratch_reg_most_sig_idx = scratch_reg_zero_idx + (n_qubits_i_or_j - 1)
     output_reg_idx = n_total_qubits - 1
 
     circ = QuantumCircuit(n_total_qubits)
@@ -105,34 +143,51 @@ def oracle_integer_comparator(specs: list[tuple[int, int]]):
     # register to 1 if |i> has a 1 where |j> is 0,
     # and NO OTHER more-significant scratch qubits have been
     # flipped.
-    circ.x(j_reg_zero_idx)
-    circ.mcx([i_reg_zero_idx, j_reg_zero_idx], scratch_reg_zero_idx)
-    circ.x(j_reg_zero_idx)
+    # TODO figure out how to implement a controled gate that's only an
+    # inclusive OR on a subset of the controls.
+    circ.mcx([i_reg_most_sig_idx, j_reg_most_sig_idx], scratch_reg_most_sig_idx, ctrl_state="01")
     for k in range(1, n_qubits_i_or_j):
-        i_reg_idx = k
-        j_reg_idx = j_reg_zero_idx + k
-        scratch_reg_ctrl_idx = scratch_reg_zero_idx + (k - 1)
-        scratch_reg_tgt_idx = scratch_reg_zero_idx + k
-        circ.x(j_reg_idx)
-        circ.x(scratch_reg_ctrl_idx)
-        circ.mcx([i_reg_idx, j_reg_idx, scratch_reg_ctrl_idx], scratch_reg_tgt_idx)
-        circ.x(scratch_reg_ctrl_idx)
-        circ.x(j_reg_idx)
+        print(f"iteration {k}")
+        i_reg_current_idx = i_reg_most_sig_idx - k
+        i_reg_more_sig_idxes = [i_reg_current_idx + l for l in range(1, k + 1)]
+        j_reg_current_idx = j_reg_most_sig_idx - k
+        j_reg_more_sig_idxes = [j_reg_current_idx + l for l in range(1, k + 1)]
+        ctrl_string = ("0" * k) + "0" + ("0" * k) + "1"
+        ctrl_idxes = [i_reg_current_idx] + i_reg_more_sig_idxes + [j_reg_current_idx] + j_reg_more_sig_idxes 
+        print(ctrl_string, ctrl_idxes)
+        #scratch_reg_ctrl_idx = scratch_reg_most_sig_idx - (k - 1)
+        scratch_reg_tgt_idx = scratch_reg_most_sig_idx - k
+        #circ.mcx([i_reg_idx, j_reg_idx, scratch_reg_ctrl_idx], scratch_reg_tgt_idx, ctrl_state="001")
+        circ.mcx(ctrl_idxes, scratch_reg_tgt_idx, ctrl_state=ctrl_string)
 
     # Save the reversed circuit for working on the scratch qubits
     # for a final cleanup step.
     cleanup_circuit = circ.reverse_ops()
 
-    # Bitwise scan through scratch register.
-    # If there is a |1>, set the output register to |1>.
-    # Since there is at most one |1> in the scratch
-    # register, this is implemented as a bunch of CX gates.
-    for k in range(n_qubits_i_or_j):
-        scratch_reg_ctrl_idx = scratch_reg_zero_idx + k
-        tgt_idx = output_reg_idx
-        circ.cx(scratch_reg_ctrl_idx, tgt_idx)
+    # Equivalent to inclusive OR on using
+    # scratch reg as ctrl and output reg
+    # as target.
+    ctrl_state_all_off = '0' * n_qubits_i_or_j
+    circ.x(output_reg_idx)
+    circ.mcx([idx for idx in range(scratch_reg_zero_idx, scratch_reg_most_sig_idx + 1)], output_reg_idx, ctrl_state=ctrl_state_all_off)
 
     return circ.compose(cleanup_circuit)
+    #return circ
+    
+    # # Save the reversed circuit for working on the scratch qubits
+    # # for a final cleanup step.
+    # cleanup_circuit = circ.reverse_ops()
+
+    # # Bitwise scan through scratch register.
+    # # If there is a |1>, set the output register to |1>.
+    # # Since there is at most one |1> in the scratch
+    # # register, this is implemented as a bunch of CX gates.
+    # for k in range(n_qubits_i_or_j):
+    #     scratch_reg_ctrl_idx = scratch_reg_zero_idx + k
+    #     tgt_idx = output_reg_idx
+    #     circ.cx(scratch_reg_ctrl_idx, tgt_idx)
+
+    # return circ.compose(cleanup_circuit)
 
 def test_oracle_1sparse(oracle, specification):
     m = 4
@@ -158,19 +213,18 @@ def test_oracle_integer_comparator(oracle, specification):
     assert m == 3
 
     for i, j in specification:
-        print(f"Testing |i>|j> = |{i}>|{j}>")
         output_reg_value = 1 if i > j else 0
-        print("Expected output reg value:", output_reg_value)
-        # sv = Statevector.from_int(i, N).tensor(Statevector.from_int(j, N)).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(0, 2))
-        # sv_expected = Statevector.from_int(i, N).tensor(Statevector.from_int(j, N)).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(output_reg_value, 2))
-        # sv_evolved = sv.evolve(Operator.from_circuit(oracle))
-        sv = Statevector.from_int(0, 2).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(j, N)).tensor(Statevector.from_int(i, N))
-        sv_expected = Statevector.from_int(output_reg_value, 2).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(j, N)).tensor(Statevector.from_int(i, N))
+        print(f"Testing |0>|i>|j> = |0>|{i}>|{j}> --> |{output_reg_value}>|{i}>|{j}> = | i>j >|i>|j>")
+        print(f"For binary lovers: |0>|{np.binary_repr(i, m)}>|{np.binary_repr(j, m)}> --> |{output_reg_value}>|{np.binary_repr(i, m)}>|{np.binary_repr(j, m)}>")
+        sv = Statevector.from_int(0, 2).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(i, N)).tensor(Statevector.from_int(j, N))
+        sv_expected = Statevector.from_int(output_reg_value, 2).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(i, N)).tensor(Statevector.from_int(j, N))
         sv_evolved = sv.evolve(Operator.from_circuit(oracle))
-        print("Initialized state vector:\n", sv.to_dict())
-        print("Expected state vector:\n", sv_expected.to_dict())
-        print("Evolved state vector:\n", sv_evolved.to_dict())
-        print("Equal:", sv_expected == sv_evolved)
+        print("Test passed:", sv_expected == sv_evolved)
+        if not sv_expected == sv_evolved:
+            print("Debug info:")
+            print("Initialized state vector:\n", sv.to_dict())
+            print("Expected state vector:\n", sv_expected.to_dict())
+            print("Evolved state vector:\n", sv_evolved.to_dict())
         
 def test():
     #print(one_locations('10011'))
@@ -221,6 +275,8 @@ def test():
     spec = [(1, 2), (2, 1), (7, 4), (4, 7)]
     oracle_cmp = oracle_integer_comparator(specs=spec)
     print(oracle_cmp)
+    #assert False
+    #spec = [(i, j) for i in range(8) for j in range(8)]
     test_oracle_integer_comparator(oracle_cmp, spec)
     
 
