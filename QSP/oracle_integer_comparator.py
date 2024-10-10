@@ -15,46 +15,6 @@ from qiskit.circuit import QuantumCircuit
 from qiskit.quantum_info import Operator, Statevector
 
 
-def one_locations(binary_string):
-    "10011 --> [0, 1, 4]"
-    return [i for i, b in enumerate(reversed(binary_string)) if b == '1']
-
-def zero_locations(binary_string):
-    "10011 --> [2, 3]"
-    return [i for i, b in enumerate(reversed(binary_string)) if b == '0']
-        
-
-# TODO infer m and N from specification, or make this an argument to the function?
-specification = [(0, 2), (2, 0), (1, 3), (3, 1)]
-def oracle_1sparse(specs: list[tuple[int, int]]):
-    "|i>|0> --> |i>|j>"
-    m = 2
-    N = 2**m
-    circ = QuantumCircuit(2*m, 2*m)
-    for spec in specs:
-        i, j = spec
-        i = np.binary_repr(i, width=m)  # Need padding here..
-        j = np.binary_repr(j*4, width=2*m)
-        logger.debug(f"{zero_locations(i) = }")
-        logger.debug(f"{one_locations(j) = }")
-
-        for loc in zero_locations(i):
-            circ.x(loc)
-        logger.debug(f"{i = }")
-        logger.debug(f"{j = }")
-        for loc in one_locations(j):  # Concatenate these for now..
-            circ.mcx([0, 1], loc)
-        for loc in zero_locations(i):
-            circ.x(loc)
-    return circ
-
-def prepare_basis_state(i, m):
-    "Circuit representing |i>"
-    circ = QuantumCircuit(m, m)
-    i = np.binary_repr(i, width=m)
-    for loc in one_locations(i):
-        circ.x(loc)
-    return circ
 
 def get_min_qubit_requirements(number: int | list[int]):
     """
@@ -83,6 +43,72 @@ def flatten(iterable) -> list:
 
     return result
 
+def oracle_QBSC(specs: list[tuple[int, int]]):
+    """
+    |0>|i>|j> --> | i>j >|i>|j>
+
+    Takes i and j to be length k bit strings (if one is smaller, it is padded).
+    Initializes a scratch quantum register of k qubits.
+
+    Assumes little-endian indexing.
+    """
+    n_qubits_per_reg = get_min_qubit_requirements(flatten(specs))
+    n_total_qubits = 5*n_qubits_per_reg - 1
+    j_reg_zero_idx = 0
+    j_reg_most_sig_idx = j_reg_zero_idx + (n_qubits_per_reg - 1)
+    i_reg_zero_idx = j_reg_most_sig_idx + 1
+    i_reg_most_sig_idx = i_reg_zero_idx + (n_qubits_per_reg - 1)
+    active_domain_reg_zero_idx = i_reg_most_sig_idx + 1
+    active_domain_reg_most_sig_idx = active_domain_reg_zero_idx + (n_qubits_per_reg - 1) - 1
+    bit_compare_gr_reg_zero_idx = active_domain_reg_most_sig_idx + 1
+    bit_compare_gr_reg_most_sig_idx = bit_compare_gr_reg_zero_idx + (n_qubits_per_reg - 1)
+    bit_compare_le_reg_zero_idx = bit_compare_gr_reg_most_sig_idx + 1
+    bit_compare_le_reg_most_sig_idx = bit_compare_le_reg_zero_idx + (n_qubits_per_reg - 1)
+
+    # Build the bitwise comparator circuit.
+    circ_Uc = QuantumCircuit(4)
+    circ_Uc.mcx(control_qubits=[0, 1], target_qubit=2, ctrl_state="10")
+    circ_Uc.mcx(control_qubits=[0, 1], target_qubit=3, ctrl_state="01")
+
+    # Build the main circuit.
+    circ = QuantumCircuit(n_total_qubits)
+    n_qubits_per_reg = get_min_qubit_requirements(flatten(specs))
+    for idx in range(n_qubits_per_reg):
+        # Apply the Uc subcircuit.
+        target_Uc_i = bit_compare_gr_reg_most_sig_idx - idx
+        target_Uc_j = bit_compare_le_reg_most_sig_idx - idx
+        circ.compose(circ_Uc, qubits=[
+            i_reg_most_sig_idx - idx,
+            j_reg_most_sig_idx - idx,
+            target_Uc_i,
+            target_Uc_j
+        ], inplace=True)
+
+        # Apply the transfer of domain circuit (if applicable).
+        if idx < n_qubits_per_reg - 1:
+            active_domain_current_idx = active_domain_reg_most_sig_idx - idx
+            circ.mcx(
+                control_qubits=[target_Uc_i, target_Uc_j],
+                target_qubit=active_domain_current_idx,
+                ctrl_state="00")
+
+    # Aggregate results
+    for idx in range(n_qubits_per_reg - 1):
+        target_Uc_i_current = bit_compare_gr_reg_zero_idx + idx
+        target_Uc_j_current = bit_compare_le_reg_zero_idx + idx
+        target_Uc_i_next = bit_compare_gr_reg_zero_idx + idx + 1
+        target_Uc_j_next = bit_compare_le_reg_zero_idx + idx + 1
+        active_domain_current_idx = active_domain_reg_zero_idx + idx
+        circ.mcx(
+            control_qubits=[target_Uc_i_current, active_domain_current_idx],
+            target_qubit=target_Uc_i_next
+        )
+        circ.mcx(
+            control_qubits=[target_Uc_j_current, active_domain_current_idx],
+            target_qubit=target_Uc_j_next
+        )
+
+    return circ
 
 # TODO make this more efficient!
 def oracle_integer_comparator(specs: list[tuple[int, int]]):
@@ -121,7 +147,6 @@ def oracle_integer_comparator(specs: list[tuple[int, int]]):
     # Flip most significant qubit in domain register as initialization step.
     circ.x(active_domain_reg_most_sig_idx)
     for k in range(n_qubits_per_reg):
-        print(f"iteration {k}")
         # Set bc reg current qubit.
         i_reg_current_idx = i_reg_most_sig_idx - k
         j_reg_current_idx = j_reg_most_sig_idx - k
@@ -192,60 +217,46 @@ def test_oracle_integer_comparator(oracle, specification):
             print("Initialized state vector:\n", sv.to_dict())
             print("Expected state vector:\n", sv_expected.to_dict())
             print("Evolved state vector:\n", sv_evolved.to_dict())
+
+def test_oracle_QBSC(oracle, specification):
+    # Qubits per i, j, and scratch registers
+    m = get_min_qubit_requirements(flatten(specification))
+    N = 2**m
+    N_ad_reg = 2**(m - 1)
+    #assert m == 3
+
+    for i, j in specification:
+        output_reg_value = 1 if i > j else 0
+        print(f"Testing |0>|i>|j> = |0>|{i}>|{j}> --> |{output_reg_value}>|{i}>|{j}> = | i>j >|i>|j>")
+        print(f"For binary lovers: |0>|{np.binary_repr(i, m)}>|{np.binary_repr(j, m)}> --> |{output_reg_value}>|{np.binary_repr(i, m)}>|{np.binary_repr(j, m)}>")
+        sv = Statevector.from_int(0, N).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(0, N_ad_reg)).tensor(Statevector.from_int(i, N)).tensor(Statevector.from_int(j, N))
+        sv_evolved = sv.evolve(Operator.from_circuit(oracle))
+        #print("Test passed:", sv_expected == sv_evolved)
+        #if not sv_expected == sv_evolved:
+            # print("Debug info:")
+            # print("Initialized state vector:\n", sv.to_dict())
+            # print("Expected state vector:\n", sv_expected.to_dict())
+            # print("Evolved state vector:\n", sv_evolved.to_dict())
+        print("Debug info:")
+        print("Initialized state vector:\n", sv.to_dict())
+        #print("Expected state vector:\n", sv_expected.to_dict())
+        print("Evolved state vector:\n", sv_evolved.to_dict())
         
 def test():
-    #print(one_locations('10011'))
-    #print(oracle_1sparse([(2, 1),]))
-    #print(oracle_1sparse([(0, 3),]))
-    #print(oracle_1sparse([(0, 3), (2, 1)]))
-
-    #circ_11 = QuantumCircuit(4,4)
-    #circ_11.mcx([0,1], [2, 3])
-
-    print("Testing oracle_1sparse...")
-    
-    spec = [(2, 1), (1, 2), (0, 3), (3, 0)]
-    oracle = oracle_1sparse(spec)
-    print(oracle)
-    test_oracle_1sparse(oracle, spec)
-
-    '''
-    circ_11 = QuantumCircuit(4,4)
-    circ_11.x(0)
-    circ_11.x(1)
-    result = circ_11.compose(oracle)
-    print(result)
-    '''
-    '''
-    reg_a = QuantumRegister(3, 'a')
-    number_a = QuantumCircuit(reg_a)
-    number_a.initialize(2) # Number 2; |010>
-    #print(Operator.from_circuit(number_a))
-
-    sv = Statevector([1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0])
-    #print(sv.evolve(Operator.from_circuit(oracle)))
-    sv = Statevector.from_int(12, 16)
-    #print(sv)
-
-    svi = Statevector.from_int(2, 16)
-    print(svi)
-    svf = svi.evolve(Operator.from_circuit(oracle))
-    svf2 = Statevector.from_int(2+1*4, 16)
-    print(svf == svf2)
-    '''
-
     print("Checking that flatten method works...")
     test_flatten()
     print("Testing oracle_integer_comparator...")
     
 
     #spec = [(1, 2), (2, 1), (7, 4), (4, 7)]
-    spec = [(3, 4)]
-    oracle_cmp = oracle_integer_comparator(specs=spec)
-    print(oracle_cmp)
-    #assert False
-    #spec = [(i, j) for i in range(8) for j in range(8)]
-    test_oracle_integer_comparator(oracle_cmp, spec)
+    spec = [(i, j) for i in range(3) for j in range(2)]
+    oracle = oracle_QBSC(spec)
+    print(oracle)
+    test_oracle_QBSC(oracle, spec)
+    #spec = [(3, 4)]
+    #oracle_cmp = oracle_integer_comparator(specs=spec)
+    #print(oracle_cmp)
+    #test_oracle_integer_comparator(oracle_cmp, spec)
     
 
 if __name__ == "__main__":
