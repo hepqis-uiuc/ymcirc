@@ -10,8 +10,10 @@ logger = logging.getLogger(__name__)
 
 import numpy as np
 
-from qiskit import QuantumRegister
-from qiskit.circuit import QuantumCircuit
+from qiskit import transpile
+from qiskit_aer import AerSimulator
+from qiskit.circuit import QuantumCircuit, QuantumRegister, AncillaRegister
+from qiskit.circuit.library import SwapGate, MCMT
 from qiskit.quantum_info import Operator, Statevector
 
 
@@ -181,14 +183,65 @@ def oracle_integer_comparator(specs: list[tuple[int, int]]):
 
     return circ.compose(cleanup_circuit)
 
-def test_oracle_1sparse(oracle, specification):
-    m = 4
-    A = int(2**(m/2))
-    N = 2**m
-    for i, j in specification:
-        sv = Statevector.from_int(i, N)
-        sv = sv.evolve(Operator.from_circuit(oracle))
-        print(sv == Statevector.from_int(i+A*j, N))
+def oracle_integer_comparison(specs: list[tuple[int, int]]):
+    """
+    |0>|i>|j> --> | i>j >|i>|j>
+
+    Takes i and j to be length k bit strings (if one is smaller, it is padded).
+    Initializes a scratch quantum register of k qubits.
+
+    Assumes little-endian indexing.
+    """
+    # For later convenience.
+    n_qubits_per_reg = get_min_qubit_requirements(flatten(specs))
+    most_sig_qubit_idx = n_qubits_per_reg - 1
+    #n_total_qubits = 4*n_qubits_per_reg + 1
+    j_reg = QuantumRegister(name="j", size=n_qubits_per_reg)
+    i_reg = QuantumRegister(name="i", size=n_qubits_per_reg)
+    significance_reg = AncillaRegister(name="s", size=n_qubits_per_reg)
+    result_reg = QuantumRegister(name="r", size=1)
+    registers = [j_reg, i_reg, significance_reg, result_reg]
+
+    circ = QuantumCircuit(*registers)
+    # Sweep to determine which qubit in the significance
+    # register should determine the output of the
+    # algorithm. At most one qubit in the significance
+    # register will be flipped.
+    circ.x(significance_reg[most_sig_qubit_idx])
+    for k in range(n_qubits_per_reg - 1):
+        current_ctrl_idx = most_sig_qubit_idx - k
+        sig_idx1 = most_sig_qubit_idx - k
+        sig_idx2 = most_sig_qubit_idx - (k + 1)
+        sig_bit_cswap_if_both_off = SwapGate().control(num_ctrl_qubits=2, ctrl_state="00")
+        sig_bit_cswap_if_both_on = SwapGate().control(num_ctrl_qubits=2, ctrl_state="11")
+        circ.append(sig_bit_cswap_if_both_off, [
+            i_reg[current_ctrl_idx],
+            j_reg[current_ctrl_idx],
+            significance_reg[sig_idx1],
+            significance_reg[sig_idx2]
+        ])
+        circ.append(sig_bit_cswap_if_both_on, [
+            i_reg[current_ctrl_idx],
+            j_reg[current_ctrl_idx],
+            significance_reg[sig_idx1],
+            significance_reg[sig_idx2]
+        ])
+
+    # Save this for uncomputing ancillae.
+    cleanup_circ = circ.reverse_ops()
+
+    # Sweep through significance register to check
+    # which qubit comparison between the i and j registers
+    # should set the final result.
+    for k in range(n_qubits_per_reg):
+        current_ctrl_idx = most_sig_qubit_idx - k
+        circ.mcx(
+            control_qubits=[i_reg[current_ctrl_idx], j_reg[current_ctrl_idx], significance_reg[current_ctrl_idx]],
+            target_qubit=result_reg[0],
+            ctrl_state="101"
+        )
+
+    return circ.compose(cleanup_circ)
 
 def test_flatten():
     print(flatten(2) == 2)
@@ -241,6 +294,26 @@ def test_oracle_QBSC(oracle, specification):
         print("Initialized state vector:\n", sv.to_dict())
         #print("Expected state vector:\n", sv_expected.to_dict())
         print("Evolved state vector:\n", sv_evolved.to_dict())
+
+def test_oracle_integer_comparison(oracle, specification):
+    # Qubits per i, j, and scratch registers
+    m = get_min_qubit_requirements(flatten(specification))
+    N = 2**m
+    #assert m == 3
+
+    for i, j in specification:
+        output_reg_value = 1 if i > j else 0
+        print(f"Testing |0>|i>|j> = |0>|{i}>|{j}> --> |{output_reg_value}>|{i}>|{j}> = | i>j >|i>|j>")
+        print(f"For binary lovers: |0>|{np.binary_repr(i, m)}>|{np.binary_repr(j, m)}> --> |{output_reg_value}>|{np.binary_repr(i, m)}>|{np.binary_repr(j, m)}>")
+        sv = Statevector.from_int(0, 2).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(i, N)).tensor(Statevector.from_int(j, N))
+        sv_expected = Statevector.from_int(output_reg_value, 2).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(i, N)).tensor(Statevector.from_int(j, N))
+        sv_evolved = sv.evolve(Operator.from_circuit(oracle))
+        print("Test passed:", sv_expected == sv_evolved)
+        if not sv_expected == sv_evolved:
+            print("Debug info:")
+            print("Initialized state vector:\n", sv.to_dict())
+            print("Expected state vector:\n", sv_expected.to_dict())
+            print("Evolved state vector:\n", sv_evolved.to_dict())
         
 def test():
     print("Checking that flatten method works...")
@@ -249,10 +322,14 @@ def test():
     
 
     #spec = [(1, 2), (2, 1), (7, 4), (4, 7)]
-    spec = [(i, j) for i in range(3) for j in range(2)]
-    oracle = oracle_QBSC(spec)
+    #spec = [(i, j) for i in range(4) for j in range(4)]
+    spec = [(i, j) for i in range(8) for j in range(8)]
+    oracle = oracle_integer_comparison(spec)
     print(oracle)
-    test_oracle_QBSC(oracle, spec)
+    test_oracle_integer_comparison(oracle, spec)
+    #oracle = oracle_QBSC(spec)
+    #print(oracle)
+    #test_oracle_QBSC(oracle, spec)
     #spec = [(3, 4)]
     #oracle_cmp = oracle_integer_comparator(specs=spec)
     #print(oracle_cmp)
