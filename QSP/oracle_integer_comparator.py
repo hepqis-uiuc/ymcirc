@@ -359,8 +359,8 @@ def test():
 
     print("Checking that integer comparison oracle(s) work(s).")
     #spec = [(1, 2), (2, 1), (7, 4), (4, 7)]
-    #spec = [(i, j) for i in range(4) for j in range(4)]
-    spec = [(i, j) for i in range(8) for j in range(8)]
+    n_qubits_for_test = 3
+    spec = [(i, j) for i in range(2**n_qubits_for_test) for j in range(2**n_qubits_for_test)]
 
     oracle = oracle_integer_comparison_via_swaps(spec)
     print(oracle)
