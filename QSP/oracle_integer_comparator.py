@@ -271,6 +271,11 @@ def test_oracle_integer_comparison_no_swaps(oracle, specification):
     m = get_min_qubit_requirements(flatten(specification))
     N = 2**m
 
+    test_results = {
+        "passed_cases": [],
+        "failed_cases": []
+    }
+
     for i, j in specification:
         output_reg_value = 1 if i > j else 0
         print(
@@ -283,18 +288,34 @@ def test_oracle_integer_comparison_no_swaps(oracle, specification):
             f"|{output_reg_value}>|{np.binary_repr(i, m)}>"
             f"|{np.binary_repr(j, m)}>"
         )
-        sv = Statevector.from_int(0, 2).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(i, N)).tensor(Statevector.from_int(j, N))
-        sv_expected = Statevector.from_int(output_reg_value, 2).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(i, N)).tensor(Statevector.from_int(j, N))
-        sv_evolved = sv.evolve(Operator.from_circuit(oracle))
+        # initial output reg val + m initial ancilla reg val + m initial ancilla reg val + i reg + j reg
+        sv = Statevector.from_label(
+            "0" + ("0" * m) + ("0" * m) + np.binary_repr(i, m) + np.binary_repr(j, m))
+        # final output reg val + 2m uncomputed (i.e. unchanged) ancilla reg val + i reg + j reg
+        sv_expected = Statevector.from_label(
+            str(output_reg_value) + ("0" * m) + ("0" * m) + np.binary_repr(i, m) + np.binary_repr(j, m))
+        sv_evolved = sv.evolve(oracle)
         print("Test passed:", sv_expected == sv_evolved)
         if not sv_expected == sv_evolved:
+            test_results["failed_cases"].append((i, j))
             print("Debug info:")
             print("Initialized state vector:\n", sv.to_dict())
             print("Expected state vector:\n", sv_expected.to_dict())
             print("Evolved state vector:\n", sv_evolved.to_dict())
+        else:
+            test_results["passed_cases"].append((i, j))
+
+    print(
+        f"Checked all {m} combinations of {m}-bit integer comparisons. "
+        f"There were {len(test_results['passed_cases'])} passes "
+        f"and {len(test_results['failed_cases'])} failures.")
 
 
 def test_oracle_QBSC(oracle, specification):
+    """
+    Not sure what the full output state should look like because there's no uncomputation.
+    This just logs the output for manual inspection.
+    """
     # Qubits per i, j, and scratch registers
     m = get_min_qubit_requirements(flatten(specification))
     N = 2**m
@@ -313,13 +334,7 @@ def test_oracle_QBSC(oracle, specification):
             f"|{np.binary_repr(j, m)}>"
         )
         sv = Statevector.from_int(0, N).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(0, N_ad_reg)).tensor(Statevector.from_int(i, N)).tensor(Statevector.from_int(j, N))
-        sv_evolved = sv.evolve(Operator.from_circuit(oracle))
-        #print("Test passed:", sv_expected == sv_evolved)
-        #if not sv_expected == sv_evolved:
-            # print("Debug info:")
-            # print("Initialized state vector:\n", sv.to_dict())
-            # print("Expected state vector:\n", sv_expected.to_dict())
-            # print("Evolved state vector:\n", sv_evolved.to_dict())
+        sv_evolved = sv.evolve(oracle)
         print("Debug info:")
         print("Initialized state vector:\n", sv.to_dict())
         print("Evolved state vector:\n", sv_evolved.to_dict())
@@ -328,7 +343,11 @@ def test_oracle_QBSC(oracle, specification):
 def test_oracle_integer_comparison_via_swaps(oracle, specification):
     # Qubits per i, j, and scratch registers
     m = get_min_qubit_requirements(flatten(specification))
-    N = 2**m
+
+    test_results = {
+        "passed_cases": [],
+        "failed_cases": []
+    }
 
     for i, j in specification:
         output_reg_value = 1 if i > j else 0
@@ -342,15 +361,33 @@ def test_oracle_integer_comparison_via_swaps(oracle, specification):
             f"|{output_reg_value}>|{np.binary_repr(i, m)}>"
             f"|{np.binary_repr(j, m)}>"
         )
-        sv = Statevector.from_int(0, 2).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(i, N)).tensor(Statevector.from_int(j, N))
-        sv_expected = Statevector.from_int(output_reg_value, 2).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(i, N)).tensor(Statevector.from_int(j, N))
-        sv_evolved = sv.evolve(Operator.from_circuit(oracle))
+        logging.info("Creating input Statevector...")
+        # initial output reg val + initial ancilla reg val + i reg + j reg
+        sv = Statevector.from_label(
+            "0" + ("0" * m) + np.binary_repr(i, m) + np.binary_repr(j, m))
+        logging.info("Done.")
+        logging.info("Creating expected output Statevector...")
+        # final output reg val + uncomputed (i.e. unchanged) ancilla reg val + i reg + j reg
+        sv_expected = Statevector.from_label(
+            str(output_reg_value) + ("0" * m) + np.binary_repr(i, m) + np.binary_repr(j, m))
+        logging.info("Done.")
+        logging.info("Evolving input Statevector with circuit...")
+        sv_evolved = sv.evolve(oracle)
+        logging.info("Done.")
         print("Test passed:", sv_expected == sv_evolved)
         if not sv_expected == sv_evolved:
-            print("Debug info:")
-            print("Initialized state vector:\n", sv.to_dict())
-            print("Expected state vector:\n", sv_expected.to_dict())
-            print("Evolved state vector:\n", sv_evolved.to_dict())
+            test_results["failed_cases"].append((i, j))
+            logging.info("Debug info for failed test:")
+            logging.info("Initialized state vector:\n", sv.to_dict())
+            logging.info("Expected state vector:\n", sv_expected.to_dict())
+            logging.info("Evolved state vector:\n", sv_evolved.to_dict())
+        else:
+            test_results["passed_cases"].append((i, j))
+
+    print(
+        f"Checked all {m} combinations of {m}-bit integer comparisons. "
+        f"There were {len(test_results['passed_cases'])} passes "
+        f"and {len(test_results['failed_cases'])} failures.")
 
 
 def test():
@@ -359,20 +396,20 @@ def test():
 
     print("Checking that integer comparison oracle(s) work(s).")
     #spec = [(1, 2), (2, 1), (7, 4), (4, 7)]
-    n_qubits_for_test = 3
+    n_qubits_for_test = 4
     spec = [(i, j) for i in range(2**n_qubits_for_test) for j in range(2**n_qubits_for_test)]
 
-    oracle = oracle_integer_comparison_via_swaps(spec)
+    # oracle = oracle_integer_comparison_via_swaps(spec)
+    # print(oracle)
+    # test_oracle_integer_comparison_via_swaps(oracle, spec)
+
+    # oracle = oracle_QBSC(spec)
+    # print(oracle)
+    # test_oracle_QBSC(oracle, spec)
+
+    oracle = oracle_integer_comparison_no_swaps(spec)
     print(oracle)
-    test_oracle_integer_comparison_via_swaps(oracle, spec)
-
-    #oracle = oracle_QBSC(spec)
-    #print(oracle)
-    #test_oracle_QBSC(oracle, spec)
-
-    #oracle = oracle_integer_comparison_no_swaps(spec)
-    #print(oracle)
-    #test_oracle_integer_comparator(oracle, spec)
+    test_oracle_integer_comparison_no_swaps(oracle, spec)
 
 
 if __name__ == "__main__":
