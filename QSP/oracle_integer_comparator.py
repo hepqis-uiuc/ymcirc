@@ -298,6 +298,7 @@ def test_oracle_integer_comparison_no_swaps(oracle, specification):
         if not sv_expected == sv_evolved:
             test_results["failed_cases"].append((i, j))
             print("Debug info:")
+            print("Equiv up to global phase:", sv_evolved.equiv(sv_expected))
             print("Initialized state vector:\n", sv.to_dict())
             print("Expected state vector:\n", sv_expected.to_dict())
             print("Evolved state vector:\n", sv_evolved.to_dict())
@@ -376,6 +377,7 @@ def test_oracle_integer_comparison_via_swaps(oracle, specification):
         print("Test passed:", sv_expected == sv_evolved)
         if not sv_expected == sv_evolved:
             test_results["failed_cases"].append((i, j))
+            print("Equiv up to global phase:", sv_evolved.equiv(sv_expected))
             logging.info("Debug info for failed test:")
             logging.info("Initialized state vector:\n", sv.to_dict())
             logging.info("Expected state vector:\n", sv_expected.to_dict())
