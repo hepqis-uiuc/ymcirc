@@ -269,7 +269,6 @@ def test_oracle_integer_comparison_no_swaps(oracle, specification):
     """Test the no-swaps comparison circuit."""
     # Qubits per i, j, and scratch registers
     m = get_min_qubit_requirements(flatten(specification))
-    N = 2**m
 
     test_results = {
         "passed_cases": [],
@@ -318,8 +317,6 @@ def test_oracle_QBSC(oracle, specification):
     """
     # Qubits per i, j, and scratch registers
     m = get_min_qubit_requirements(flatten(specification))
-    N = 2**m
-    N_ad_reg = 2**(m - 1)
 
     for i, j in specification:
         output_reg_value = 1 if i > j else 0
@@ -333,7 +330,9 @@ def test_oracle_QBSC(oracle, specification):
             f"|{output_reg_value}>|{np.binary_repr(i, m)}>"
             f"|{np.binary_repr(j, m)}>"
         )
-        sv = Statevector.from_int(0, N).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(0, N_ad_reg)).tensor(Statevector.from_int(i, N)).tensor(Statevector.from_int(j, N))
+        # m intial ancilla reg val +  m initial ancilla reg val + m - 1 initial ancilla reg val + i reg + j reg
+        sv = Statevector.from_label(
+            ("0" * m) + ("0" * m) + ("0" * (m - 1)) + np.binary_repr(i, m) + np.binary_repr(j, m))
         sv_evolved = sv.evolve(oracle)
         print("Debug info:")
         print("Initialized state vector:\n", sv.to_dict())
@@ -399,17 +398,17 @@ def test():
     n_qubits_for_test = 4
     spec = [(i, j) for i in range(2**n_qubits_for_test) for j in range(2**n_qubits_for_test)]
 
-    # oracle = oracle_integer_comparison_via_swaps(spec)
-    # print(oracle)
-    # test_oracle_integer_comparison_via_swaps(oracle, spec)
+    oracle = oracle_integer_comparison_via_swaps(spec)
+    print(oracle)
+    test_oracle_integer_comparison_via_swaps(oracle, spec)
 
     # oracle = oracle_QBSC(spec)
     # print(oracle)
     # test_oracle_QBSC(oracle, spec)
 
-    oracle = oracle_integer_comparison_no_swaps(spec)
-    print(oracle)
-    test_oracle_integer_comparison_no_swaps(oracle, spec)
+    # oracle = oracle_integer_comparison_no_swaps(spec)
+    # print(oracle)
+    # test_oracle_integer_comparison_no_swaps(oracle, spec)
 
 
 if __name__ == "__main__":
