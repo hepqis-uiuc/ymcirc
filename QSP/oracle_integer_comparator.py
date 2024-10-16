@@ -12,7 +12,7 @@ import numpy as np
 
 from qiskit.circuit import QuantumCircuit, QuantumRegister, AncillaRegister
 from qiskit.circuit.library import SwapGate
-from qiskit.quantum_info import Operator, Statevector
+from qiskit.quantum_info import Statevector
 
 
 def get_min_qubit_requirements(number: int | list[int]):
@@ -64,6 +64,10 @@ def oracle_QBSC(specs: list[tuple[int, int]]):
         pages={17--26},
         year={2007}
     }
+
+    If integers i and j are encoded in n bits, this algorithm requires:
+    - O(5n) qubits
+    - O(4n) Toffoli gates (about O(24n) CNOT gates)
     """
     n_qubits_per_reg = get_min_qubit_requirements(flatten(specs))
     n_total_qubits = 5*n_qubits_per_reg - 1
@@ -126,12 +130,25 @@ def oracle_QBSC(specs: list[tuple[int, int]]):
 
 def oracle_integer_comparison_no_swaps(specs: list[tuple[int, int]]):
     """
+    NOTE: This algorithm STARTS TO FAIL for some inputs when
+          comparing integers with bit-length n >= 3.
+    
     |0>|i>|j> --> | i>j >|i>|j>
 
     Takes i and j to be length k bit strings (if one is smaller, it is padded).
     Initializes a scratch quantum register of k qubits.
 
     Assumes little-endian indexing.
+
+    If integers i and j are encoded in n bits, this algorithm requires:
+    - O(4n) qubits
+    - O(n^3) CNOTS. This can be seen as follows. The largest number of controls
+        in a single gate is O(n), which means that this gate takes O(n^2) base
+        CNOTs. The algorithm progresively requires gates with n, n-1, n-2 , …
+        controls on them. Let’s call it something like O(n) gates which
+        decompose into O(n^2) base CNOTs. Then, this algorithm requires O(n^3)
+        base CNOTs. double-controlled swap gates, and O(n) three-controlled
+        CNOT gates.
     """
     # For later convenience.
     n_qubits_per_reg = get_min_qubit_requirements(flatten(specs))
@@ -195,6 +212,13 @@ def oracle_integer_comparison_via_swaps(specs: list[tuple[int, int]]):
     Initializes a scratch quantum register of k qubits.
 
     Assumes little-endian indexing.
+
+    This has been tested on all positive integer comparisons up through
+    bit-length n = 5.
+
+    If integers i and j are encoded in n bits, this algorithm requires:
+    - O(3n) qubits
+    - O(2n) double-controlled swap gates, and O(n) three-controlled CNOT gates.
     """
     # For later convenience.
     n_qubits_per_reg = get_min_qubit_requirements(flatten(specs))
