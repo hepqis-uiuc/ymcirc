@@ -343,7 +343,6 @@ def test_oracle_QBSC(oracle, specification):
 def test_oracle_integer_comparison_via_swaps(oracle, specification):
     # Qubits per i, j, and scratch registers
     m = get_min_qubit_requirements(flatten(specification))
-
     test_results = {
         "passed_cases": [],
         "failed_cases": []
