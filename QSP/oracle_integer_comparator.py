@@ -12,7 +12,7 @@ import numpy as np
 
 from qiskit.circuit import QuantumCircuit, QuantumRegister, AncillaRegister
 from qiskit.circuit.library import SwapGate
-from qiskit.quantum_info import Operator, Statevector
+from qiskit.quantum_info import Statevector
 
 
 def get_min_qubit_requirements(number: int | list[int]):
@@ -64,6 +64,10 @@ def oracle_QBSC(specs: list[tuple[int, int]]):
         pages={17--26},
         year={2007}
     }
+
+    If integers i and j are encoded in n bits, this algorithm requires:
+    - O(5n) qubits
+    - O(4n) Toffoli gates (about O(24n) CNOT gates)
     """
     n_qubits_per_reg = get_min_qubit_requirements(flatten(specs))
     n_total_qubits = 5*n_qubits_per_reg - 1
@@ -126,12 +130,25 @@ def oracle_QBSC(specs: list[tuple[int, int]]):
 
 def oracle_integer_comparison_no_swaps(specs: list[tuple[int, int]]):
     """
+    NOTE: This algorithm STARTS TO FAIL for some inputs when
+          comparing integers with bit-length n >= 3.
+    
     |0>|i>|j> --> | i>j >|i>|j>
 
     Takes i and j to be length k bit strings (if one is smaller, it is padded).
     Initializes a scratch quantum register of k qubits.
 
     Assumes little-endian indexing.
+
+    If integers i and j are encoded in n bits, this algorithm requires:
+    - O(4n) qubits
+    - O(n^3) CNOTS. This can be seen as follows. The largest number of controls
+        in a single gate is O(n), which means that this gate takes O(n^2) base
+        CNOTs. The algorithm progresively requires gates with n, n-1, n-2 , …
+        controls on them. Let’s call it something like O(n) gates which
+        decompose into O(n^2) base CNOTs. Then, this algorithm requires O(n^3)
+        base CNOTs. double-controlled swap gates, and O(n) three-controlled
+        CNOT gates.
     """
     # For later convenience.
     n_qubits_per_reg = get_min_qubit_requirements(flatten(specs))
@@ -195,6 +212,13 @@ def oracle_integer_comparison_via_swaps(specs: list[tuple[int, int]]):
     Initializes a scratch quantum register of k qubits.
 
     Assumes little-endian indexing.
+
+    This has been tested on all positive integer comparisons up through
+    bit-length n = 5.
+
+    If integers i and j are encoded in n bits, this algorithm requires:
+    - O(3n) qubits
+    - O(2n) double-controlled swap gates, and O(n) three-controlled CNOT gates.
     """
     # For later convenience.
     n_qubits_per_reg = get_min_qubit_requirements(flatten(specs))
@@ -269,7 +293,11 @@ def test_oracle_integer_comparison_no_swaps(oracle, specification):
     """Test the no-swaps comparison circuit."""
     # Qubits per i, j, and scratch registers
     m = get_min_qubit_requirements(flatten(specification))
-    N = 2**m
+
+    test_results = {
+        "passed_cases": [],
+        "failed_cases": []
+    }
 
     for i, j in specification:
         output_reg_value = 1 if i > j else 0
@@ -283,22 +311,37 @@ def test_oracle_integer_comparison_no_swaps(oracle, specification):
             f"|{output_reg_value}>|{np.binary_repr(i, m)}>"
             f"|{np.binary_repr(j, m)}>"
         )
-        sv = Statevector.from_int(0, 2).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(i, N)).tensor(Statevector.from_int(j, N))
-        sv_expected = Statevector.from_int(output_reg_value, 2).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(i, N)).tensor(Statevector.from_int(j, N))
-        sv_evolved = sv.evolve(Operator.from_circuit(oracle))
+        # initial output reg val + m initial ancilla reg val + m initial ancilla reg val + i reg + j reg
+        sv = Statevector.from_label(
+            "0" + ("0" * m) + ("0" * m) + np.binary_repr(i, m) + np.binary_repr(j, m))
+        # final output reg val + 2m uncomputed (i.e. unchanged) ancilla reg val + i reg + j reg
+        sv_expected = Statevector.from_label(
+            str(output_reg_value) + ("0" * m) + ("0" * m) + np.binary_repr(i, m) + np.binary_repr(j, m))
+        sv_evolved = sv.evolve(oracle)
         print("Test passed:", sv_expected == sv_evolved)
         if not sv_expected == sv_evolved:
+            test_results["failed_cases"].append((i, j))
             print("Debug info:")
+            print("Equiv up to global phase:", sv_evolved.equiv(sv_expected))
             print("Initialized state vector:\n", sv.to_dict())
             print("Expected state vector:\n", sv_expected.to_dict())
             print("Evolved state vector:\n", sv_evolved.to_dict())
+        else:
+            test_results["passed_cases"].append((i, j))
+
+    print(
+        f"Checked all {m} combinations of {m}-bit integer comparisons. "
+        f"There were {len(test_results['passed_cases'])} passes "
+        f"and {len(test_results['failed_cases'])} failures.")
 
 
 def test_oracle_QBSC(oracle, specification):
+    """
+    Not sure what the full output state should look like because there's no uncomputation.
+    This just logs the output for manual inspection.
+    """
     # Qubits per i, j, and scratch registers
     m = get_min_qubit_requirements(flatten(specification))
-    N = 2**m
-    N_ad_reg = 2**(m - 1)
 
     for i, j in specification:
         output_reg_value = 1 if i > j else 0
@@ -312,14 +355,10 @@ def test_oracle_QBSC(oracle, specification):
             f"|{output_reg_value}>|{np.binary_repr(i, m)}>"
             f"|{np.binary_repr(j, m)}>"
         )
-        sv = Statevector.from_int(0, N).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(0, N_ad_reg)).tensor(Statevector.from_int(i, N)).tensor(Statevector.from_int(j, N))
-        sv_evolved = sv.evolve(Operator.from_circuit(oracle))
-        #print("Test passed:", sv_expected == sv_evolved)
-        #if not sv_expected == sv_evolved:
-            # print("Debug info:")
-            # print("Initialized state vector:\n", sv.to_dict())
-            # print("Expected state vector:\n", sv_expected.to_dict())
-            # print("Evolved state vector:\n", sv_evolved.to_dict())
+        # m intial ancilla reg val +  m initial ancilla reg val + m - 1 initial ancilla reg val + i reg + j reg
+        sv = Statevector.from_label(
+            ("0" * m) + ("0" * m) + ("0" * (m - 1)) + np.binary_repr(i, m) + np.binary_repr(j, m))
+        sv_evolved = sv.evolve(oracle)
         print("Debug info:")
         print("Initialized state vector:\n", sv.to_dict())
         print("Evolved state vector:\n", sv_evolved.to_dict())
@@ -328,7 +367,10 @@ def test_oracle_QBSC(oracle, specification):
 def test_oracle_integer_comparison_via_swaps(oracle, specification):
     # Qubits per i, j, and scratch registers
     m = get_min_qubit_requirements(flatten(specification))
-    N = 2**m
+    test_results = {
+        "passed_cases": [],
+        "failed_cases": []
+    }
 
     for i, j in specification:
         output_reg_value = 1 if i > j else 0
@@ -342,15 +384,34 @@ def test_oracle_integer_comparison_via_swaps(oracle, specification):
             f"|{output_reg_value}>|{np.binary_repr(i, m)}>"
             f"|{np.binary_repr(j, m)}>"
         )
-        sv = Statevector.from_int(0, 2).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(i, N)).tensor(Statevector.from_int(j, N))
-        sv_expected = Statevector.from_int(output_reg_value, 2).tensor(Statevector.from_int(0, N)).tensor(Statevector.from_int(i, N)).tensor(Statevector.from_int(j, N))
-        sv_evolved = sv.evolve(Operator.from_circuit(oracle))
+        logging.info("Creating input Statevector...")
+        # initial output reg val + initial ancilla reg val + i reg + j reg
+        sv = Statevector.from_label(
+            "0" + ("0" * m) + np.binary_repr(i, m) + np.binary_repr(j, m))
+        logging.info("Done.")
+        logging.info("Creating expected output Statevector...")
+        # final output reg val + uncomputed (i.e. unchanged) ancilla reg val + i reg + j reg
+        sv_expected = Statevector.from_label(
+            str(output_reg_value) + ("0" * m) + np.binary_repr(i, m) + np.binary_repr(j, m))
+        logging.info("Done.")
+        logging.info("Evolving input Statevector with circuit...")
+        sv_evolved = sv.evolve(oracle)
+        logging.info("Done.")
         print("Test passed:", sv_expected == sv_evolved)
         if not sv_expected == sv_evolved:
-            print("Debug info:")
-            print("Initialized state vector:\n", sv.to_dict())
-            print("Expected state vector:\n", sv_expected.to_dict())
-            print("Evolved state vector:\n", sv_evolved.to_dict())
+            test_results["failed_cases"].append((i, j))
+            print("Equiv up to global phase:", sv_evolved.equiv(sv_expected))
+            logging.info("Debug info for failed test:")
+            logging.info("Initialized state vector:\n", sv.to_dict())
+            logging.info("Expected state vector:\n", sv_expected.to_dict())
+            logging.info("Evolved state vector:\n", sv_evolved.to_dict())
+        else:
+            test_results["passed_cases"].append((i, j))
+
+    print(
+        f"Checked all {m} combinations of {m}-bit integer comparisons. "
+        f"There were {len(test_results['passed_cases'])} passes "
+        f"and {len(test_results['failed_cases'])} failures.")
 
 
 def test():
@@ -359,20 +420,20 @@ def test():
 
     print("Checking that integer comparison oracle(s) work(s).")
     #spec = [(1, 2), (2, 1), (7, 4), (4, 7)]
-    n_qubits_for_test = 3
+    n_qubits_for_test = 4
     spec = [(i, j) for i in range(2**n_qubits_for_test) for j in range(2**n_qubits_for_test)]
 
     oracle = oracle_integer_comparison_via_swaps(spec)
     print(oracle)
     test_oracle_integer_comparison_via_swaps(oracle, spec)
 
-    #oracle = oracle_QBSC(spec)
-    #print(oracle)
-    #test_oracle_QBSC(oracle, spec)
+    # oracle = oracle_QBSC(spec)
+    # print(oracle)
+    # test_oracle_QBSC(oracle, spec)
 
-    #oracle = oracle_integer_comparison_no_swaps(spec)
-    #print(oracle)
-    #test_oracle_integer_comparator(oracle, spec)
+    # oracle = oracle_integer_comparison_no_swaps(spec)
+    # print(oracle)
+    # test_oracle_integer_comparison_no_swaps(oracle, spec)
 
 
 if __name__ == "__main__":
