@@ -1,0 +1,359 @@
+"""Classes for juggling registers in quantum simulations of lattices."""
+from __future__ import annotations
+from math import isclose, ceil
+import numpy as np
+from dataclasses import dataclass
+from qiskit.circuit import QuantumRegister
+from itertools import product
+from typing import List, Tuple, Dict, Union
+
+LatticeVector = Union[List[int], Tuple[int]]
+LinkUnitVectorLabel = int  # For indicating particular directions on a lattice. One-indexed.
+
+@dataclass
+class Plaquette:
+    """
+    Organize registers into links and vertices.
+
+    Convertion is to start at the bottom-left vertex, and ascend
+    with a CCW convention.
+    """
+
+    links: list[QuantumRegister]
+    vertices: list[QuantumRegister]
+
+    def __post_init__(self):
+        """For validating creation data."""
+        if len(self.links) != 4 or len(self.vertices) != 4:
+            raise ValueError("There should be exactly 4 vertices and 4 links in a Plaquette, "
+                             f"but encountered {len(self.links)} links and {len(self.vertices)} vertices.")
+
+
+class LatticeRegisters:
+    """
+    Class for addressing QuantumRegisters in a lattice.
+
+    Each link and vertex is assigned a unique register. The size tuple counts
+    the number of vertex registers in each dimension of a (hyper)-rectangular
+    lattice.
+    """
+
+    def __init__(
+            self, dim: str | int,
+            size: int,
+            n_qubits_per_link: int = 1,
+            n_qubits_per_vertex: int = 1,
+            boundary_conds: str = "periodic"):
+        """Initialize all registers needed to simulate the lattice."""
+        self._validate_input(dim, size, n_qubits_per_link, n_qubits_per_vertex, boundary_conds)
+
+        # Set boundary conditions
+        if boundary_conds != "periodic":
+            # TODO implement this eventually
+            self._periodic_boundary_conds = False
+            raise NotImplementedError()
+        else:
+            self._periodic_boundary_conds = True
+
+        # Configure lattice for different dimensionalities
+        if dim == "3/2" or isclose(float(dim), 1.5):
+            self._shape = (size, 2)
+            self._dim = 1.5
+        elif isinstance(dim, int) and dim > 1:
+            self._shape = (size,) * dim
+            self._dim = dim
+        else:
+            raise ValueError(f"A {dim}-dimensional lattice doesn't make sense.")
+        self._all_vertex_vectors = set(product(*[[i for i in range(axis_length)] for axis_length in self._shape]))
+        #self._all_link_unit_vectors = []
+        self._lattice_unit_vector_labels = [i for i in range(1, ceil(self._dim) + 1)]  # one-indexed labels for positive unit vectors
+        
+        # Initialize qubit link and vertex registers.
+        # TODO give the registers a useful name?
+        # TODO handle the d=3/2 case so there aren't extra link registers!
+        if self.dim == 1.5:
+            raise NotImplementedError("Still need to implement handling of link registers for d=3/2.")
+        self._n_qubits_per_link = n_qubits_per_link
+        self._n_qubits_per_vertex = n_qubits_per_vertex
+        self._vertex_registers: Dict[LatticeVector, QuantumRegister] = {}
+        self._link_registers: Dict[tuple(LatticeVector, LinkUnitVectorLabel), QuantumRegister] = {}
+        for vertex_vector in self._all_vertex_vectors:
+            self._vertex_registers[vertex_vector] = QuantumRegister(self._n_qubits_per_vertex)
+        for vertex_vector in self._all_vertex_vectors:
+            for link_unit_vector in self._lattice_unit_vector_labels:
+                self._link_registers[vertex_vector, link_unit_vector] = QuantumRegister(self._n_qubits_per_link)
+
+    def _validate_input(self,
+                        dim: str | int,
+                        size: int,
+                        n_qubits_per_link: int = 1,
+                        n_qubits_per_vertex: int = 1,
+                        boundary_conds: str = "periodic"):
+        if size < 2:
+            raise ValueError("Lattice must have at least two vertices in each dimension. "
+                             f"A size = {size} doesn't make sense.")
+
+        if n_qubits_per_link < 1 or n_qubits_per_vertex < 1:
+            raise ValueError("Link and vertex registers must have positive integer number of qubits. "
+                             f"n_qubits_per_link = {n_qubits_per_link}\nn_qubits_per_vertex = {n_qubits_per_vertex}.")
+
+    def get_vertex_register(self, lattice_vector: tuple[int, ...]) -> QuantumRegister:
+        """Return the QuantumRegister for the vertex specified by lattice_vector."""
+        return self._vertex_registers[lattice_vector]
+
+    def get_link_register(self, lattice_vector: tuple[int, ...], unit_vector_label: int) -> QuantumRegister:
+        """
+        Return the QuantumRegister for the link specified by lattice_vector and unit_vector_label.
+
+        lattice_vector with a positive unit_vector_label specifies the link
+        which is in the positive direction along the dimension specified by unit_vector_label
+        from the vertex given by lattice vector. A negative unit_vector_label specifies the opposite link.
+
+        Example (d=3/2 with periodic boundary conditions):
+
+        (0, 1) ----- (1, 1) ----- (pbc)
+          |            |
+          |            |
+        (0, 0) ----- (1, 0) ----- (pbc)
+
+        unit_vector_label = 1 labels the positive horizontal direction.
+        unit_vector_label = 2 labels the positive vertical direction.
+        We can address the bottom-middle link via either of the following:
+            - lattice_vector = (0, 0), unit_vector_label = 1
+            - lattice_vector = (1, 0), unit_vector_label = -1
+        """
+        # Validate input
+        if unit_vector_label == 0 or not isinstance(unit_vector_label, LinkUnitVectorLabel):
+            raise ValueError("Unit vectors on the lattice must be specified by nonzero integers. "
+                             f"Encountered: {unit_vector_label}.")
+
+        # Handle negative unit vector case
+        unit_vector_label_zero_indexed = abs(unit_vector_label) - 1
+        unit_vector = tuple(0 if component != unit_vector_label_zero_indexed else 1 for component in range(ceil(self.dim)))
+        if unit_vector_label < 0:
+            # Go back one vertex in the direction given by the unit vector.
+            lattice_vector = tuple(l_comp - u_comp for l_comp, u_comp in zip(lattice_vector, unit_vector))
+
+        # Handle links on boundaries of lattice.
+        if any(component < 0 for component in lattice_vector):
+            # TODO implement boundary logic for periodic boundary conditions
+            raise NotImplementedError()
+
+        return self._link_registers[lattice_vector, abs(unit_vector_label)]
+
+    def apply_trotter_step(self, evol_type: str = 'both'):
+        """
+        Apply a single trotter evolution step to the entire lattice.
+
+        evol_type == 'm' for just Magnetic Hamiltonian evolution.
+        evol_type == 'e for just Electric Hamiltonian evolution.
+        evol_type == anything else for both.
+        """
+        # TODO surface a step_size argument?
+        if evol_type == "m":
+            self._trotter_step_magnetic()
+        elif evol_type == "e":
+            self._trotter_step_electric()
+        else:
+            self._trotter_step_magnetic()
+            self._trotter_step_electric()
+
+    def _trotter_step_electric(self):
+        # TODO parallelize the logic.
+        raise NotImplementedError()
+
+    def _trotter_step_magnetic(self):
+        # TODO parallelize the logic.
+        raise NotImplementedError()
+
+    @property
+    def n_qubits_per_link(self) -> int:
+        """Number of qubits per link register."""
+        return self._n_qubits_per_link
+
+    @property
+    def n_qubits_per_vertex(self) -> int:
+        """Number of qubits per vertex register."""
+        return self._n_qubits_per_vertex
+
+    @property
+    def vertex_vectors(self) -> set[tuple[int]]:
+        """Return all of the vectors uniquely labeling lattice vertices."""
+        raise NotImplementedError()
+
+    @property
+    def link_unit_vectors(self) -> set[int]:
+        """Return all the dimension labels corresponding to positive unit vectors."""
+        raise NotImplementedError()
+
+    @property
+    def boundary_conds_periodic(self) -> bool:
+        """Return whether the lattice has periodic boundary conditions."""
+        return self._periodic_boundary_conds
+
+    @property
+    def shape(self) -> tuple[int]:
+        """Return the shape of the lattice wrt number of vertices in each dimension."""
+        return self._shape
+
+    @property
+    def dim(self) -> int | float:
+        """
+        Return the dimensionality of the lattice.
+
+        Either a positive integer greater than or equal to 2,
+        or the float 1.5 for the 'd=3/2' case.
+        """
+        return self._dim
+
+
+def test_d_3_2_lattice_initialization():
+    """Check creation of lattice with string or int reps of d=3/2."""
+    print("Checking that lattice initialization works for d=3/2...")
+    sizes = [7, 2]
+    expected_shapes = [(7, 2), (2, 2)]
+    dims = [3/2, 1.5, "3/2"]
+    expected_dim = 1.5
+    for current_size, expected_shape in zip(sizes, expected_shapes):
+        for current_dim in dims:
+            print(f"LatticeRegisters(dim={current_dim}, size={current_size})")
+            lattice = LatticeRegisters(dim=current_dim, size=current_size)
+            print(f"Results:\n\tlattice.shape = {lattice.shape}\n\tlattice.dim = {lattice.dim}")
+            assert lattice.shape == expected_shape
+            assert lattice.dim == expected_dim
+            assert lattice.n_qubits_per_link == 1  # Default
+            assert lattice.n_qubits_per_vertex == 1  # Default
+            print("Test passed.")
+
+
+def test_d_2_lattice_initialization():
+    """Check creation of lattice with d=2."""
+    print("Checking that lattice initialization works for d=2...")
+    lattice = LatticeRegisters(dim=2, size=4, n_qubits_per_link=3, n_qubits_per_vertex=4)
+    assert lattice.shape == (4, 4)
+    assert lattice.dim == 2
+    assert lattice.n_qubits_per_link == 3
+    assert lattice.n_qubits_per_vertex == 4
+    print("Test passed.")
+
+
+def test_d_3_lattice_initialization():
+    """Check creation of lattice with d=3."""
+    print("Checking that lattice initialization works for d=3...")
+    lattice = LatticeRegisters(dim=3, size=8, n_qubits_per_link=5, n_qubits_per_vertex=1)
+    assert lattice.shape == (8, 8, 8)
+    assert lattice.dim == 3
+    assert lattice.n_qubits_per_link == 5
+    assert lattice.n_qubits_per_vertex == 1
+    print("Test passed.")
+
+
+def test_bad_lattice_dim_fails():
+    """Check that a bad dim causes a ValueError."""
+    print("Checking that dim = 0.5 causes a ValueError.")
+    try:
+        LatticeRegisters(dim=0.5, size=7)
+    except ValueError as e:
+        print(f"It does! Error message: {e}")
+    else:
+        assert False
+    print("Test passed.")
+
+
+def test_plaquette_validation_works():
+    """Check that bad plaquette link or vertex lengths fails."""
+    print("4 links and 3 vertices should fail...")
+    try:
+        link_regs = (QuantumRegister(1),) * 4
+        vertex_regs = (QuantumRegister(1),) * 3
+        p = Plaquette(links=link_regs, vertices=vertex_regs)
+        print(p)
+    except ValueError as e:
+        print(f"It does! Error message: {e}")
+    else:
+        assert False
+    print("Test passed.")
+
+
+def test_link_and_vertex_register_initialization(dims: int):
+    """Check that we get link and vertex registers with the expected number of qubits."""
+    # Initialize lattice.
+    lattice = LatticeRegisters(dim=dims, size=3, n_qubits_per_link=2, n_qubits_per_vertex=3)
+    print(f"Checking LatticeRegisters(dim={dims}, size=3, n_qubits_per_link={lattice.n_qubits_per_link}, n_qubits_per_vertex={lattice.n_qubits_per_vertex}) gives registers "
+          f"with {lattice.n_qubits_per_link} qubits per link and {lattice.n_qubits_per_vertex} qubits per vertex.")
+    print(lattice._link_registers)
+    print(lattice._vertex_registers)
+
+    # Check vertex and link indexing data.
+    x_range = y_range = range(lattice.shape[0])
+    #expected_vertex_vectors = set(product(x_range, y_range))
+    expected_vertex_vectors = set(product(*[[i for i in range(axis_length)] for axis_length in lattice.shape]))
+    expected_lattice_unit_vector_labels = [i + 1 for i in range(ceil(dims))]
+    print("Checking that correct set of vertex vectors was obtained...")
+    print(f"\texpected = {expected_vertex_vectors}")
+    print(f"\tobtained = {lattice._all_vertex_vectors}")
+    assert expected_vertex_vectors == lattice._all_vertex_vectors
+    print("Test passed.")
+    print("Checking that correct set of lattice unit vector labels was obtained,..")
+    print(f"\texpected = {expected_lattice_unit_vector_labels}")
+    print(f"\tobtained = {lattice._lattice_unit_vector_labels}")
+    assert expected_lattice_unit_vector_labels == lattice._lattice_unit_vector_labels
+    print("Test passed.")
+
+    # Check that expected registers are initialized.
+    for lattice_vector in lattice._all_vertex_vectors:
+        current_vertex_register = lattice.get_vertex_register(lattice_vector)
+        print(f"Checking vertex (x={lattice_vector[0]}, y={lattice_vector[1]})...")
+        print(f"Expected {lattice.n_qubits_per_vertex} qubits.")
+        print(f"Encountered {len(current_vertex_register)} qubits.")
+        assert len(current_vertex_register) == lattice.n_qubits_per_vertex
+        print("Test passed.")
+        for link_unit_vector_label in expected_lattice_unit_vector_labels:
+            current_link_register = lattice.get_link_register(lattice_vector, link_unit_vector_label)
+            print(f"Checking link (x={lattice_vector[0]}, y={lattice_vector[1]}, e={link_unit_vector_label})...")
+            print(f"Expected {lattice.n_qubits_per_link} qubits.")
+            print(f"Encountered {len(current_link_register)} qubits.")
+            assert len(lattice.get_link_register(lattice_vector, link_unit_vector_label)) == lattice.n_qubits_per_link
+            print("Test passed.")
+
+
+def test_link_register_indexing_negative_unit_vector_label():
+    """Check that (x, y, z, -3) == (x, y, z, 3)."""
+    raise NotImplementedError()
+
+
+def test_link_register_indexing_with_periodic_boundaries():
+    """Check that links on boundaries get handled correctly."""
+    raise NotImplementedError()
+
+# TODO test link indexing flexibility. Edge case of boundary too.
+def run_tests():
+    """
+    Run tests.
+
+    Add tests here when implementing new functionality.
+    """
+    # print()
+    # test_d_3_2_lattice_initialization()
+    # print()
+    # test_bad_lattice_dim_fails()
+    # print()
+    # test_d_2_lattice_initialization()
+    # print()
+    # test_d_3_lattice_initialization()
+    # print()
+    # test_plaquette_validation_works()
+    print()
+    test_link_and_vertex_register_initialization(dims=3/2)
+    print()
+    test_link_and_vertex_register_initialization(dims=2)
+    print()
+    test_link_and_vertex_register_initialization(dims=3)
+    print()
+    test_link_register_indexing_negative_unit_vector_label()
+    print()
+    test_link_register_indexing_with_periodic_boundaries()
+
+
+if __name__ == "__main__":
+    run_tests()
