@@ -27,14 +27,16 @@ class Plaquette:
     with a CCW convention.
     """
 
-    links: list[QuantumRegister]
-    vertices: list[QuantumRegister]
+    link_registers: list[QuantumRegister]
+    vertex_registers: list[QuantumRegister]
+    bottom_left_vertex: LatticeVector
+    plane: Tuple[LinkUnitVectorLabel, LinkUnitVectorLabel]
 
     def __post_init__(self):
         """For validating creation data."""
-        if len(self.links) != 4 or len(self.vertices) != 4:
+        if len(self.link_registers) != 4 or len(self.vertex_registers) != 4:
             raise ValueError("There should be exactly 4 vertices and 4 links in a Plaquette, "
-                             f"but encountered {len(self.links)} links and {len(self.vertices)} vertices.")
+                             f"but encountered {len(self.link_registers)} links and {len(self.vertex_registers)} vertices.")
 
 
 class LatticeRegisters:
@@ -90,6 +92,7 @@ class LatticeRegisters:
             self._dim = dim
         else:
             raise ValueError(f"A {dim}-dimensional lattice doesn't make sense.")
+        # Use of sets enforces no duplicates internally.
         self._all_vertex_vectors: Set[LatticeVector] = set(product(
             *[[i for i in range(axis_length)] for axis_length in self._shape]))
         # Use one-indexed labels for positive unit vectors.
@@ -179,6 +182,24 @@ class LatticeRegisters:
 
         return self._link_registers[lattice_vector, unit_vector_label]
 
+    def get_plaquette_registers(self, lattice_vector: LatticeVector,
+                                e1: Union[LinkUnitVectorLabel, None] = None,
+                                e2: Union[LinkUnitVectorLabel, None] = None
+                                ) -> Plaquette | List[Plaquette]:
+        """
+        Return the list of all "positive" Plaquettes associated with the vertex lattice_vector.
+
+        The "positivity" convention is that the list of returned plaquettes corresponds to those
+        defined by all pairs of orthogonal positive unit vectors at the vertex lattice_vector.
+
+        If a particular plaquette is desired, this can be specified by either providing the
+        link unit vector directions e1 and e2 to defining a plane. Sign is ignored when
+        manually specifying the plane of a specific plaquette.
+
+        Return plaquettes will all have lattice_vector as the "bottom-left" vertex.
+        """
+        raise NotImplementedError()
+
     def apply_trotter_step(self, evol_type: str = 'both'):
         """
         Apply a single trotter evolution step to the entire lattice.
@@ -215,10 +236,17 @@ class LatticeRegisters:
         return self._n_qubits_per_vertex
 
     @property
-    def vertex_vectors(self) -> set[tuple[int]]:
-        """Return all of the vectors uniquely labeling lattice vertices."""
-        raise NotImplementedError()
+    def vertex_register_keys(self) -> list[LatticeVector]:
+        """Return all of the lattice vectors uniquely labeling lattice vertices."""
+        return sorted(list(self._vertex_registers.keys()))
 
+    @property
+    def link_register_keys(self) -> list[Tuple[LatticeVector, LinkUnitVectorLabel]]:
+        """Return all of the (LatticeVector, LinkUnitVectorLabel) uniquely labeling lattice links."""
+        return sorted(list(self._link_registers.keys()))
+
+    # TODO Maybe don't implement this in favor of keeping
+    # properties which return the actual internal dict keys?
     @property
     def link_unit_vectors(self) -> set[int]:
         """Return all the dimension labels corresponding to positive unit vectors."""
@@ -304,7 +332,14 @@ def test_plaquette_validation_works():
     try:
         link_regs = (QuantumRegister(1),) * 4
         vertex_regs = (QuantumRegister(1),) * 3
-        p = Plaquette(links=link_regs, vertices=vertex_regs)
+        lattice_vector = (0, 0, 1)
+        xy_plane = (1, 2)
+        p = Plaquette(
+            link_registers=link_regs,
+            vertex_registers=vertex_regs,
+            bottom_left_vertex=lattice_vector,
+            plane=xy_plane
+        )
         print(p)
     except ValueError as e:
         print(f"It does! Error message: {e}")
@@ -396,14 +431,64 @@ def test_link_and_vertex_register_initialization(dims: DimensionalitySpecifier):
                         assert False  # Should have raised an KeyError.
 
 
-def test_link_register_indexing_negative_unit_vector_label():
-    """Check that (x, y, z, -3) == (x, y, z, 3)."""
-    raise NotImplementedError()
+def test_get_vertex_register_keys(dims: DimensionalitySpecifier, size: int):
+    """Check that we get the expected vertex register keys."""
+    # Constructed expected results
+    if dims == 3:
+        expected_vertices = sorted(list((i, j, k) for i, j, k in product(range(size), range(size), range(size))))
+    if dims == 2:
+        expected_vertices = sorted(list((i, j) for i, j in product(range(size), range(size))))
+    if dims == 1.5:
+        assert VERTICAL_NUM_VERTICES_D_THREE_HALVES == 2
+        expected_vertices = sorted(list(((i, j) for i, j in product(
+            range(size), range(VERTICAL_NUM_VERTICES_D_THREE_HALVES)))))
+
+    # Initialize lattice.
+    lattice = LatticeRegisters(dim=dims, size=size, n_qubits_per_link=4, n_qubits_per_vertex=1)
+    print(f"Checking LatticeRegisters(dim={dims}, size={size}, n_qubits_per_link={lattice.n_qubits_per_link}, n_qubits_per_vertex={lattice.n_qubits_per_vertex}) has vertices:\n"
+          f"{expected_vertices}")
+    print("Got the following vertices:\n", lattice.vertex_register_keys)
+
+    # The actual test.
+    assert lattice.vertex_register_keys == expected_vertices
+    print("Test passed.")
 
 
-def test_link_register_indexing_with_periodic_boundaries():
-    """Check that links on boundaries get handled correctly."""
-    raise NotImplementedError()
+def test_get_link_register_keys(dims: DimensionalitySpecifier, size: int):
+    """Check that we get the expected link register keys."""
+    # Construct expected results
+    if dims == 3:
+        expected_vertices = sorted(list((i, j, k) for i, j, k in product(range(size), range(size), range(size))))
+        expected_link_unit_vector_labels = range(1, 4)
+    elif dims == 2:
+        expected_vertices = sorted(list((i, j) for i, j in product(range(size), range(size))))
+        expected_link_unit_vector_labels = range(1, 3)
+    elif dims == 1.5:
+        assert VERTICAL_NUM_VERTICES_D_THREE_HALVES == 2
+        expected_vertices = sorted(list((i, j) for i, j in product(
+            range(size), range(VERTICAL_NUM_VERTICES_D_THREE_HALVES))))
+        expected_link_unit_vector_labels = range(1, 3)
+        expected_link_labels = sorted(list((vertex, unit_vector_dir) for vertex, unit_vector_dir in product(expected_vertices, expected_link_unit_vector_labels)))
+    else:
+        assert NotImplementedError(f"Test not implemented for dims = {dims}.")
+    if dims == 3 or dims == 2:
+        expected_link_labels = sorted(list((vertex, unit_vector_dir) for vertex, unit_vector_dir in product(expected_vertices, expected_link_unit_vector_labels)))
+    else:
+        # d = 3/2 case, there shouldn't be links above or below the chain.
+        expected_link_labels = sorted([
+            (vertex, unit_vector_dir) for vertex, unit_vector_dir in product(expected_vertices, expected_link_unit_vector_labels)
+            if not (unit_vector_dir == VERTICAL_DIR_LABEL and vertex[1] == 1)])
+
+    # Initialize lattice.
+    lattice = LatticeRegisters(
+        dim=dims, size=size, n_qubits_per_link=4, n_qubits_per_vertex=1)
+    print(f"Checking LatticeRegisters(dim={dims}, size={size}, n_qubits_per_link={lattice.n_qubits_per_link}, n_qubits_per_vertex={lattice.n_qubits_per_vertex}) has links:\n"
+          f"{expected_link_labels}")
+    print("Got the following links:\n", lattice.link_register_keys)
+
+    # The actual test.
+    assert lattice.link_register_keys == expected_link_labels
+    print("Test passed.")
 
 
 def run_tests():
@@ -428,11 +513,16 @@ def run_tests():
     test_link_and_vertex_register_initialization(dims=2)
     print()
     test_link_and_vertex_register_initialization(dims=3)
-    # TODO implement the tests below.
     print()
-    test_link_register_indexing_negative_unit_vector_label()
+    test_get_vertex_register_keys(3, 2)
+    test_get_vertex_register_keys(2, 3)
+    test_get_vertex_register_keys(1.5, 10)
     print()
-    test_link_register_indexing_with_periodic_boundaries()
+    test_get_link_register_keys(3, 2)
+    test_get_link_register_keys(2, 4)
+    test_get_link_register_keys(1.5, 16)
+
+    print("All tests passed.")
 
 
 if __name__ == "__main__":
