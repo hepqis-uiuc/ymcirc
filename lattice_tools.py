@@ -449,8 +449,10 @@ def test_get_vertex_register_keys(dims: DimensionalitySpecifier, size: int):
           f"{expected_vertices}")
     print("Got the following vertices:\n", lattice.vertex_register_keys)
 
-    # The actual test.
+    # The actual tests.
     assert lattice.vertex_register_keys == expected_vertices
+    for vertex_register_key in lattice.vertex_register_keys:
+        assert lattice.get_vertex_register(vertex_register_key).name == f"v:{vertex_register_key}"
     print("Test passed.")
 
 
@@ -488,6 +490,10 @@ def test_get_link_register_keys(dims: DimensionalitySpecifier, size: int):
 
     # The actual test.
     assert lattice.link_register_keys == expected_link_labels
+    for link_register_key in lattice.link_register_keys:
+        vertex_vector = link_register_key[0]
+        link_dir = link_register_key[1]
+        assert lattice.get_link_register(lattice_vector=vertex_vector, unit_vector_label=link_dir).name == f"l:{link_register_key}"
     print("Test passed.")
 
 
