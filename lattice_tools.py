@@ -106,13 +106,13 @@ class LatticeRegisters:
         self._link_registers: Dict[
             tuple[LatticeVector, LinkUnitVectorLabel], QuantumRegister] = {}
         for vertex_vector in self._all_vertex_vectors:
-            self._vertex_registers[vertex_vector] = QuantumRegister(self._n_qubits_per_vertex)
+            self._vertex_registers[vertex_vector] = QuantumRegister(self._n_qubits_per_vertex, name=f"v:{vertex_vector}")
         for vertex_vector in self._all_vertex_vectors:
             for link_unit_vector in self._lattice_unit_vector_labels:
                 if self.dim == 1.5 and self._skip_links_above_or_below_d_equals_three_halves(vertex_vector, link_unit_vector):
                     continue  # Skip to next lattice direction.
                 else:
-                    self._link_registers[vertex_vector, link_unit_vector] = QuantumRegister(self._n_qubits_per_link)
+                    self._link_registers[vertex_vector, link_unit_vector] = QuantumRegister(self._n_qubits_per_link, name=f"l:{vertex_vector, link_unit_vector}")
 
     @staticmethod
     def _skip_links_above_or_below_d_equals_three_halves(
