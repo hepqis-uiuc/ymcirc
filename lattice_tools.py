@@ -71,9 +71,13 @@ class LatticeRegisters:
             raise ValueError("Lattice must have at least two vertices in each "
                              f"dimension. A size = {size} doesn't make sense.")
 
-        if n_qubits_per_link < 1 or n_qubits_per_vertex < 1:
-            raise ValueError("Link and vertex registers must have positive integer number of qubits. "
-                             f"n_qubits_per_link = {n_qubits_per_link}\nn_qubits_per_vertex = {n_qubits_per_vertex}.")
+        if n_qubits_per_vertex < 0:
+            raise ValueError("Vertex registers must have nonnegative integer number of qubits. "
+                             f"n_qubits_per_vertex = {n_qubits_per_vertex}.")
+
+        if n_qubits_per_link < 1:
+            raise ValueError("Link registers must have positive integer number of qubits. "
+                             f"n_qubits_per_link = {n_qubits_per_link}.")
 
     def _set_boundary_conds(self, cond_type: str):
         if cond_type != "periodic":
@@ -497,6 +501,23 @@ def test_get_link_register_keys(dims: DimensionalitySpecifier, size: int):
     print("Test passed.")
 
 
+def test_len_0_vertices_ok_for_d_3_2():
+    """
+    There is no need for vertex registers in d = 3/2.
+
+    To accomplish this, we check that it is possible to initialize the lattice
+    with vertex registers that have zero qubits.
+    """
+    lattice = LatticeRegisters(1.5, 2, n_qubits_per_link=2, n_qubits_per_vertex=0)
+    print(f"Should have created a lattice with {lattice.n_qubits_per_vertex} per vertex register. Checking...")
+    for vertex_vector in lattice.vertex_register_keys:
+        current_reg = lattice.get_vertex_register(vertex_vector)
+        assert current_reg.size == 0
+        print(f"Confirmed len({current_reg}) == 0.")
+
+    print("Test passed.")
+
+
 def run_tests():
     """
     Run tests.
@@ -527,6 +548,9 @@ def run_tests():
     test_get_link_register_keys(3, 2)
     test_get_link_register_keys(2, 4)
     test_get_link_register_keys(1.5, 16)
+    print()
+    test_len_0_vertices_ok_for_d_3_2()
+    
 
     print("All tests passed.")
 
