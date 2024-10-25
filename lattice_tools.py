@@ -136,6 +136,14 @@ class LatticeRegisters:
 
     def get_vertex_register(self, lattice_vector: LatticeVector) -> QuantumRegister:
         """Return the QuantumRegister for the vertex specified by lattice_vector."""
+        if self.boundary_conds_periodic:
+            if self.dim != 1.5:
+                lattice_vector = tuple(component % self.shape[0] for component in lattice_vector)
+            else: # Don't do anything to the vertical direction in d=3/2 since that direction is NEVER periodic!
+                lattice_vector = (lattice_vector[0] % self.shape[0], ) + lattice_vector[1:]
+        else:
+            raise NotImplementedError()
+
         return self._vertex_registers[lattice_vector]
 
     def get_link_register(self, lattice_vector: LatticeVector, unit_vector_label: LinkUnitVectorLabel) -> QuantumRegister:
@@ -173,7 +181,7 @@ class LatticeRegisters:
             unit_vector_label = abs(unit_vector_label)
 
         # Handle links on boundaries of lattice.
-        if any(component < 0 for component in lattice_vector):
+        if any(component < 0 for component in lattice_vector) or any(component > self.shape[0] for component in lattice_vector):
             # TODO implement boundary logic for periodic boundary conditions
             vertical_dir_idx = VERTICAL_DIR_LABEL - 1
             if self.dim == 1.5 and (lattice_vector[vertical_dir_idx] < 0 or lattice_vector[vertical_dir_idx] > 1):
@@ -292,7 +300,6 @@ class LatticeRegisters:
         unit_vector = tuple(sign*1 if idx == unit_vec_nonzero_component_idx else 0 for idx in range(len(self.shape)))
 
         return tuple(v_comp + u_comp for v_comp, u_comp in zip(vertex_vector, unit_vector))
-
 
 
 def test_d_3_2_lattice_initialization():
@@ -560,7 +567,28 @@ def test_add_unit_vector_to_vertex_vector():
                 expected_vector = tuple(v + u for v, u in zip(vertex_vector, negative_unit_vector))
                 print(f"Checking {vertex_vector} - dir-{link_dir} unit vector == {expected_vector}")
                 assert lattice.add_unit_vector_to_vertex_vector(vertex_vector, -link_dir) == expected_vector
-        print("Test passed.\n")
+        print("Test passed.")
+
+
+def test_get_vertex_register_pbc():
+    """Check that fetching vertex registers works with periodic boundary conditions."""
+    lattice = LatticeRegisters(2, 4)
+    print("Checking that Vertex (6, 8) fetches the register v:(2, 0) on a 2D lattice of size 4...")
+    assert lattice.get_vertex_register(lattice_vector=(6, 8)).name == "v:(2, 0)"
+
+    lattice = LatticeRegisters(1.5, 6)
+    print("Checking that Vertex (-3, 1) fetches the register v:(3, 1) on a 1.5D lattice of size 6....")
+    assert lattice.get_vertex_register(lattice_vector=(-3, 1)).name == "v:(3, 1)"
+
+    print("Checking that Vertex (1, 2) still raises a KeyError on a 1.5D lattice because of no pbc in the vertical direction...")
+    try:
+        lattice.get_vertex_register(lattice_vector=(1, 2))
+    except KeyError:
+        pass
+    else:
+        assert False
+
+    print("Tests of vertex indexing under periodic boundary conditions passed.")
 
 
 def run_tests():
@@ -597,6 +625,8 @@ def run_tests():
     test_len_0_vertices_ok_for_d_3_2()
     print()
     test_add_unit_vector_to_vertex_vector()
+    print()
+    test_get_vertex_register_pbc()
 
     print("All tests passed.")
 
