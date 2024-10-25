@@ -276,6 +276,24 @@ class LatticeRegisters:
         """
         return self._dim
 
+    def add_unit_vector_to_vertex_vector(self, vertex_vector: LatticeVector, unit_vec_dir: LinkUnitVectorLabel):
+        """
+        Return the lattice vector one site away from vertex vector in the direction unit_vec_dir.
+
+        Negative values for unit_vec_dir yield backward steps.
+        """
+        if unit_vec_dir == 0:
+            raise ValueError(f"Unit vector label must be a nonzero integer.")
+
+        sign = -1 if unit_vec_dir < 0 else 1
+        unit_vec_dir = abs(unit_vec_dir)
+        unit_vec_nonzero_component_idx = unit_vec_dir - 1
+
+        unit_vector = tuple(sign*1 if idx == unit_vec_nonzero_component_idx else 0 for idx in range(len(self.shape)))
+
+        return tuple(v_comp + u_comp for v_comp, u_comp in zip(vertex_vector, unit_vector))
+
+
 
 def test_d_3_2_lattice_initialization():
     """Check creation of lattice with string or int reps of d=3/2."""
@@ -518,6 +536,33 @@ def test_len_0_vertices_ok_for_d_3_2():
     print("Test passed.")
 
 
+def test_add_unit_vector_to_vertex_vector():
+    """Check some additions."""
+    size = 5
+    dims = [1.5, 2, 3]
+    for dim in dims:
+        print(f"Testing {dim}D lattice vector addition...")
+        lattice = LatticeRegisters(dim, 5)
+        if dim == 1.5:
+            vertices = [(i, 0) for i in range(size)] + [(i, 1) for i in range(size)]
+        elif dim == 2:
+            vertices = [(i, j) for i, j in product(range(size), range(size))]
+        else:  # dim == 3
+            vertices = [(i, j, k) for i, j, k in product(range(size), range(size), range(size))]
+        for vertex_vector in vertices:
+            for idx, link_dir in enumerate(range(1, ceil(dim))):
+                unit_vector = tuple(1 if idx == link_dir - 1 else 0 for idx in range(ceil(dim)))
+                expected_vector = tuple(v + u for v, u in zip(vertex_vector, unit_vector))
+                print(f"Checking {vertex_vector} + dir-{link_dir} unit vector == {expected_vector}")
+                assert lattice.add_unit_vector_to_vertex_vector(vertex_vector, link_dir) == expected_vector
+
+                negative_unit_vector = tuple(-1 if idx == link_dir - 1 else 0 for idx in range(ceil(dim)))
+                expected_vector = tuple(v + u for v, u in zip(vertex_vector, negative_unit_vector))
+                print(f"Checking {vertex_vector} - dir-{link_dir} unit vector == {expected_vector}")
+                assert lattice.add_unit_vector_to_vertex_vector(vertex_vector, -link_dir) == expected_vector
+        print("Test passed.\n")
+
+
 def run_tests():
     """
     Run tests.
@@ -550,7 +595,8 @@ def run_tests():
     test_get_link_register_keys(1.5, 16)
     print()
     test_len_0_vertices_ok_for_d_3_2()
-    
+    print()
+    test_add_unit_vector_to_vertex_vector()
 
     print("All tests passed.")
 
