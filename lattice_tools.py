@@ -299,7 +299,15 @@ class LatticeRegisters:
 
         unit_vector = tuple(sign*1 if idx == unit_vec_nonzero_component_idx else 0 for idx in range(len(self.shape)))
 
-        return tuple(v_comp + u_comp for v_comp, u_comp in zip(vertex_vector, unit_vector))
+        result_vector = tuple(v_comp + u_comp for v_comp, u_comp in zip(vertex_vector, unit_vector))
+
+        if self.boundary_conds_periodic and self.dim != 1.5:
+            result_vector = tuple(comp % self.shape[0] for comp in result_vector)
+        elif self.boundary_conds_periodic:
+            # Vertical direction is NEVER periodic in d=3/2.
+            result_vector = (result_vector[0] % self.shape[0], result_vector[1])
+
+        return result_vector
 
 
 def test_d_3_2_lattice_initialization():
@@ -544,12 +552,12 @@ def test_len_0_vertices_ok_for_d_3_2():
 
 
 def test_add_unit_vector_to_vertex_vector():
-    """Check some additions."""
+    """Check some additions, assuming periodic boundary conditions."""
     size = 5
     dims = [1.5, 2, 3]
     for dim in dims:
         print(f"Testing {dim}D lattice vector addition...")
-        lattice = LatticeRegisters(dim, 5)
+        lattice = LatticeRegisters(dim, 5, boundary_conds="periodic")
         if dim == 1.5:
             vertices = [(i, 0) for i in range(size)] + [(i, 1) for i in range(size)]
         elif dim == 2:
@@ -559,12 +567,12 @@ def test_add_unit_vector_to_vertex_vector():
         for vertex_vector in vertices:
             for idx, link_dir in enumerate(range(1, ceil(dim))):
                 unit_vector = tuple(1 if idx == link_dir - 1 else 0 for idx in range(ceil(dim)))
-                expected_vector = tuple(v + u for v, u in zip(vertex_vector, unit_vector))
+                expected_vector = tuple((v + u) % size for v, u in zip(vertex_vector, unit_vector))
                 print(f"Checking {vertex_vector} + dir-{link_dir} unit vector == {expected_vector}")
                 assert lattice.add_unit_vector_to_vertex_vector(vertex_vector, link_dir) == expected_vector
 
                 negative_unit_vector = tuple(-1 if idx == link_dir - 1 else 0 for idx in range(ceil(dim)))
-                expected_vector = tuple(v + u for v, u in zip(vertex_vector, negative_unit_vector))
+                expected_vector = tuple((v + u) % size for v, u in zip(vertex_vector, negative_unit_vector))
                 print(f"Checking {vertex_vector} - dir-{link_dir} unit vector == {expected_vector}")
                 assert lattice.add_unit_vector_to_vertex_vector(vertex_vector, -link_dir) == expected_vector
         print("Test passed.")
