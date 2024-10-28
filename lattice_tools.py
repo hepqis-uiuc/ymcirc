@@ -38,6 +38,26 @@ class Plaquette:
             raise ValueError("There should be exactly 4 vertices and 4 links in a Plaquette, "
                              f"but encountered {len(self.link_registers)} links and {len(self.vertex_registers)} vertices.")
 
+    def get_registers_in_local_hamiltonian_order(self):
+        """
+        Return the link and vertex registers in a list ordered according to the local Hamiltonian.
+
+        Plaquette local basis states are assumed to take the form:
+
+        |v1 v2 v3 v4 l1 l2 l3 l4>
+        
+        according to the layout:
+
+        v4 ----l3--- v3
+        |            |
+        |            |
+        l4           l2
+        |            |
+        |            |
+        v1 ----l1--- v2
+        """
+        return self.vertex_registers + self.link_registers
+
 
 class LatticeRegisters:
     """
