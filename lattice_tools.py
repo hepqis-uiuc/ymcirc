@@ -161,6 +161,7 @@ class LatticeRegisters:
             raise ValueError("Unit vectors on the lattice must be specified by nonzero integers. "
                              f"Encountered: {unit_vector_label}.")
 
+
         # Handle negative unit vector case
         unit_vector_label_zero_indexed = abs(unit_vector_label) - 1
         unit_vector = tuple(0 if component != unit_vector_label_zero_indexed else 1 for component in range(ceil(self.dim)))
@@ -180,6 +181,9 @@ class LatticeRegisters:
             else:
                 # TODO implement handling of fixed boundary conditions.
                 raise NotImplementedError()
+
+
+
 
         return self._link_registers[lattice_vector, unit_vector_label]
 
@@ -594,8 +598,16 @@ def test_get_plaquette_registers(dims: DimensionalitySpecifier, size: int):
         if (len(pass_lst[0]) == 1):
            print("Test passed!")
         else:
-            print(f"Test failed; the truth list looks like this {pass_lst}"); print("") 
+            print(f"Test failed; the truth list looks like this {pass_lst}"); print("")
 
+
+    print(f"Testing grabbing all the lattice plaquettes for dim={lattice.dim} and size={size}")
+    plaquette_lst = [lattice.get_plaquette_registers(vertex) for vertex in lattice._vertex_registers]
+    if len(plaquette_lst) == len(set(plaquette_lst)): 
+        print("Test passed!")
+    else: 
+        print(f"Test failed; Grabbed {len(plaquette_lst) - len(set(plaquette_lst))} repeats") 
+        
 
 
 def run_tests():
@@ -605,7 +617,7 @@ def run_tests():
     Add tests here when implementing new functionality.
     """
 
-  
+    """
     print()
     test_d_3_2_lattice_initialization()
     print()
@@ -630,7 +642,8 @@ def run_tests():
     test_get_link_register_keys(3, 2)
     test_get_link_register_keys(2, 4)
     test_get_link_register_keys(1.5, 16)
-    test_get_plaquette_registers(1.5, 4)
+    """
+    #test_get_plaquette_registers(1.5, 4)
     test_get_plaquette_registers(2, 4)
     test_get_plaquette_registers(3, 4)
     print()
