@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from qiskit.circuit import QuantumRegister  # type: ignore
 from itertools import product
 from typing import List, Tuple, Dict, Union, Set
+from numpy import sign
 
 # Type aliases and constants.
 LatticeVector = Union[List[int], Tuple[int, ...]]
@@ -182,6 +183,12 @@ class LatticeRegisters:
 
         return self._link_registers[lattice_vector, unit_vector_label]
 
+
+    def add_unit_vector_to_vertex_vector(self, lattice_vector: LatticeVector, unit_vector_label: LinkUnitVectorLabel) -> LatticeVector:
+        unit_tuple = tuple([int(unit_vector_label/abs(unit_vector_label)) if (abs(unit_vector_label))==i else 0 for i in range(1,ceil(self.dim)+1)])
+        return tuple(map(sum,zip(lattice_vector, unit_tuple)))
+
+
     def get_plaquette_registers(self, lattice_vector: LatticeVector,
                                 e1: Union[LinkUnitVectorLabel, None] = None,
                                 e2: Union[LinkUnitVectorLabel, None] = None
@@ -197,8 +204,55 @@ class LatticeRegisters:
         manually specifying the plane of a specific plaquette.
 
         Return plaquettes will all have lattice_vector as the "bottom-left" vertex.
+
         """
-        raise NotImplementedError()
+
+        """
+        Define function to retuurn a single plaquette. Treats inputted lattice vector as the bottom left vector and moves CCW
+
+        """
+
+        def get_single_plaquette(self, lattice_vector: LatticeVector,
+                                e1: LinkUnitVectorLabel,
+                                e2: LinkUnitVectorLabel
+                                ) -> Plaquette:
+
+            single_plaquette: Plaquette
+            plaquette_vertices: list[LatticeVector]
+
+            """ Converts (e1, e2) into unit vectors tuples to add to the lattice vectors """
+
+            v1 = lattice_vector
+            v2 = self.add_unit_vector_to_vertex_vector(v1, e1)
+            v3 = self.add_unit_vector_to_vertex_vector(v2, e2)
+            v4 = self.add_unit_vector_to_vertex_vector(v3, -e1)
+
+            link_regs = [self.get_link_register(v1, e1), self.get_link_register(v2, e2), self.get_link_register(v3, -e1), self.get_link_register(v4, -e2)]
+
+            single_plaquette = Plaquette(link_regs, [v1, v2, v3, v4], v1, (e1, e2))
+
+            return single_plaquette
+
+
+        if (e1 == None and e2 == None):
+            """
+            return plaquettes spanned by positive edges. For d=3, units vectors are specifically chosen such that lattice vector is at the bottom left (as required by single_plaquette) 
+            """
+            if (self.dim == 1.5 or self.dim == 2.0):
+                return get_single_plaquette(self,lattice_vector, 1, 2)
+            else:
+                return [get_single_plaquette(self,lattice_vector, 2, 3), get_single_plaquette(self,lattice_vector, 1, 3), get_single_plaquette(self,lattice_vector, 2, 1)]
+
+        elif ((e1 and e2) is None or abs(e1) not in list(range(1,ceil(self.dim)+1)) or abs(e2) not in list(range(1,ceil(self.dim)+1))):
+            raise ValueError("To specify a single plaquette, both inputted edges have to be valid unit vector labels for the given dimension")
+        elif (abs(e1) == abs(e2)):
+            raise ValueError(f"The inputted edges e1:{e1} and e2:{e2} are not orthogonal and do not span a plaquette")
+        else:
+            """
+            May needs to be changed, but for now, collects vertices and links in order in a CCW fashion
+            """
+            return get_single_plaquette(self, lattice_vector, e1, e2)
+            
 
     def apply_trotter_step(self, evol_type: str = 'both'):
         """
@@ -497,12 +551,61 @@ def test_get_link_register_keys(dims: DimensionalitySpecifier, size: int):
     print("Test passed.")
 
 
+def test_plaquette_equivalence(plaquette1: Plaquette, plaquette2: Plaquette) -> list[bool] :
+    plaq_equal = plaquette1.link_registers == plaquette2.link_registers
+    vertex_equal = plaquette1.vertex_registers == plaquette2.vertex_registers
+    bottom_left_equal = plaquette1.bottom_left_vertex == plaquette2.bottom_left_vertex
+    plane_equal = plaquette1.plane == plaquette2.plane
+
+    if (plaq_equal and vertex_equal and bottom_left_equal and plane_equal): return [True]
+    else: return [plaq_equal, vertex_equal, bottom_left_equal, plane_equal]
+
+def test_get_plaquette_registers(dims: DimensionalitySpecifier, size: int):
+    # Construct lattice register
+    lattice = LatticeRegisters(
+        dim=dims, size=size, n_qubits_per_link=4, n_qubits_per_vertex=1)
+
+    vectorlabels = list(range(1,ceil(dims)+1))
+
+    # Grab a single plaquette from the origin. 
+    plaquette_origin_xy = lattice.get_plaquette_registers(ceil(dims)*(0,), 1, 2)
+
+    expected_v1 = ceil(dims)*(0,)
+    expected_v2 = lattice.add_unit_vector_to_vertex_vector(ceil(dims)*(0,), 1)
+    expected_v3 = lattice.add_unit_vector_to_vertex_vector(expected_v2, 2)
+    expected_v4 = lattice.add_unit_vector_to_vertex_vector(expected_v3, -1)
+    expected_link_regs = [lattice.get_link_register(expected_v1, 1), lattice.get_link_register(expected_v2, 2), lattice.get_link_register(expected_v3, -1), lattice.get_link_register(expected_v4, -2)]
+
+    expected_plaquette = Plaquette(expected_link_regs, [expected_v1, expected_v2, expected_v3, expected_v4], ceil(dims)*(0,), (1,2))
+
+    print(f"Testing grabbing the origin plaquette spanned by e_x and e_y for dim={lattice.dim}")
+    pass_lst = test_plaquette_equivalence(expected_plaquette, plaquette_origin_xy)
+    if (len(pass_lst) == 1): 
+        print("Test passed!")
+    else: 
+        print(f"Test failed; the truth list looks like this {pass_lst}"); print("")
+
+
+    # Grab the positive plaquettes. Only need to test for d=3 
+    print(f"Testing grabbing all positive plaquettes for dim={lattice.dim}")
+    if (lattice.dim == 3):
+        expected_pos_plaqs = [lattice.get_plaquette_registers(ceil(dims)*(0,), 2, 3), lattice.get_plaquette_registers(ceil(dims)*(0,), 1, 3), lattice.get_plaquette_registers(ceil(dims)*(0,), 2, 1)]
+        pass_lst = list(map(test_plaquette_equivalence, lattice.get_plaquette_registers(ceil(dims)*(0,)), expected_pos_plaqs))
+        if (len(pass_lst[0]) == 1):
+           print("Test passed!")
+        else:
+            print(f"Test failed; the truth list looks like this {pass_lst}"); print("") 
+
+
+
 def run_tests():
     """
     Run tests.
 
     Add tests here when implementing new functionality.
     """
+
+  
     print()
     test_d_3_2_lattice_initialization()
     print()
@@ -527,7 +630,10 @@ def run_tests():
     test_get_link_register_keys(3, 2)
     test_get_link_register_keys(2, 4)
     test_get_link_register_keys(1.5, 16)
-
+    test_get_plaquette_registers(1.5, 4)
+    test_get_plaquette_registers(2, 4)
+    test_get_plaquette_registers(3, 4)
+    print()
     print("All tests passed.")
 
 
