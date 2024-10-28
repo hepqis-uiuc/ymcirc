@@ -39,6 +39,26 @@ class Plaquette:
             raise ValueError("There should be exactly 4 vertices and 4 links in a Plaquette, "
                              f"but encountered {len(self.link_registers)} links and {len(self.vertex_registers)} vertices.")
 
+    def get_registers_in_local_hamiltonian_order(self):
+        """
+        Return the link and vertex registers in a list ordered according to the local Hamiltonian.
+
+        Plaquette local basis states are assumed to take the form:
+
+        |v1 v2 v3 v4 l1 l2 l3 l4>
+        
+        according to the layout:
+
+        v4 ----l3--- v3
+        |            |
+        |            |
+        l4           l2
+        |            |
+        |            |
+        v1 ----l1--- v2
+        """
+        return self.vertex_registers + self.link_registers
+
 
 class LatticeRegisters:
     """
@@ -72,9 +92,13 @@ class LatticeRegisters:
             raise ValueError("Lattice must have at least two vertices in each "
                              f"dimension. A size = {size} doesn't make sense.")
 
-        if n_qubits_per_link < 1 or n_qubits_per_vertex < 1:
-            raise ValueError("Link and vertex registers must have positive integer number of qubits. "
-                             f"n_qubits_per_link = {n_qubits_per_link}\nn_qubits_per_vertex = {n_qubits_per_vertex}.")
+        if n_qubits_per_vertex < 0:
+            raise ValueError("Vertex registers must have nonnegative integer number of qubits. "
+                             f"n_qubits_per_vertex = {n_qubits_per_vertex}.")
+
+        if n_qubits_per_link < 1:
+            raise ValueError("Link registers must have positive integer number of qubits. "
+                             f"n_qubits_per_link = {n_qubits_per_link}.")
 
     def _set_boundary_conds(self, cond_type: str):
         if cond_type != "periodic":
@@ -133,6 +157,14 @@ class LatticeRegisters:
 
     def get_vertex_register(self, lattice_vector: LatticeVector) -> QuantumRegister:
         """Return the QuantumRegister for the vertex specified by lattice_vector."""
+        if self.boundary_conds_periodic:
+            if self.dim != 1.5:
+                lattice_vector = tuple(component % self.shape[0] for component in lattice_vector)
+            else: # Don't do anything to the vertical direction in d=3/2 since that direction is NEVER periodic!
+                lattice_vector = (lattice_vector[0] % self.shape[0], ) + lattice_vector[1:]
+        else:
+            raise NotImplementedError()
+
         return self._vertex_registers[lattice_vector]
 
     def get_link_register(self, lattice_vector: LatticeVector, unit_vector_label: LinkUnitVectorLabel) -> QuantumRegister:
@@ -171,7 +203,7 @@ class LatticeRegisters:
             unit_vector_label = abs(unit_vector_label)
 
         # Handle links on boundaries of lattice.
-        if any(component < 0 for component in lattice_vector):
+        if any(component < 0 for component in lattice_vector) or any(component > self.shape[0] for component in lattice_vector):
             # TODO implement boundary logic for periodic boundary conditions
             vertical_dir_idx = VERTICAL_DIR_LABEL - 1
             if self.dim == 1.5 and (lattice_vector[vertical_dir_idx] < 0 or lattice_vector[vertical_dir_idx] > 1):
@@ -187,10 +219,6 @@ class LatticeRegisters:
 
         return self._link_registers[lattice_vector, unit_vector_label]
 
-
-    def add_unit_vector_to_vertex_vector(self, lattice_vector: LatticeVector, unit_vector_label: LinkUnitVectorLabel) -> LatticeVector:
-        unit_tuple = tuple([int(unit_vector_label/abs(unit_vector_label)) if (abs(unit_vector_label))==i else 0 for i in range(1,ceil(self.dim)+1)])
-        return tuple(map(sum,zip(lattice_vector, unit_tuple)))
 
 
     def get_plaquette_registers(self, lattice_vector: LatticeVector,
@@ -329,6 +357,31 @@ class LatticeRegisters:
         or the float 1.5 for the 'd=3/2' case.
         """
         return self._dim
+
+    def add_unit_vector_to_vertex_vector(self, vertex_vector: LatticeVector, unit_vec_dir: LinkUnitVectorLabel):
+        """
+        Return the lattice vector one site away from vertex vector in the direction unit_vec_dir.
+
+        Negative values for unit_vec_dir yield backward steps.
+        """
+        if unit_vec_dir == 0:
+            raise ValueError(f"Unit vector label must be a nonzero integer.")
+
+        sign = -1 if unit_vec_dir < 0 else 1
+        unit_vec_dir = abs(unit_vec_dir)
+        unit_vec_nonzero_component_idx = unit_vec_dir - 1
+
+        unit_vector = tuple(sign*1 if idx == unit_vec_nonzero_component_idx else 0 for idx in range(len(self.shape)))
+
+        result_vector = tuple(v_comp + u_comp for v_comp, u_comp in zip(vertex_vector, unit_vector))
+
+        if self.boundary_conds_periodic and self.dim != 1.5:
+            result_vector = tuple(comp % self.shape[0] for comp in result_vector)
+        elif self.boundary_conds_periodic:
+            # Vertical direction is NEVER periodic in d=3/2.
+            result_vector = (result_vector[0] % self.shape[0], result_vector[1])
+
+        return result_vector
 
 
 def test_d_3_2_lattice_initialization():
@@ -608,6 +661,69 @@ def test_get_plaquette_registers(dims: DimensionalitySpecifier, size: int):
     else: 
         print(f"Test failed; Grabbed {len(plaquette_lst) - len(set(plaquette_lst))} repeats") 
         
+def test_len_0_vertices_ok_for_d_3_2():
+    """
+    There is no need for vertex registers in d = 3/2.
+
+    To accomplish this, we check that it is possible to initialize the lattice
+    with vertex registers that have zero qubits.
+    """
+    lattice = LatticeRegisters(1.5, 2, n_qubits_per_link=2, n_qubits_per_vertex=0)
+    print(f"Should have created a lattice with {lattice.n_qubits_per_vertex} per vertex register. Checking...")
+    for vertex_vector in lattice.vertex_register_keys:
+        current_reg = lattice.get_vertex_register(vertex_vector)
+        assert current_reg.size == 0
+        print(f"Confirmed len({current_reg}) == 0.")
+
+    print("Test passed.")
+
+
+def test_add_unit_vector_to_vertex_vector():
+    """Check some additions, assuming periodic boundary conditions."""
+    size = 5
+    dims = [1.5, 2, 3]
+    for dim in dims:
+        print(f"Testing {dim}D lattice vector addition...")
+        lattice = LatticeRegisters(dim, 5, boundary_conds="periodic")
+        if dim == 1.5:
+            vertices = [(i, 0) for i in range(size)] + [(i, 1) for i in range(size)]
+        elif dim == 2:
+            vertices = [(i, j) for i, j in product(range(size), range(size))]
+        else:  # dim == 3
+            vertices = [(i, j, k) for i, j, k in product(range(size), range(size), range(size))]
+        for vertex_vector in vertices:
+            for idx, link_dir in enumerate(range(1, ceil(dim))):
+                unit_vector = tuple(1 if idx == link_dir - 1 else 0 for idx in range(ceil(dim)))
+                expected_vector = tuple((v + u) % size for v, u in zip(vertex_vector, unit_vector))
+                print(f"Checking {vertex_vector} + dir-{link_dir} unit vector == {expected_vector}")
+                assert lattice.add_unit_vector_to_vertex_vector(vertex_vector, link_dir) == expected_vector
+
+                negative_unit_vector = tuple(-1 if idx == link_dir - 1 else 0 for idx in range(ceil(dim)))
+                expected_vector = tuple((v + u) % size for v, u in zip(vertex_vector, negative_unit_vector))
+                print(f"Checking {vertex_vector} - dir-{link_dir} unit vector == {expected_vector}")
+                assert lattice.add_unit_vector_to_vertex_vector(vertex_vector, -link_dir) == expected_vector
+        print("Test passed.")
+
+
+def test_get_vertex_register_pbc():
+    """Check that fetching vertex registers works with periodic boundary conditions."""
+    lattice = LatticeRegisters(2, 4)
+    print("Checking that Vertex (6, 8) fetches the register v:(2, 0) on a 2D lattice of size 4...")
+    assert lattice.get_vertex_register(lattice_vector=(6, 8)).name == "v:(2, 0)"
+
+    lattice = LatticeRegisters(1.5, 6)
+    print("Checking that Vertex (-3, 1) fetches the register v:(3, 1) on a 1.5D lattice of size 6....")
+    assert lattice.get_vertex_register(lattice_vector=(-3, 1)).name == "v:(3, 1)"
+
+    print("Checking that Vertex (1, 2) still raises a KeyError on a 1.5D lattice because of no pbc in the vertical direction...")
+    try:
+        lattice.get_vertex_register(lattice_vector=(1, 2))
+    except KeyError:
+        pass
+    else:
+        assert False
+
+    print("Tests of vertex indexing under periodic boundary conditions passed.")
 
 
 def run_tests():
@@ -647,6 +763,13 @@ def run_tests():
     test_get_plaquette_registers(2, 4)
     test_get_plaquette_registers(3, 4)
     print()
+    print()
+    test_len_0_vertices_ok_for_d_3_2()
+    print()
+    test_add_unit_vector_to_vertex_vector()
+    print()
+    test_get_vertex_register_pbc()
+
     print("All tests passed.")
 
 
