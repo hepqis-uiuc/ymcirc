@@ -37,6 +37,12 @@ class Plaquette:
         if len(self.link_registers) != 4 or len(self.vertex_registers) != 4:
             raise ValueError("There should be exactly 4 vertices and 4 links in a Plaquette, "
                              f"but encountered {len(self.link_registers)} links and {len(self.vertex_registers)} vertices.")
+        if not (any(isinstance(reg, QuantumRegister) for reg in self.link_registers)) or \
+           not (any(isinstance(reg, QuantumRegister) for reg in self.vertex_registers)):
+            raise ValueError(
+                "Plaquette.vertex_registers and Plaquette.link_registers should be lists of QuantumRegister."
+                f" Encountered:\nvertex_registers = {self.vertex_registers}\nlink_registers = {self.link_registers}"
+            )
 
     def get_registers_in_local_hamiltonian_order(self):
         """
@@ -45,7 +51,7 @@ class Plaquette:
         Plaquette local basis states are assumed to take the form:
 
         |v1 v2 v3 v4 l1 l2 l3 l4>
-        
+
         according to the layout:
 
         v4 ----l3--- v3
@@ -159,7 +165,7 @@ class LatticeRegisters:
         if self.boundary_conds_periodic:
             if self.dim != 1.5:
                 lattice_vector = tuple(component % self.shape[0] for component in lattice_vector)
-            else: # Don't do anything to the vertical direction in d=3/2 since that direction is NEVER periodic!
+            else:  # Don't do anything to the vertical direction in d=3/2 since that direction is NEVER periodic!
                 lattice_vector = (lattice_vector[0] % self.shape[0], ) + lattice_vector[1:]
         else:
             raise NotImplementedError()
@@ -214,15 +220,55 @@ class LatticeRegisters:
 
         return self._link_registers[lattice_vector, unit_vector_label]
 
-    def get_plaquette_registers(self, lattice_vector: LatticeVector,
-                                e1: Union[LinkUnitVectorLabel, None] = None,
-                                e2: Union[LinkUnitVectorLabel, None] = None
-                                ) -> Plaquette | List[Plaquette]:
+    def _get_single_plaquette(
+            self,
+            lattice_vector: LatticeVector,
+            e1: LinkUnitVectorLabel,
+            e2: LinkUnitVectorLabel
+    ) -> Plaquette:
+        """Convert (e1, e2) into unit vectors tuples to add to the lattice vectors."""
+        # Sanity checks.
+        e1_out_of_range = abs(e1) not in list(range(1, ceil(self.dim) + 1))
+        e2_out_of_range = abs(e2) not in list(range(1, ceil(self.dim) + 1))
+        if e1_out_of_range or e2_out_of_range:
+            raise ValueError(
+                f"To specify a single plaquette, e1 and e2 have to be valid unit vector labels. For the given dimension self.dim = {self.dim}, must be an int between 1 and {self.dim + 1}.\n"
+                f"Got: e1 = {e1}, e2 = {e2}."
+            )
+        if abs(e1) == abs(e2):
+            raise ValueError(f"The inputted edges e1:{e1} and e2:{e2} are not orthogonal and do not span a plaquette.")
+
+        # Collect vertices and links.
+        vertices_ccw = [lattice_vector]
+        for step in [e1, e2, -e1]:
+            vertices_ccw.append(self.add_unit_vector_to_vertex_vector(vertices_ccw[-1], step))
+        link_steps_ccw = [e1, e2, -e1, -e2]
+        vertex_regs = [self.get_vertex_register(v) for v in vertices_ccw]
+        link_regs = [self.get_link_register(v, l) for v, l in zip(vertices_ccw, link_steps_ccw)]
+
+        return Plaquette(
+            link_registers=link_regs,
+            vertex_registers=vertex_regs,
+            bottom_left_vertex=vertices_ccw[0],
+            plane=(e1, e2))
+
+    def get_plaquette_registers(
+            self,
+            lattice_vector: LatticeVector,
+            e1: Union[LinkUnitVectorLabel, None] = None,
+            e2: Union[LinkUnitVectorLabel, None] = None
+    ) -> Plaquette | List[Plaquette]:
         """
         Return the list of all "positive" Plaquettes associated with the vertex lattice_vector.
 
         The "positivity" convention is that the list of returned plaquettes corresponds to those
         defined by all pairs of orthogonal positive unit vectors at the vertex lattice_vector.
+        Conventionally, the "lower" dimension labels the first element of the tuples
+        representing planes, and the plaquettes are sorted.
+
+        Examples:
+          - d = 3 has planes labeled by (1, 2), (1, 3), and (2, 3).
+          - d = 4 has planes labeled by (1, 2), (1, 3), (1, 4), (2, 3), (2, 4), and (3, 4).
 
         If a particular plaquette is desired, this can be specified by either providing the
         link unit vector directions e1 and e2 to defining a plane. Sign is ignored when
@@ -230,7 +276,24 @@ class LatticeRegisters:
 
         Return plaquettes will all have lattice_vector as the "bottom-left" vertex.
         """
-        raise NotImplementedError()
+        # A definition of convenience.
+        only_one_link_given = (e1 is None or e2 is None) and (e1 != e2)
+
+        if isinstance(e1, int) and isinstance(e2, int):  # Case where both link directions are provided.
+            return self._get_single_plaquette(lattice_vector, e1, e2)
+        elif only_one_link_given:  # Nonsense case.
+            raise ValueError(
+                "Provide no link directions to get all Plaquettes at a vertex, or exactly two link directions "
+                f"to get one particular Plaquette. Received e1={e1} and e2={e2}."
+            )
+        else:  # Case where no link directions provided, need to construct ALL plaquettes.
+            if (self.dim == 1.5 or self.dim == 2):  # Only one plaquette for these geometries.
+                return self._get_single_plaquette(lattice_vector, 1, 2)
+            elif self.dim > 2:  # Generic case with multiple planes.
+                set_of_planes = set((i, j) if i < j else None for i, j in product(range(1, ceil(self.dim + 1)), range(1, ceil(self.dim + 1))))
+                not_none_lambda = lambda x: not x is None
+                all_planes = sorted(list(filter(not_none_lambda, set_of_planes)))  # Need to strip out a spurious None
+                return [self._get_single_plaquette(lattice_vector, plane[0], plane[1]) for plane in all_planes]            
 
     def apply_trotter_step(self, evol_type: str = 'both'):
         """
@@ -554,6 +617,90 @@ def test_get_link_register_keys(dims: DimensionalitySpecifier, size: int):
     print("Test passed.")
 
 
+def helper_test_plaquette_equivalence(plaquette1: Plaquette, plaquette2: Plaquette) -> list[bool]:
+    """Helper to check that two plaquettes are equal."""
+    plaq_equal = plaquette1.link_registers == plaquette2.link_registers
+    vertex_equal = plaquette1.vertex_registers == plaquette2.vertex_registers
+    bottom_left_equal = plaquette1.bottom_left_vertex == plaquette2.bottom_left_vertex
+    plane_equal = plaquette1.plane == plaquette2.plane
+
+    if (plaq_equal and vertex_equal and bottom_left_equal and plane_equal):
+        return [True]
+    else:
+        return [plaq_equal, vertex_equal, bottom_left_equal, plane_equal]
+
+
+def test_plaquette_value_error_for_non_register_input():
+    print("Check that creating a Plaquette with non-register input fails.")
+    try:
+        Plaquette(link_registers=[1, 2, 3, 4], vertex_registers=[QuantumRegister(0) for _ in range(4)], bottom_left_vertex=(0, 0, 0), plane=(1, 2))
+        Plaquette(link_registers=[QuantumRegister(0) for _ in range(4)], vertex_registers=[1, 2, 3, 4], bottom_left_vertex=(0, 0, 0), plane=(1, 2))
+    except ValueError:
+        pass
+    else:
+        assert False
+    print("Test passed.")
+
+
+def test_get_plaquette_registers(dims: DimensionalitySpecifier, size: int):
+    # Construct lattice register
+    lattice = LatticeRegisters(
+        dim=dims, size=size, n_qubits_per_link=4, n_qubits_per_vertex=1)
+
+    origin = ceil(dims)*(0,)
+
+    # Grab a single plaquette from the origin. 
+    plaquette_origin_xy = lattice.get_plaquette_registers(origin, 1, 2)
+
+    # Construct the expected plaquette
+    expected_steps_ccw = [1, 2, -1, -2]
+    expected_vertices_ccw = [origin]
+    for step in expected_steps_ccw[:-1]:
+        expected_vertices_ccw.append(lattice.add_unit_vector_to_vertex_vector(expected_vertices_ccw[-1], unit_vec_dir=step))
+    expected_vertex_regs = [lattice.get_vertex_register(v) for v in expected_vertices_ccw]
+    expected_link_regs = [lattice.get_link_register(v, l) for v, l in zip(expected_vertices_ccw, expected_steps_ccw)]
+    expected_plaquette = Plaquette(expected_link_regs, expected_vertex_regs, origin, (1, 2))
+
+    print(f"Testing grabbing the origin plaquette spanned by e_x and e_y for dim={lattice.dim}")
+    pass_lst = helper_test_plaquette_equivalence(expected_plaquette, plaquette_origin_xy)
+    print(f"The truth list looks like this {pass_lst}\n")
+    assert len(pass_lst) == 1
+    print("Test passed!")
+
+    # Grab the positive plaquettes. Only need to test for d=3.
+    print(f"Testing grabbing all positive plaquettes for dim={lattice.dim}")
+    if lattice.dim == 3:
+        expected_pos_plaqs = [lattice.get_plaquette_registers(origin, 1, 2), lattice.get_plaquette_registers(origin, 1, 3), lattice.get_plaquette_registers(origin, 2, 3)]
+        pass_lst = list(map(helper_test_plaquette_equivalence, lattice.get_plaquette_registers(origin), expected_pos_plaqs))
+        print(f"The truth list looks like this {pass_lst}\n")
+        assert len(pass_lst[0]) == 1
+        print("Test passed!")
+
+    # Now we check that we don't miss any registers when building plaquettes for the whole lattice.
+    print(f"Testing grabbing all the lattice plaquettes for dim={lattice.dim} and size={size}.")
+    print("The set of names of all registers across all plaquettes should match the set of names of all vertex and link registers in the lattice.")
+    plaquette_lst = []
+    for vertex_vector in lattice.vertex_register_keys:
+        if vertex_vector[VERTICAL_DIR_LABEL - 1] > 0 and lattice.dim == 1.5:
+            continue
+        plaquette_lst.append(lattice.get_plaquette_registers(vertex_vector))
+
+    if lattice.dim > 2:
+        # Need to flatten plaquette list in this case.
+        plaquette_lst = [plaquette for plaquette_group in plaquette_lst for plaquette in plaquette_group]
+
+    lattice_all_vertex_names = set(reg.name for reg in lattice._vertex_registers.values())
+    lattice_all_link_names = set(reg.name for reg in lattice._link_registers.values())
+    for plaquette in plaquette_lst:
+        print("Here is a plaquette: ", plaquette)
+        for vertex_reg in plaquette.vertex_registers:
+            print("Here is a vertex register: ", vertex_reg)
+            assert vertex_reg.name in lattice_all_vertex_names
+        for link_reg in plaquette.link_registers:
+            assert link_reg.name in lattice_all_link_names
+    print("Test passed!")
+
+
 def test_len_0_vertices_ok_for_d_3_2():
     """
     There is no need for vertex registers in d = 3/2.
@@ -649,6 +796,10 @@ def run_tests():
     test_get_link_register_keys(3, 2)
     test_get_link_register_keys(2, 4)
     test_get_link_register_keys(1.5, 16)
+    test_plaquette_value_error_for_non_register_input()
+    test_get_plaquette_registers(1.5, 4)
+    test_get_plaquette_registers(2, 4)
+    test_get_plaquette_registers(3, 4)
     print()
     test_len_0_vertices_ok_for_d_3_2()
     print()
