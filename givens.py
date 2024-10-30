@@ -1,15 +1,13 @@
 # Cianan Conefrey-Shinozaki
 # Oct 2024
 
-import numpy as np
-import qiskit as qs
-import random
-from random import random
+
 from qiskit import QuantumCircuit, QuantumRegister, AncillaRegister
 from qiskit.circuit.library import YGate, XGate
 from qiskit.circuit.library.standard_gates import RYGate, RXGate
 from qiskit.circuit import Parameter
-import time
+from qiskit.quantum_info import Operator
+
 
 def givens(bit_string_1: str, bit_string_2: str, angle: float, reverse: bool = False) -> QuantumCircuit:
     """
@@ -23,7 +21,7 @@ def givens(bit_string_1: str, bit_string_2: str, angle: float, reverse: bool = F
     bit_string_2_reversed = bit_string_2[::-1]
 
     if len(bit_string_1) != len(bit_string_2):
-        raise ValueError('bit_string_s must be the same length')
+        raise ValueError('bitstrings must be the same length')
 
     num_qubits = len(bit_string_1)
     
@@ -41,7 +39,7 @@ def givens(bit_string_1: str, bit_string_2: str, angle: float, reverse: bool = F
     
 
     # This tells the later controls what value to control on
-    ctrl_val = 0 if bit_string_1_reversed[target] == "1" else 0
+    ctrl_val = 0 if bit_string_1_reversed[target] == "1" else 1
     
     
     ctrls = list(range(0,num_qubits))
@@ -79,12 +77,17 @@ def givens(bit_string_1: str, bit_string_2: str, angle: float, reverse: bool = F
     #Xcirc.draw()
 
 def test_givens():
-#    theta = random()
-#    test_circ_A = QuantumCircuit(1)
-#    test_circ_A.rx(theta,0)#
-
-#    test_circ_B = givens('1','0',theta)
-#    test_circ_B.soft_compare()
+    test_circ = QuantumCircuit(2)
+    test_circ.cx(control_qubit = 1, target_qubit = 0, ctrl_state = "1")
+    test_circ.append(
+        RXGate(1).control(ctrl_state = "1"),
+        [0,1]
+    )
+    test_circ.cx(control_qubit = 1, target_qubit = 0, ctrl_state = "1")
+    
+    op_test = Operator(test_circ)
+    op_given = givens('01','10',1)
+    assert op_test.equiv(op_given), "Failed first test"
 
 if __name__ == "__main__":
     test_givens()
