@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from qiskit.circuit import QuantumRegister  # type: ignore
 from itertools import product
 from typing import List, Tuple, Dict, Union, Set
+from conventions import IrrepBitmap, VertexMultiplicityBitmap
 
 # Type aliases and constants.
 LatticeVector = Union[List[int], Tuple[int, ...]]
@@ -72,19 +73,45 @@ class LatticeRegisters:
     Each link and vertex is assigned a unique register. The size tuple counts
     the number of vertex registers in each dimension of a (hyper)-rectangular
     lattice.
+
+    Defaults to 1 qubit per link and 0 per vertex.
+
+    If bitstring maps
+    link_truncation_dict and/or vertex_singlet_dict are provided,
+    the corresponding argument n_qubits_per_link and n_qubits_per_vertex
+    are ignored, and qubit requirements are inferred based on the length
+    of the bitstrings in the corresponding dict(s).
     """
 
     def __init__(
             self, dim: DimensionalitySpecifier,
             size: int,
             n_qubits_per_link: int = 1,
-            n_qubits_per_vertex: int = 1,
+            n_qubits_per_vertex: int = 0,
+            link_truncation_dict: Union[IrrepBitmap, None] = None,
+            vertex_singlet_dict: Union[VertexMultiplicityBitmap, None] = None,
             boundary_conds: str = "periodic"):
         """Initialize all registers needed to simulate the lattice."""
+        # Infer qubit requirements if bit mappings provided
+        if link_truncation_dict is not None:
+            all_bitstring_encodings = list(link_truncation_dict.values())
+            n_qubits_per_link = 0 if len(all_bitstring_encodings) == 0 else len(all_bitstring_encodings[0])  # For an empty bit map, there are no states to encode.
+        if vertex_singlet_dict is not None:
+            all_bitstring_encodings = list(vertex_singlet_dict.values())
+            n_qubits_per_vertex = 0 if len(all_bitstring_encodings) == 0 else len(all_bitstring_encodings[0])  # For an empty bit map, there are no states to encode.
+
         self._validate_input(
-            dim, size, n_qubits_per_link, n_qubits_per_vertex, boundary_conds)
+            dim,
+            size,
+            n_qubits_per_link,
+            n_qubits_per_vertex,
+            link_truncation_dict,
+            vertex_singlet_dict,
+            boundary_conds
+        )
         self._set_boundary_conds(cond_type=boundary_conds)
         self._configure_lattice(dim, size)
+
         self._initialize_qubit_registers(n_qubits_per_link, n_qubits_per_vertex)
 
     def _validate_input(self,
@@ -92,6 +119,8 @@ class LatticeRegisters:
                         size: int,
                         n_qubits_per_link: int = 1,
                         n_qubits_per_vertex: int = 1,
+                        link_truncation_dict: Union[IrrepBitmap, None] = None,
+                        vertex_singlet_dict: Union[VertexMultiplicityBitmap, None] = None,
                         boundary_conds: str = "periodic"):
         if size < 2:
             raise ValueError("Lattice must have at least two vertices in each "
@@ -104,6 +133,44 @@ class LatticeRegisters:
         if n_qubits_per_link < 1:
             raise ValueError("Link registers must have positive integer number of qubits. "
                              f"n_qubits_per_link = {n_qubits_per_link}.")
+
+        if link_truncation_dict is not None and len(link_truncation_dict) > 0:
+            self._validate_link_truncation_dict(link_truncation_dict)
+        if vertex_singlet_dict is not None and len(vertex_singlet_dict) > 0:
+            self._validate_vertex_singlet_truncation_dict(vertex_singlet_dict)
+
+    def _validate_link_truncation_dict(self, candidate_dict: IrrepBitmap):
+        # Conveniences.
+        all_link_bitstrings = list(candidate_dict.values())
+        all_link_iweights = list(candidate_dict.keys())
+        bit_length = len(all_link_bitstrings[0])
+
+        # Boolean test results.
+        bit_lengths_differ = any(len(bit_string) != bit_length for bit_string in candidate_dict.values())
+        all_values_are_strings = all(isinstance(bitstring, str) for bitstring in all_link_bitstrings)
+        all_keys_are_len_3_tuples = all(isinstance(iweight, tuple) and len(iweight) == 3 for iweight in all_link_iweights)
+
+        # Actual checks.
+        if not all_values_are_strings or not all_keys_are_len_3_tuples:
+            raise TypeError(f"Expected a dict with keys that are length-three tuples, and values that are strings. Encountered:\n{candidate_dict}")
+        if bit_lengths_differ:
+            raise ValueError(f"The values of candidate_dict must all have the same bit length. Dict values encountered:\n{list(all_link_bitstrings)}")
+
+    def _validate_vertex_singlet_truncation_dict(self, candidate_dict: VertexMultiplicityBitmap):
+        # Conveniences.
+        all_vertex_singlet_bitstrings = list(candidate_dict.values())
+        all_vertex_singlet_bag_states = list(candidate_dict.keys())
+        bit_length = len(all_vertex_singlet_bitstrings[0])
+
+        # Boolean test results.
+        bit_lengths_differ = any(len(bit_string) != bit_length for bit_string in candidate_dict.values())
+        all_values_are_strings = all(isinstance(bitstring, str) for bitstring in all_vertex_singlet_bitstrings)
+        all_keys_are_tuples_of_su3_iweights_and_int = all(len(bag) == 2 and isinstance(bag[0], tuple) and len(bag[0]) == 3 and isinstance(bag[1], int) for bag in all_vertex_singlet_bag_states)
+
+        if not all_values_are_strings or not all_keys_are_tuples_of_su3_iweights_and_int:
+            raise TypeError(f"Expected a dict with keys that are length-two tuples whose first element are themselves length-3 tuples (i-Weights), and whose second elements are integers interpreted as indexing multiplicity. Encountered:\n{candidate_dict}")
+        if bit_lengths_differ:
+            raise ValueError(f"The values of vertex_singlet_dict must all have the same bit length. Dict values encountered:\n{list(all_vertex_singlet_bitstrings)}")
 
     def _set_boundary_conds(self, cond_type: str):
         if cond_type != "periodic":
@@ -408,7 +475,7 @@ def test_d_3_2_lattice_initialization():
             assert lattice.shape == expected_shape
             assert lattice.dim == expected_dim
             assert lattice.n_qubits_per_link == 1  # Default
-            assert lattice.n_qubits_per_vertex == 1  # Default
+            assert lattice.n_qubits_per_vertex == 0  # Default
             print("Test passed.")
 
 
@@ -765,6 +832,111 @@ def test_get_vertex_register_pbc():
 
     print("Tests of vertex indexing under periodic boundary conditions passed.")
 
+def test_num_qubits_automatic_when_dicts_provided_to_lattice():
+    """Shouldn't need to provide num qubits when this can be inferred from the state encoding maps."""
+    # Case of link bitmap but no vertex bitmap
+    print("Checking that correct number of qubits can automatically be inferred from bitstring encodings when provided...")
+    irrep_trunc_dict: IrrepBitmap = {
+        (0, 0, 0): "00",
+        (1, 0, 0): "10",
+        (0, 1, 0): "01"
+    }
+    lattice = LatticeRegisters(
+        dim=2,
+        size=3,
+        link_truncation_dict=irrep_trunc_dict,
+        vertex_singlet_dict=None
+    )
+    print("Created a lattice with no vertex bitmap and the following link irrep map:\n", irrep_trunc_dict)
+    print("Expecting 2 qubits per link, and default value of 0 qubits per vertex.")
+    for vertex, edge_dir in lattice.link_register_keys:
+        assert len(lattice.get_link_register(vertex, edge_dir)) == 2
+        assert len(lattice.get_vertex_register(vertex)) == 0  # Default value
+    print("Test passed.")
+
+    # Case of vertex bitmap but no link bitmap.
+    vertex_multiplicity_bitmap: VertexMultiplicityBitmap = {
+        (((2, 1, 0,), (2, 1, 0), (2, 1, 0)), 1): "0",
+        (((2, 1, 0,), (2, 1, 0), (2, 1, 0)), 2): "1"
+    }
+    lattice = LatticeRegisters(
+        dim=2,
+        size=2,
+        vertex_singlet_dict=vertex_multiplicity_bitmap,
+        n_qubits_per_link=5
+    )
+    print("Created a lattice with no link irrep bitmap and the following vertex multiplicity bitmap:\n", vertex_multiplicity_bitmap)
+    print("Expecting 1 qubits per vertex, and manually set value of 5 qubits per link.")
+    for vertex, edge_dir in lattice.link_register_keys:
+        assert len(lattice.get_link_register(vertex, edge_dir)) == 5
+        assert len(lattice.get_vertex_register(vertex)) == 1
+    print("Test passed.")
+
+
+def test_value_error_for_link_bitmap_with_different_lengths():
+    print(
+        "Checking that creating a lattice with a link truncation bitmap that has"
+        " different length bitstrings for different irreps will raise a ValueError."
+    )
+    bad_irrep_trunc_dict: IrrepBitmap = {
+        (0, 0, 0): "001",
+        (1, 0, 0): "10",
+        (0, 1, 0): "01"
+    }
+    try:
+        LatticeRegisters(dim=2, size=3, link_truncation_dict=bad_irrep_trunc_dict)
+    except ValueError as e:
+        print(f"Test passed. Raised error: {e}")
+    else:
+        assert False
+
+def test_value_error_for_vertex_bitmap_with_different_lengths():
+    print(
+        "Checking that creating a lattice with a vertex truncation bitmap that has"
+        " different length bitstrings for various singlets will raise a ValueError."
+    )
+    bad_vertex_singlet_dict: VertexMultiplicityBitmap = {
+        (((2, 1, 0,), (2, 1, 0), (2, 1, 0)), 1): "0",
+        (((2, 1, 0,), (2, 1, 0), (2, 1, 0)), 2): "01"
+    }
+    try:
+        LatticeRegisters(dim=2, size=3, vertex_singlet_dict=bad_vertex_singlet_dict)
+    except ValueError as e:
+        print(f"Test passed. Raised error: {e}")
+    else:
+        assert False
+
+def test_type_error_for_bad_vertex_and_link_bitmap_keys():
+    print(
+        "Check that a TypeError is raise if a dict with the wrong kinds of keys is used "
+        "to try creating a LatticeRegisters instance."  
+          )
+    bad_irrep_trunc_dict: IrrepBitmap = {
+        (0, 0): "00",  # Will fail because of non length 3 tuple key.
+        (1, 0, 0): "10",
+        (0, 1, 0): "01"
+    }
+    bad_vertex_singlet_dict: VertexMultiplicityBitmap = {
+        (((2, 1, 0,), (2, 1, 0), (2, 1, 0)), 1): "0",
+        (((2, 1, 0,), (2, 1, 0), (2, 1, 0))): "1"  # Will fail because missing multiplicity int.
+    }
+    
+    try:
+        LatticeRegisters(dim=2, size=3, link_truncation_dict=bad_irrep_trunc_dict)
+    except TypeError as e:
+        print(f"Link test passed. Raised error: {e}")
+    else:
+        assert False
+        
+    try:
+        LatticeRegisters(dim=2, size=3, vertex_singlet_dict=bad_vertex_singlet_dict)
+    except TypeError as e:
+        print(f"Vertex test passed. Raised error: {e}")
+    else:
+        assert False
+    
+    
+# TODO MAKE SURE THE BITMAPS CAN BE ACCESSED VIA PROPERTIES!!!
 
 def run_tests():
     """
@@ -806,6 +978,14 @@ def run_tests():
     test_add_unit_vector_to_vertex_vector()
     print()
     test_get_vertex_register_pbc()
+    print()
+    test_num_qubits_automatic_when_dicts_provided_to_lattice()
+    print()
+    test_value_error_for_link_bitmap_with_different_lengths()
+    print()
+    test_value_error_for_vertex_bitmap_with_different_lengths()
+    print()
+    test_type_error_for_bad_vertex_and_link_bitmap_keys()
 
     print("All tests passed.")
 
