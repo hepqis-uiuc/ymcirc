@@ -1,5 +1,6 @@
 """Classes for juggling registers in quantum simulations of lattices."""
 from __future__ import annotations
+import copy
 from math import isclose, ceil
 from dataclasses import dataclass
 from qiskit.circuit import QuantumRegister  # type: ignore
@@ -111,8 +112,10 @@ class LatticeRegisters:
         )
         self._set_boundary_conds(cond_type=boundary_conds)
         self._configure_lattice(dim, size)
-
         self._initialize_qubit_registers(n_qubits_per_link, n_qubits_per_vertex)
+        self._link_truncation_dict = link_truncation_dict
+        self._vertex_singlet_dict = vertex_singlet_dict
+        
 
     def _validate_input(self,
                         dim: DimensionalitySpecifier,
@@ -407,13 +410,6 @@ class LatticeRegisters:
         """Return all of the (LatticeVector, LinkUnitVectorLabel) uniquely labeling lattice links."""
         return sorted(list(self._link_registers.keys()))
 
-    # TODO Maybe don't implement this in favor of keeping
-    # properties which return the actual internal dict keys?
-    @property
-    def link_unit_vectors(self) -> set[int]:
-        """Return all the dimension labels corresponding to positive unit vectors."""
-        raise NotImplementedError()
-
     @property
     def boundary_conds_periodic(self) -> bool:
         """Return whether the lattice has periodic boundary conditions."""
@@ -433,6 +429,20 @@ class LatticeRegisters:
         or the float 1.5 for the 'd=3/2' case.
         """
         return self._dim
+
+    @property
+    def link_truncation_bitmap(self) -> Union[IrrepBitmap, None]:
+        """
+        Return a copy of the link truncation dictionary to bitstrings, if defined.
+        """
+        return copy.deepcopy(self._link_truncation_dict)
+
+    @property
+    def vertex_singlet_bitmap(self) -> Union[VertexMultiplicityBitmap, None]:
+        """
+        Return a copy of the vertex singlet dictionary map to bitstrings, if defined.
+        """
+        return copy.deepcopy(self._vertex_singlet_dict)
 
     def add_unit_vector_to_vertex_vector(self, vertex_vector: LatticeVector, unit_vec_dir: LinkUnitVectorLabel):
         """
@@ -936,7 +946,37 @@ def test_type_error_for_bad_vertex_and_link_bitmap_keys():
         assert False
     
     
-# TODO MAKE SURE THE BITMAPS CAN BE ACCESSED VIA PROPERTIES!!!
+def test_get_bitmaps_from_lattice():
+    print("Checking return 'None' when not defined...")
+    assert LatticeRegisters(2, 3).link_truncation_bitmap is None
+    assert LatticeRegisters(2, 3).vertex_singlet_bitmap is None
+    print("Test passed.")
+
+    print("Checking that a copy of the bitmaps are returned when they are defined...")
+    irrep_trunc_dict: IrrepBitmap = {
+        (0, 0, 0): "00",
+        (1, 0, 0): "10",
+        (0, 1, 0): "01"
+    }
+    vertex_singlet_dict: VertexMultiplicityBitmap = {
+        (((2, 1, 0,), (2, 1, 0), (2, 1, 0)), 1): "0",
+        (((2, 1, 0,), (2, 1, 0), (2, 1, 0)), 1): "1"  
+    }
+    lattice = LatticeRegisters(4, 2, link_truncation_dict=irrep_trunc_dict, vertex_singlet_dict=vertex_singlet_dict)
+    print(
+        f"Should find that:\nlattice.link_truncation_bitmap == {irrep_trunc_dict}\n"
+        f"lattice.vertex_singlet_bitmap == {vertex_singlet_dict}"
+          )
+    
+    # The "==" check confirms the values of the dicts are equivalent,
+    # while the "is not" check confirms that the two dicts are copies
+    # occupying distinct portions of memory. Necessary to avoid accidentally
+    # mutating internal data in the LatticeRegisters class.
+    assert lattice._link_truncation_dict == lattice.link_truncation_bitmap and \
+        lattice._link_truncation_dict is not lattice.link_truncation_bitmap
+    assert lattice._vertex_singlet_dict == lattice.vertex_singlet_bitmap and \
+        lattice._vertex_singlet_dict is not lattice.vertex_singlet_bitmap
+    print("Test passed.")
 
 def run_tests():
     """
@@ -986,6 +1026,9 @@ def run_tests():
     test_value_error_for_vertex_bitmap_with_different_lengths()
     print()
     test_type_error_for_bad_vertex_and_link_bitmap_keys()
+    print()
+    test_get_bitmaps_from_lattice()
+    print()
 
     print("All tests passed.")
 
