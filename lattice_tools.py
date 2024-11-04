@@ -694,10 +694,13 @@ def test_get_link_register_keys(dims: DimensionalitySpecifier, size: int):
     print("Test passed.")
 
 
-def helper_test_plaquette_equivalence(plaquette1: Plaquette, plaquette2: Plaquette) -> list[bool]:
-    """Helper to check that two plaquettes are equal."""
-    plaq_equal = plaquette1.link_registers == plaquette2.link_registers
-    vertex_equal = plaquette1.vertex_registers == plaquette2.vertex_registers
+def helper_test_plaquettes_have_same_registers(plaquette1: Plaquette, plaquette2: Plaquette) -> list[bool]:
+    """Helper to check that two possiblt different plaquettes instances have the same registers."""
+    # Uses "is" for checking register equality to make sure these
+    # reference the same register object in memory.
+    # Always expecting 4 link and vertex registers per plaquette.
+    plaq_equal = all(plaquette1.link_registers[idx] is plaquette2.link_registers[idx] for idx in range(4))
+    vertex_equal = all(plaquette1.vertex_registers[idx] is plaquette2.vertex_registers[idx] for idx in range(4))
     bottom_left_equal = plaquette1.bottom_left_vertex == plaquette2.bottom_left_vertex
     plane_equal = plaquette1.plane == plaquette2.plane
 
@@ -739,7 +742,7 @@ def test_get_plaquette_registers(dims: DimensionalitySpecifier, size: int):
     expected_plaquette = Plaquette(expected_link_regs, expected_vertex_regs, origin, (1, 2))
 
     print(f"Testing grabbing the origin plaquette spanned by e_x and e_y for dim={lattice.dim}")
-    pass_lst = helper_test_plaquette_equivalence(expected_plaquette, plaquette_origin_xy)
+    pass_lst = helper_test_plaquettes_have_same_registers(expected_plaquette, plaquette_origin_xy)
     print(f"The truth list looks like this {pass_lst}\n")
     assert len(pass_lst) == 1
     print("Test passed!")
@@ -748,7 +751,7 @@ def test_get_plaquette_registers(dims: DimensionalitySpecifier, size: int):
     print(f"Testing grabbing all positive plaquettes for dim={lattice.dim}")
     if lattice.dim == 3:
         expected_pos_plaqs = [lattice.get_plaquette_registers(origin, 1, 2), lattice.get_plaquette_registers(origin, 1, 3), lattice.get_plaquette_registers(origin, 2, 3)]
-        pass_lst = list(map(helper_test_plaquette_equivalence, lattice.get_plaquette_registers(origin), expected_pos_plaqs))
+        pass_lst = list(map(helper_test_plaquettes_have_same_registers, lattice.get_plaquette_registers(origin), expected_pos_plaqs))
         print(f"The truth list looks like this {pass_lst}\n")
         assert len(pass_lst[0]) == 1
         print("Test passed!")
