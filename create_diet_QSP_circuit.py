@@ -136,15 +136,16 @@ def apply_magnetic_trotter_step(
 
 if __name__ == "__main__":
     # Configure simulation parameters and data.
+    # Commented out params illustrate other options.
     do_electric_evolution = False
     do_magnetic_evolution = True
     lattice = LatticeRegisters(
-        dim=1.5,
-        #dim=2,
-        size=4,
-        link_truncation_dict=IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8,
-        #link_truncation_dict=IRREP_TRUNCATION_DICT_1_3_3BAR,
-        vertex_singlet_dict=VERTEX_SINGLET_BITMAPS["d=3/2, T2"]
+        #dim=1.5,
+        dim=3,
+        size=2,
+        #link_truncation_dict=IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8,
+        link_truncation_dict=IRREP_TRUNCATION_DICT_1_3_3BAR,
+        vertex_singlet_dict=VERTEX_SINGLET_BITMAPS["d=3, T1"]
         #vertex_singlet_dict={}#VERTEX_SINGLET_BITMAPS["d=3/2, T1"]
     )
     # TODO swap this out for real matrix elements.
