@@ -694,8 +694,8 @@ def test_get_link_register_keys(dims: DimensionalitySpecifier, size: int):
     print("Test passed.")
 
 
-def helper_test_plaquettes_have_same_registers(plaquette1: Plaquette, plaquette2: Plaquette) -> list[bool]:
-    """Helper to check that two possiblt different plaquettes instances have the same registers."""
+def _helper_test_plaquettes_have_same_registers(plaquette1: Plaquette, plaquette2: Plaquette) -> list[bool]:
+    """Helper to check that two possibly different plaquettes instances have the same registers."""
     # Uses "is" for checking register equality to make sure these
     # reference the same register object in memory.
     # Always expecting 4 link and vertex registers per plaquette.
@@ -742,7 +742,7 @@ def test_get_plaquette_registers(dims: DimensionalitySpecifier, size: int):
     expected_plaquette = Plaquette(expected_link_regs, expected_vertex_regs, origin, (1, 2))
 
     print(f"Testing grabbing the origin plaquette spanned by e_x and e_y for dim={lattice.dim}")
-    pass_lst = helper_test_plaquettes_have_same_registers(expected_plaquette, plaquette_origin_xy)
+    pass_lst = _helper_test_plaquettes_have_same_registers(expected_plaquette, plaquette_origin_xy)
     print(f"The truth list looks like this {pass_lst}\n")
     assert len(pass_lst) == 1
     print("Test passed!")
@@ -751,7 +751,7 @@ def test_get_plaquette_registers(dims: DimensionalitySpecifier, size: int):
     print(f"Testing grabbing all positive plaquettes for dim={lattice.dim}")
     if lattice.dim == 3:
         expected_pos_plaqs = [lattice.get_plaquette_registers(origin, 1, 2), lattice.get_plaquette_registers(origin, 1, 3), lattice.get_plaquette_registers(origin, 2, 3)]
-        pass_lst = list(map(helper_test_plaquettes_have_same_registers, lattice.get_plaquette_registers(origin), expected_pos_plaqs))
+        pass_lst = list(map(_helper_test_plaquettes_have_same_registers, lattice.get_plaquette_registers(origin), expected_pos_plaqs))
         print(f"The truth list looks like this {pass_lst}\n")
         assert len(pass_lst[0]) == 1
         print("Test passed!")
@@ -780,6 +780,44 @@ def test_get_plaquette_registers(dims: DimensionalitySpecifier, size: int):
             assert link_reg.name in lattice_all_link_names
     print("Test passed!")
 
+
+def test_all_plaquettes_are_indexed_only_one_time():
+    """
+    Confirm when traversing a lattice that the correct number of plaquettes is indexed.
+
+    Also, shouldn't have repeats.
+    """
+    dims = [1.5, 2, 3]
+    sizes = [3, 2, 3]
+    expected_num_plaquettes = [1*3, 1*(2**2), 3*(3**3)]
+    for dim, size, expected_num_plaquettes in zip(dims, sizes, expected_num_plaquettes):
+        lattice = LatticeRegisters(dim, size)
+        print(f"Checking that a size {lattice.shape[0]} lattice in dim {lattice.dim} has {expected_num_plaquettes} plaquettes.")
+
+        # Fetch all the plaquettes in the lattice.
+        plaquettes = []
+        for vertex in lattice.vertex_register_keys:
+            if vertex[1] == 1 and lattice.dim == 1.5:
+                continue
+            if dim < 3:
+                plaquettes.append(lattice.get_plaquette_registers(vertex))
+            else:  # Returns a list of multiple plaquettes in this case.
+                plaquettes = plaquettes + lattice.get_plaquette_registers(vertex)
+
+        # Check that total number of fetched plaquettes meets expectation.
+        print(len(plaquettes))
+        assert len(plaquettes) == expected_num_plaquettes
+
+        # Check that there are no duplicated plaquettes.
+        for idx, plaquette_one in enumerate(plaquettes):
+            for plaquette_two in plaquettes[idx+1:]:
+                print(f"Checking that Plaquettes built at {plaquette_one.bottom_left_vertex} and {plaquette_two.bottom_left_vertex} have different registers.")
+                links_equal, vertices_equal, bottom_left_equal, plane_equal =  _helper_test_plaquettes_have_same_registers(plaquette_one, plaquette_two)
+                assert links_equal is False and vertices_equal is False
+                
+        print("Test passed.")
+    
+    
 
 def test_len_0_vertices_ok_for_d_3_2():
     """
@@ -1015,6 +1053,8 @@ def run_tests():
     test_get_plaquette_registers(1.5, 4)
     test_get_plaquette_registers(2, 4)
     test_get_plaquette_registers(3, 4)
+    print()
+    test_all_plaquettes_are_indexed_only_one_time()
     print()
     test_len_0_vertices_ok_for_d_3_2()
     print()
