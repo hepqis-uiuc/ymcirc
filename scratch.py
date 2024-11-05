@@ -135,4 +135,4 @@ if __name__ == "__main__":
                 ])
 
     master_circuit.draw(output="mpl", filename="out.pdf", fold=False)
-    print("Gate count on master circuit:\n", dict(circ.count_ops()))
+    print("Gate count on master circuit:\n", dict(master_circuit.count_ops()))

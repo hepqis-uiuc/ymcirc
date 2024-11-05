@@ -1,10 +1,8 @@
 # Cianan Conefrey-Shinozaki
 # Oct 2024
 
-from qiskit import QuantumCircuit, QuantumRegister, AncillaRegister
-from qiskit.circuit.library import YGate, XGate
-from qiskit.circuit.library.standard_gates import RYGate, RXGate
-from qiskit.circuit import Parameter
+from qiskit import QuantumCircuit
+from qiskit.circuit.library.standard_gates import RXGate
 from qiskit.quantum_info import Operator
 
 
@@ -13,10 +11,10 @@ def givens(bit_string_1: str,
            angle: float,
            reverse: bool = False) -> QuantumCircuit:
     """
-    Perform a Givens rotation between two bitstrings.
+    Make a Givens rotation.
 
-    Expects two bitstrings in physicist / big-endian notation.
-    e.g. "1001" or "0100", and a float as an angle. Optional reverse arg for little-endian.
+    Expects two bitstrings in physicist / big-endian notation, e.g. "1001" or
+    "0100", and a float as an angle. Optional reverse arg for little-endian.
     """
     if bit_string_1 == bit_string_2:  # returns identity
         return QuantumCircuit(len(bit_string_1))
@@ -69,17 +67,11 @@ def givens(bit_string_1: str,
 
     circ.append(multiRX, ctrls + [target])  # This adds multiY to the circuit
 
-    #obsolete:
-    #circ = Xcirc.compose(circ.compose(Xcirc))
-    circ.compose(Xcirc,
-                 inplace=True)  # inplace arg looks weird but is much faster!
+    circ.compose(Xcirc, inplace=True)  # inplace arg looks weird but is much faster!
     Xcirc.compose(circ, inplace=True)
     if reverse == True:
         Xcirc = Xcirc.reverse_bits()
     return Xcirc
-
-    #return circ
-    #Xcirc.draw()
 
 
 def test_givens():
