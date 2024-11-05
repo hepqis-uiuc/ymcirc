@@ -81,7 +81,17 @@ class LatticeRegisters:
     link_truncation_dict and/or vertex_singlet_dict are provided,
     the corresponding argument n_qubits_per_link and n_qubits_per_vertex
     are ignored, and qubit requirements are inferred based on the length
-    of the bitstrings in the corresponding dict(s).
+    of the bitstrings in the corresponding dict(s). In this case,
+    the number of links per vertex implied by vertex_singlet_dict
+    must match the dimensionality of the lattice. In particular,
+    the number of iWeights in the keys must be 2*dim for dim >= 2,
+    or 3 for dim 1.5. For example, a key for dim 1.5 should look like:
+    
+    (((1, 1, 0), (1, 1, 0), (0, 0, 0)), 1)
+
+    This key is a length-two tuple whose first element is a tuple of three
+    GT pattern i-weights, and whose second element is an integer indexing
+    multiplicity.
     """
 
     def __init__(
@@ -101,29 +111,33 @@ class LatticeRegisters:
             all_bitstring_encodings = list(vertex_singlet_dict.values())
             n_qubits_per_vertex = 0 if len(all_bitstring_encodings) == 0 else len(all_bitstring_encodings[0])  # For an empty bit map, there are no states to encode.
 
-        self._validate_input(
+        # Set up lattice configuration.
+        self._validate_lattice_params(
             dim,
             size,
             n_qubits_per_link,
             n_qubits_per_vertex,
-            link_truncation_dict,
-            vertex_singlet_dict,
             boundary_conds
         )
         self._set_boundary_conds(cond_type=boundary_conds)
         self._configure_lattice(dim, size)
-        self._initialize_qubit_registers(n_qubits_per_link, n_qubits_per_vertex)
+
+        # Validate state bitmaps (if given).
+        if link_truncation_dict is not None and len(link_truncation_dict) > 0:
+            self._validate_link_truncation_dict(link_truncation_dict)
+        if vertex_singlet_dict is not None and len(vertex_singlet_dict) > 0:
+            self._validate_vertex_singlet_truncation_dict(vertex_singlet_dict)
         self._link_truncation_dict = link_truncation_dict
         self._vertex_singlet_dict = vertex_singlet_dict
-        
 
-    def _validate_input(self,
+        # Declare the actual QuantumRegister instances for lattice DoFs.
+        self._initialize_qubit_registers(n_qubits_per_link, n_qubits_per_vertex)
+        
+    def _validate_lattice_params(self,
                         dim: DimensionalitySpecifier,
                         size: int,
                         n_qubits_per_link: int = 1,
                         n_qubits_per_vertex: int = 1,
-                        link_truncation_dict: Union[IrrepBitmap, None] = None,
-                        vertex_singlet_dict: Union[VertexMultiplicityBitmap, None] = None,
                         boundary_conds: str = "periodic"):
         if size < 2:
             raise ValueError("Lattice must have at least two vertices in each "
@@ -137,10 +151,8 @@ class LatticeRegisters:
             raise ValueError("Link registers must have positive integer number of qubits. "
                              f"n_qubits_per_link = {n_qubits_per_link}.")
 
-        if link_truncation_dict is not None and len(link_truncation_dict) > 0:
-            self._validate_link_truncation_dict(link_truncation_dict)
-        if vertex_singlet_dict is not None and len(vertex_singlet_dict) > 0:
-            self._validate_vertex_singlet_truncation_dict(vertex_singlet_dict)
+        if not (dim == "3/2" or isclose(float(dim), 1.5) or (isinstance(dim, int) and dim > 1)):
+            raise ValueError(f"A {dim}-dimensional lattice doesn't make sense.")
 
     def _validate_link_truncation_dict(self, candidate_dict: IrrepBitmap):
         # Conveniences.
@@ -164,11 +176,16 @@ class LatticeRegisters:
         all_vertex_singlet_bitstrings = list(candidate_dict.values())
         all_vertex_singlet_bag_states = list(candidate_dict.keys())
         bit_length = len(all_vertex_singlet_bitstrings[0])
+        n_links_per_vertex = ceil(self.dim) * 2 if self.dim != 1.5 else 3
+        iweight_len_SU3 = 3
 
         # Boolean test results.
         bit_lengths_differ = any(len(bit_string) != bit_length for bit_string in candidate_dict.values())
         all_values_are_strings = all(isinstance(bitstring, str) for bitstring in all_vertex_singlet_bitstrings)
-        all_keys_are_tuples_of_su3_iweights_and_int = all(len(bag) == 2 and isinstance(bag[0], tuple) and len(bag[0]) == 3 and isinstance(bag[1], int) for bag in all_vertex_singlet_bag_states)
+        all_keys_are_tuples_of_su3_iweights_and_int = all(
+            len(bag) == 2 and isinstance(bag[0], tuple) and len(bag[0]) == n_links_per_vertex and (
+                all(isinstance(iweight, tuple) and len(iweight) == iweight_len_SU3 for iweight in bag[0]))
+            and isinstance(bag[1], int) for bag in all_vertex_singlet_bag_states)
 
         if not all_values_are_strings or not all_keys_are_tuples_of_su3_iweights_and_int:
             raise TypeError(f"Expected a dict with keys that are length-two tuples whose first element are themselves length-3 tuples (i-Weights), and whose second elements are integers interpreted as indexing multiplicity. Encountered:\n{candidate_dict}")
@@ -881,12 +898,13 @@ def test_num_qubits_automatic_when_dicts_provided_to_lattice():
     print("Test passed.")
 
     # Case of vertex bitmap but no link bitmap.
+    # 3 iweights implies lattice dim=3/2.
     vertex_multiplicity_bitmap: VertexMultiplicityBitmap = {
         (((2, 1, 0,), (2, 1, 0), (2, 1, 0)), 1): "0",
         (((2, 1, 0,), (2, 1, 0), (2, 1, 0)), 2): "1"
     }
     lattice = LatticeRegisters(
-        dim=2,
+        dim="3/2",
         size=2,
         vertex_singlet_dict=vertex_multiplicity_bitmap,
         n_qubits_per_link=5
@@ -898,6 +916,26 @@ def test_num_qubits_automatic_when_dicts_provided_to_lattice():
         assert len(lattice.get_vertex_register(vertex)) == 1
     print("Test passed.")
 
+
+def test_lattice_init_fails_when_vertex_bitmap_has_wrong_num_links():
+    """
+    Check for TypeError when vertex bitmap disagrees with lattice dim.
+    Specific case: vertex bitmap lists 3 irreps per vertex for a dim-2
+    attice (Should have 4 links).
+    """
+    # This bitmap implies d=3/2. Should fail for d=2 lattice.
+    vertex_multiplicity_bitmap: VertexMultiplicityBitmap = {
+        (((2, 1, 0,), (2, 1, 0), (2, 1, 0)), 1): "0",
+        (((2, 1, 0,), (2, 1, 0), (2, 1, 0)), 2): "1"
+    }
+    print(f"Checking for TypeError when creating a dim-2 lattice with a bitmap that has 3 links per vertex:\nvertex bitmap = {vertex_multiplicity_bitmap}")
+    try:
+        LatticeRegisters(2, 2, vertex_singlet_dict=vertex_multiplicity_bitmap)
+    except TypeError as e:
+        print(f"Test passed. Raised error: {e}")
+    else:
+        assert False, "TypeError not raised."
+    
 
 def test_value_error_for_link_bitmap_with_different_lengths():
     print(
@@ -914,19 +952,20 @@ def test_value_error_for_link_bitmap_with_different_lengths():
     except ValueError as e:
         print(f"Test passed. Raised error: {e}")
     else:
-        assert False
+        assert False, "ValueError not raised."
 
 def test_value_error_for_vertex_bitmap_with_different_lengths():
     print(
         "Checking that creating a lattice with a vertex truncation bitmap that has"
         " different length bitstrings for various singlets will raise a ValueError."
     )
+    # This bitmap implies dim = 1.5.
     bad_vertex_singlet_dict: VertexMultiplicityBitmap = {
         (((2, 1, 0,), (2, 1, 0), (2, 1, 0)), 1): "0",
         (((2, 1, 0,), (2, 1, 0), (2, 1, 0)), 2): "01"
     }
     try:
-        LatticeRegisters(dim=2, size=3, vertex_singlet_dict=bad_vertex_singlet_dict)
+        LatticeRegisters(dim=1.5, size=3, vertex_singlet_dict=bad_vertex_singlet_dict)
     except ValueError as e:
         print(f"Test passed. Raised error: {e}")
     else:
@@ -974,9 +1013,10 @@ def test_get_bitmaps_from_lattice():
         (1, 0, 0): "10",
         (0, 1, 0): "01"
     }
+    # A dim-4 lattice will have 2*4 = 8 links per vertex.
     vertex_singlet_dict: VertexMultiplicityBitmap = {
-        (((2, 1, 0,), (2, 1, 0), (2, 1, 0)), 1): "0",
-        (((2, 1, 0,), (2, 1, 0), (2, 1, 0)), 1): "1"  
+        (((2, 1, 0,), (2, 1, 0), (2, 1, 0), (2, 1, 0,), (2, 1, 0), (2, 1, 0), (0, 0, 0), (0, 0, 0)), 1): "0",
+        (((2, 1, 0,), (2, 1, 0), (2, 1, 0), (2, 1, 0,), (2, 1, 0), (2, 1, 0), (0, 0, 0), (0, 0, 0)), 2): "1"  
     }
     lattice = LatticeRegisters(4, 2, link_truncation_dict=irrep_trunc_dict, vertex_singlet_dict=vertex_singlet_dict)
     print(
@@ -993,6 +1033,31 @@ def test_get_bitmaps_from_lattice():
     assert lattice._vertex_singlet_dict == lattice.vertex_singlet_bitmap and \
         lattice._vertex_singlet_dict is not lattice.vertex_singlet_bitmap
     print("Test passed.")
+
+
+def test_d_equals_2_lattice_from_bitmaps():
+    """Check that dim 2 lattice can be created via bitmaps."""
+    dims = 2
+    vertex_bitmap = {
+        (((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0)), 1): '000',
+        (((0, 0, 0), (0, 0, 0), (1, 0, 0), (1, 1, 0)), 1): '001',
+        (((0, 0, 0), (1, 0, 0), (1, 0, 0), (1, 0, 0)), 1): '010',
+        (((0, 0, 0), (1, 1, 0), (1, 1, 0), (1, 1, 0)), 1): '011',
+        (((1, 0, 0), (1, 0, 0), (1, 1, 0), (1, 1, 0)), 1): '100',
+        (((1, 0, 0), (1, 0, 0), (1, 1, 0), (1, 1, 0)), 2): '101'
+    }
+    link_bitmap = {
+        (0, 0, 0): '00',
+        (1, 0, 0): '10',
+        (1, 1, 0): '01'
+    }
+    print(f"Trying to create dim-{dims} lattice with bitmaps:\nvertex = {vertex_bitmap}\nlink = {link_bitmap}")
+    lattice = LatticeRegisters(dim=dims, size=3, link_truncation_dict=link_bitmap, vertex_singlet_dict=vertex_bitmap)
+    print(f"Created a dim-{lattice.dim} lattice with bitmaps:\nvertex = {lattice.vertex_singlet_bitmap}\nlink = {lattice.link_truncation_bitmap}.")
+    assert lattice.vertex_singlet_bitmap == vertex_bitmap
+    assert lattice.link_truncation_bitmap == link_bitmap
+    print("Test passed.")
+    
 
 def run_tests():
     """
@@ -1037,6 +1102,8 @@ def run_tests():
     print()
     test_get_vertex_register_pbc()
     print()
+    test_lattice_init_fails_when_vertex_bitmap_has_wrong_num_links()
+    print()
     test_num_qubits_automatic_when_dicts_provided_to_lattice()
     print()
     test_value_error_for_link_bitmap_with_different_lengths()
@@ -1047,6 +1114,7 @@ def run_tests():
     print()
     test_get_bitmaps_from_lattice()
     print()
+    test_d_equals_2_lattice_from_bitmaps()
 
     print("All tests passed.")
 
