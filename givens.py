@@ -61,8 +61,7 @@ def givens(bit_string_1: str,
         num_qubits
     )  # These are the "preamble" and "tail" control-X of the Givens
 
-    for ii in range(target - 1, -1,
-                    -1):  # These instruct where to put the X gates
+    for ii in range(target - 1, -1, -1):  # These instruct where to put the X gates
         if bit_string_1_reversed[ii] != bit_string_2_reversed[ii]:
             Xcirc.cx(control_qubit=target,
                      target_qubit=ii,

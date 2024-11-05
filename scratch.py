@@ -1,5 +1,8 @@
 from __future__ import annotations
-from conventions import VERTEX_SINGLET_BITMAPS, IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
+from conventions import (
+    VERTEX_SINGLET_BITMAPS,
+    IRREP_TRUNCATION_DICT_1_3_3BAR,
+    IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8)
 from lattice_tools import LatticeRegisters, Plaquette, LatticeVector, LinkUnitVectorLabel
 from math import ceil, pi
 from givens import givens
@@ -32,12 +35,17 @@ def make_plaquette_circuit(
 
 
 if __name__ == "__main__":
+    # for key, value in VERTEX_SINGLET_BITMAPS["d=2, T1"].items():
+    #     print(f"{key}: {value}")
     # Create lattice with encodings.
     lattice = LatticeRegisters(
         dim=1.5,
-        size=3,
+        #dim=2,
+        size=9,
         link_truncation_dict=IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8,
+        #link_truncation_dict=IRREP_TRUNCATION_DICT_1_3_3BAR,
         vertex_singlet_dict=VERTEX_SINGLET_BITMAPS["d=3/2, T2"]
+        #vertex_singlet_dict={}#VERTEX_SINGLET_BITMAPS["d=3/2, T1"]
     )
 
     # Log resulting lattice data.
@@ -73,7 +81,7 @@ if __name__ == "__main__":
     import random
     random.seed(0)
     n_qubits_per_plaquette = 4 * (lattice.n_qubits_per_link + lattice.n_qubits_per_vertex)
-    n_matrix_elements = 2
+    n_matrix_elements = 3
     TEST_DUMMY_MAG_HAMILTONIAN_DATA = [
         (
             ''.join(random.choice('01') for _ in range(n_qubits_per_plaquette)),
@@ -126,4 +134,5 @@ if __name__ == "__main__":
                     *link_qubits
                 ])
 
-    master_circuit.draw(output="mpl", filename="quantum_circuit.pdf", fold=False)
+    master_circuit.draw(output="mpl", filename="out.pdf", fold=False)
+    print("Gate count on master circuit:\n", dict(circ.count_ops()))
