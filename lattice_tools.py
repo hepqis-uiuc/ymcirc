@@ -365,31 +365,6 @@ class LatticeRegisters:
                 all_planes = sorted(list(filter(not_none_lambda, set_of_planes)))  # Need to strip out a spurious None
                 return [self._get_single_plaquette(lattice_vector, plane[0], plane[1]) for plane in all_planes]            
 
-    def apply_trotter_step(self, evol_type: str = 'both'):
-        """
-        Apply a single trotter evolution step to the entire lattice.
-
-        evol_type == 'm' for just Magnetic Hamiltonian evolution.
-        evol_type == 'e for just Electric Hamiltonian evolution.
-        evol_type == anything else for both.
-        """
-        # TODO surface a step_size argument?
-        if evol_type == "m":
-            self._trotter_step_magnetic()
-        elif evol_type == "e":
-            self._trotter_step_electric()
-        else:
-            self._trotter_step_magnetic()
-            self._trotter_step_electric()
-
-    def _trotter_step_electric(self):
-        # TODO parallelize the logic.
-        raise NotImplementedError()
-
-    def _trotter_step_magnetic(self):
-        # TODO parallelize the logic.
-        raise NotImplementedError()
-
     @property
     def n_qubits_per_link(self) -> int:
         """Number of qubits per link register."""
