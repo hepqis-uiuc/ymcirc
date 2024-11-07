@@ -251,7 +251,17 @@ class LatticeStateEncoder:
         ValueError raised if there are inconsistent length bit strings among the values
         of the bitmap dictionaries.
         """
-        # TODO: Validate the bitmaps.
+        # Check bitmaps for uniqueness of bit string encodings.
+        vertex_bitmap_has_unique_values = len(set(bit_string for bit_string in vertex_bitmap.values())) \
+            == len([bit_string for bit_string in vertex_bitmap.values()])
+        link_bitmap_has_unique_values = len(set(bit_string for bit_string in link_bitmap.values())) \
+            == len([bit_string for bit_string in link_bitmap.values()])
+        if vertex_bitmap_has_unique_values is False:
+            raise ValueError("Argument vertex_bitmap must be a dict with unique values. "
+                             f"Encountered: {vertex_bitmap}")
+        if link_bitmap_has_unique_values is False:
+            raise ValueError("Argument link_bitmap must be a dict with unique values. "
+                             f"Encountered: {link_bitmap}")
 
         # Extract expected lengths of various kinds of bit strings.
         try:
@@ -260,6 +270,12 @@ class LatticeStateEncoder:
             self._expected_vertex_bit_string_length = 0
         self._expected_link_bit_string_length = len(list(link_bitmap.values())[0])
         self._expected_plaquette_bit_string_length = (self._expected_vertex_bit_string_length + self._expected_link_bit_string_length) * 4
+
+        # Check bitmaps for consistency of length of bit string encodings.
+        if any(len(bit_string) != self._expected_vertex_bit_string_length for bit_string in vertex_bitmap.values()):
+            raise ValueError(f"Expecting length {self._expected_vertex_bit_string_length} vertex bit strings. Encountered: {list(vertex_bitmap.values())}.")
+        if any(len(bit_string) != self._expected_link_bit_string_length for bit_string in link_bitmap.values()):
+            raise ValueError(f"Expecting length {self._expected_link_bit_string_length} link bit strings. Encountered: {list(link_bitmap.values())}.")
 
         # Set the internal bitmaps.
         self._link_bitmap = copy.deepcopy(link_bitmap)
@@ -452,6 +468,69 @@ def _test_vertex_bitmaps_have_right_amount_of_singlets():
             print(f"Encountered {len(set(VERTEX_SINGLET_BITMAPS[current_case].values()))} distinct bit strings.")
 
         assert test_result_singlets_have_unique_bitstring
+
+def _test_lattice_encoder_fails_on_bad_bitmaps():
+    print("Checking that a vertex bitmap with non-unique bit string values causes ValueError.")
+    good_link_bitmap = {
+        ONE: "00",
+        THREE: "10",
+        THREE_BAR: "01"
+    }
+    non_unique_vertex_bitmap = {
+        ((ONE, THREE, THREE), 1): "00",
+        ((ONE, THREE, THREE_BAR), 1): "00",
+        ((ONE, ONE, ONE), 1): "01"
+    }
+    try:
+        LatticeStateEncoder(good_link_bitmap, non_unique_vertex_bitmap)
+    except ValueError as e:
+        print(f"Test passed. Raised ValueError: {e}")
+    else:
+        raise AssertionError("No ValueError raised.")
+
+    print("Checking that a link bitmap with non-unique bit string values causes ValueError.")
+    non_unique_link_bitmap = {
+        ONE: "00",
+        THREE: "10",
+        THREE_BAR: "10"
+    }
+    good_vertex_bitmap = {
+        ((ONE, THREE, THREE), 1): "00",
+        ((ONE, THREE, THREE_BAR), 1): "01",
+        ((ONE, ONE, ONE), 1): "10"
+    }
+    try:
+        LatticeStateEncoder(non_unique_link_bitmap, good_vertex_bitmap)
+    except ValueError as e:
+        print(f"Test passed. Raised ValueError: {e}")
+    else:
+        raise AssertionError("No ValueError raised.")
+
+    print("Checking that a vertex bitmap with bit strings of different lengths causes ValueError.")
+    vertex_bitmap_different_string_lengths = {
+        ((ONE, THREE, THREE), 1): "00",
+        ((ONE, THREE, THREE_BAR), 1): "001",
+        ((ONE, ONE, ONE), 1): "10"
+    }
+    try:
+        LatticeStateEncoder(good_link_bitmap, vertex_bitmap_different_string_lengths)
+    except ValueError as e:
+        print(f"Test passed. Raised ValueError: {e}")
+    else:
+        raise AssertionError("No ValueError raised.")
+
+    print("Checking that a link bitmap with bit strings of different lengths causes ValueError.")
+    link_bitmap_different_string_lengths = {
+        ONE: "00",
+        THREE: "10",
+        THREE_BAR: "010"
+    }
+    try:
+        LatticeStateEncoder(link_bitmap_different_string_lengths, good_vertex_bitmap)
+    except ValueError as e:
+        print(f"Test passed. Raised ValueError: {e}")
+    else:
+        raise AssertionError("No ValueError raised.")
 
 
 def _test_bad_plaquette_input_fails():
@@ -669,6 +748,8 @@ def _run_tests():
     _test_singlet_bitmaps()
     print()
     _test_vertex_bitmaps_have_right_amount_of_singlets()
+    print()
+    _test_lattice_encoder_fails_on_bad_bitmaps()
     print()
     _test_bad_plaquette_input_fails()
     print()
