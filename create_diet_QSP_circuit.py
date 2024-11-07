@@ -9,13 +9,15 @@ of freedom.
 Currently a work in progress.
 """
 from __future__ import annotations
-from conventions import (
+from lattice_tools.conventions import (
     VERTEX_SINGLET_BITMAPS,
     IRREP_TRUNCATION_DICT_1_3_3BAR,
     IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8)
-from lattice_tools import LatticeRegisters, Plaquette
+from lattice_tools.lattice_registers import LatticeRegisters, Plaquette
+from lattice_tools.conventions import MAGNETIC_HAMILTONIANS, LatticeStateEncoder
 from math import pi
-from givens import givens
+from lattice_tools.givens import givens
+from qiskit import transpile
 from qiskit.circuit import QuantumCircuit
 from typing import List, Tuple
 
@@ -67,7 +69,8 @@ def apply_magnetic_trotter_step(
         lattice: LatticeRegisters,
         hamiltonian: HamiltonianData,
         coupling_g: float = 1.0,
-        dt: float = 1.0) -> None:
+        dt: float = 1.0,
+        optimize_circuits: bool = True) -> None:
     """
     Add one Trotter step.
 
@@ -82,6 +85,8 @@ def apply_magnetic_trotter_step(
                      values correspond to numerical matrix element values.
       - coupling_g: the value of the strong coupling constant.
       - dt: the size of the Trotter time step.
+      - optimize_circuits: if true, run the qiskit transpiler on each internal givens rotation
+                           with the maximum optimization level before composing with master_circuit.
 
     Returns:
       A new QuantumCircuit instance which is master_circuit with the Trotter step appended.
@@ -119,9 +124,12 @@ def apply_magnetic_trotter_step(
 
             # Append a Givens rotation circuit for each magnetic Hamiltonian
             # matrix element.
-            for bitstring_1, bitstring_2, matrix_elem in TEST_DUMMY_MAG_HAMILTONIAN_LIST:
+            for bitstring_1, bitstring_2, matrix_elem in hamiltonian:
                 angle = matrix_elem * (1 / (2 * (coupling_g**2))) * dt
                 plaquette_local_rotation_circuit = givens(bitstring_1, bitstring_2, angle)
+                if optimize_circuits is True:
+                    plaquette_local_rotation_circuit = transpile(
+                        plaquette_local_rotation_circuit, optimization_level=3)
 
                 # Stitch the Givens rotation into master circuit.
                 master_circuit.compose(
@@ -136,29 +144,41 @@ def apply_magnetic_trotter_step(
 
 if __name__ == "__main__":
     # Configure simulation parameters and data.
-    # Commented out params illustrate other options.
     do_electric_evolution = False
     do_magnetic_evolution = True
+    dimensionality_and_truncation_string = "d=3/2, T1"
+    dimensions = 1.5
+    linear_size = 2
+    # Set the right vertex and link bitmaps based on dimensionality_and_truncation_string
+    vertex_bitmap = {} if dimensionality_and_truncation_string == "d=3/2, T1" else VERTEX_SINGLET_BITMAPS[dimensionality_and_truncation_string]  # Ok to not use vertex DoFs in this case.
+    link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR if dimensionality_and_truncation_string[-2:] == "T1" else IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
     lattice = LatticeRegisters(
-        #dim=1.5,
-        dim=3,
-        size=2,
-        #link_truncation_dict=IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8,
-        link_truncation_dict=IRREP_TRUNCATION_DICT_1_3_3BAR,
-        vertex_singlet_dict=VERTEX_SINGLET_BITMAPS["d=3, T1"]
-        #vertex_singlet_dict={}#VERTEX_SINGLET_BITMAPS["d=3/2, T1"]
+        dim=dimensions,
+        size=linear_size,
+        link_truncation_dict=link_bitmap,
+        vertex_singlet_dict=vertex_bitmap
     )
-    # TODO swap this out for real matrix elements.
-    TEST_DUMMY_MAG_HAMILTONIAN_LIST = _helper_create_dummy_magnetic_hamiltonian(lattice, n_matrix_elements=3)
 
-    # # Log resulting lattice data.
-    # print(f"Created dim {lattice.dim} lattice with vertices:\n{lattice.vertex_register_keys}.")
-    # print(f"It has {lattice.n_qubits_per_link} qubits per link and {lattice.n_qubits_per_vertex}.")
-    # print("It knows about the following encodings:")
-    # for irrep, encoding in lattice.link_truncation_bitmap.items():
-    #     print(f"Link irrep encoding: {irrep} -> {encoding}")
-    # for vertex_bag, encoding in lattice.vertex_singlet_bitmap.items():
-    #     print(f"Vertex singlet bag encoding: {vertex_bag} -> {encoding}")
+    # Log information about the lattice we created.
+    print(f"Created dim {lattice.dim} lattice with vertices:\n{lattice.vertex_register_keys}.")
+    print(f"It has {lattice.n_qubits_per_link} qubits per link and {lattice.n_qubits_per_vertex} per vertex.")
+    print("It knows about the following encodings:")
+    for irrep, encoding in lattice.link_truncation_bitmap.items():
+        print(f"Link irrep encoding: {irrep} -> {encoding}")
+    for vertex_bag, encoding in lattice.vertex_singlet_bitmap.items():
+        print(f"Vertex singlet bag encoding: {vertex_bag} -> {encoding}")
+
+    # Create an encoder for converting between physical states and bit strings.
+    # Then we use the encoder to index Hamiltonian data in terms of bit string encodings of plaquettes.
+    # This will be used to determine rotation angles in the simulation circuit.
+    lattice_encoder = LatticeStateEncoder(link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap)
+    assert lattice.link_truncation_bitmap == lattice_encoder.link_bitmap
+    assert lattice.vertex_singlet_bitmap == lattice_encoder.vertex_bitmap
+    mag_hamiltonian: List[Tuple[str, str, float]] = []
+    for (final_plaquette_state, initial_plaquette_state), matrix_element_value in MAGNETIC_HAMILTONIANS[dimensionality_and_truncation_string].items():
+        final_state_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(final_plaquette_state)
+        initial_state_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(initial_plaquette_state)
+        mag_hamiltonian.append((final_state_bitstring, initial_state_bitstring, matrix_element_value))
 
     # Assemble all lattice registers into a blank circuit
     master_circuit = QuantumCircuit(
@@ -174,11 +194,16 @@ if __name__ == "__main__":
         apply_magnetic_trotter_step(
             master_circuit,
             lattice,
-            hamiltonian=TEST_DUMMY_MAG_HAMILTONIAN_LIST,
+            #hamiltonian=TEST_DUMMY_MAG_HAMILTONIAN_LIST,
+            hamiltonian=mag_hamiltonian,
             coupling_g=1.0,
-            dt=1.0
+            dt=1.0,
+            optimize_circuits=False
         )
 
+    # Uncomment for a final attempt at optimization.
+    # master_circuit = transpile(master_circuit, optimization_level=3)
+
     # Uncomment to save circuit diagram.
-    #master_circuit.draw(output="mpl", filename="out.pdf", fold=False)
+    # master_circuit.draw(output="mpl", filename="out.pdf", fold=False)
     print("Gate count on master circuit:\n", dict(master_circuit.count_ops()))
