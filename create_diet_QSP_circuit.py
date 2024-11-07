@@ -9,13 +9,13 @@ of freedom.
 Currently a work in progress.
 """
 from __future__ import annotations
-from conventions import (
+from lattice_tools.conventions import (
     VERTEX_SINGLET_BITMAPS,
     IRREP_TRUNCATION_DICT_1_3_3BAR,
     IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8)
-from lattice_tools import LatticeRegisters, Plaquette
+from lattice_tools.lattice_registers import LatticeRegisters, Plaquette
 from math import pi
-from givens import givens
+from lattice_tools.givens import givens
 from qiskit.circuit import QuantumCircuit
 from typing import List, Tuple
 
