@@ -1,7 +1,10 @@
 """
-This module is a canonical source for bit string encoding conventions.
+This module is a canonical source for project conventions, including:
 
-########## Irrep link state encodings ##########
+- Bit string encodings.
+- Magnetic Hamiltonian data.
+
+########## Irrep link state bit string encodings ##########
 
 There are two encodings of irrep link states:
 
@@ -33,7 +36,7 @@ multiple ways to create singlets from link assignments in arbitrary dimension,
 and for arbitrary irrep truncations, there will be complete link assignments
 which yield various "multiplicites" of singlets.
 
-########## Vertex singlet encodings ##########
+########## Vertex singlet bit string encodings ##########
 
 The dict VERTEX_SINGLET_BITMAPS can be indexed with strings to obtain bitmaps
 for the following cases:
@@ -86,6 +89,41 @@ bitmap is provided since vertex degrees of freedom are unnecessary in that
 case:
 
 VERTEX_SINGLET_DICT_D_3HALVES_133BAR_NO_VERTEX_DATA = {}
+
+########## Convenience methods for encoding/decoding ##########
+
+The following methods are provided to facilitate encoding plaquette
+states into bitstrings, and decoding bitstrings into plaquettes:
+
+encode_plaquette_state_as_bitstring
+decode_bitstring_to_plaquette_state
+
+See the documentation on those specific methods for more information
+about their usage.
+
+########## Magnetic Hamiltonian data ##########
+
+Magnetic Hamiltonian data is loaded into the dict
+MAGNETIC_HAMILTONIANS. This dict follows an indexing pattern similar
+to thar of VERTEX_SINGLET_BITMAPS, where strings of the form
+
+"d=3/2, T1"
+
+are used to access the matrix elements of a particular lattice dimension
+in a particular irrep truncation. Once a particular case of dimension and
+truncation has been chosed, the actual matrix element data takes the form of a
+dictionary whose keys are tuples (final_plaquette_state, initial_plaquette_state)
+and whose values are floats. The plaquette state data consists of nested tuples conveying
+vertex bag states and link states. As an example,
+
+MAGNETIC_HAMILTONIANS["d=3/2, T1"] = {
+    (((((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (1, 0, 0), (1, 0, 0), (1, 1, 0), (1, 1, 0)), ((((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1), (((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1), (((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1), (((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1), (0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))): 0.9999999999999994,
+    (((((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (1, 0, 0), (1, 0, 0), (0, 0, 0), (1, 1, 0)), ((((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1), (((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (0, 0, 0), (0, 0, 0), (1, 0, 0), (0, 0, 0))): 0.33333333333333304,
+    ...
+
+See the definition of MAGNETIC_HAMILTONIANS below for a complete listing of all available
+combinations of dimension and truncation data.
+}
 """
 from __future__ import annotations
 import ast
@@ -95,24 +133,35 @@ import json
 
 # Filesystem stuff.
 _PROJECT_ROOT = Path(__file__).parent
-_DATA_DIR = _PROJECT_ROOT / "lattice_tools_data/singlet-bitmaps/"
+_SINGLET_DATA_DIR = _PROJECT_ROOT / "lattice_tools_data/singlet-bitmaps/"
+_HAMILTONIAN_DATA_DIR = _PROJECT_ROOT / "lattice_tools_data/magnetic-hamiltonian-matrix-elements/"
 _SINGLET_DATA_FILE_PATHS: Dict[str, Path] = {
-    "d=3/2, T1": _DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3_2)_singlet_bitmaps.json",
-    "d=3/2, T2": _DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(3_2)_singlet_bitmaps.json",
-    "d=2, T1": _DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(2)_singlet_bitmaps.json",
-    "d=2, T2": _DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(2)_singlet_bitmaps.json",
-    "d=3, T1": _DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3)_singlet_bitmaps.json",
-    "d=3, T2": _DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(3)_singlet_bitmaps.json",
+    "d=3/2, T1": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3_2)_singlet_bitmaps.json",
+    "d=3/2, T2": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(3_2)_singlet_bitmaps.json",
+    "d=2, T1": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(2)_singlet_bitmaps.json",
+    "d=2, T2": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(2)_singlet_bitmaps.json",
+    "d=3, T1": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3)_singlet_bitmaps.json",
+    "d=3, T2": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(3)_singlet_bitmaps.json",
+}
+_HAMILTONIAN_DATA_FILE_PATHS: Dict[str, Path] = {
+    "d=3/2, T1": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3_2)_magnetic_hamiltonian.json",
+    "d=3/2, T2": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(3_2)_magnetic_hamiltonian.json",
+    "d=2, T1": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(2)_magnetic_hamiltonian.json"
 }
 
 # Useful type aliases.
 IrrepWeight = Tuple[int, int, int]
+LinkState = IrrepWeight  # A useful semantic alias
 BitString = str
 MultiplicityIndex = int
 IrrepBitmap = Dict[IrrepWeight, BitString]
 SingletsDef = Tuple[Tuple[IrrepWeight, ...], Tuple[MultiplicityIndex, ...]]
 VertexBag = Tuple[Tuple[IrrepWeight, ...], MultiplicityIndex]
+VertexState = VertexBag  # Another useful semantic alias
 VertexMultiplicityBitmap = Dict[VertexBag, BitString]
+PlaquetteState = Tuple[
+    VertexState, VertexState, VertexState, VertexState,
+    LinkState, LinkState, LinkState, LinkState]
 
 # Irrep iweights (top row of GT pattern).
 ONE: IrrepWeight = (0, 0, 0)
@@ -140,7 +189,7 @@ IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8: IrrepBitmap = {
 # Load vertex singlet data from precomputed json files.
 # Safer to use ast.literal_eval than eval to convert data keys to tuples.
 # The latter can execute arbitrary potentially malicious code while
-# the worst case attack vector for litera_eval would be to crash
+# the worst case attack vector for literal_eval would be to crash
 # the python process.
 # See https://docs.python.org/3/library/ast.html#ast.literal_eval
 # for more information.
@@ -158,13 +207,109 @@ for dim_trunc_case, file_path in _SINGLET_DATA_FILE_PATHS.items():
 # determine that of the third link.
 VERTEX_SINGLET_DICT_D_3HALVES_133BAR_NO_VERTEX_DATA: VertexMultiplicityBitmap = {}
 
-if __name__ == "__main__":
+# The following magnetic Hamiltonian data is available:
+# d=3/2, T1
+# d=3/2, T2
+# d=2, T1
+MAGNETIC_HAMILTONIANS: Dict[str, Dict[PlaquetteState, float]] = {}
+for dim_trunc_case, file_path in _HAMILTONIAN_DATA_FILE_PATHS.items():
+    with file_path.open('r') as json_data:
+        d = json.load(json_data)
+        MAGNETIC_HAMILTONIANS[dim_trunc_case] = {ast.literal_eval(key): value for key, value in d.items()}
+
+
+def encode_plaquette_state_as_bitstring(
+        plaquette: PlaquetteState,
+        link_bitmap: IrrepBitmap,
+        vertex_bitmap: VertexMultiplicityBitmap
+) -> str:
+    """
+    Convert plaquette to a bitstring encoding.
+
+    Assumes len(plaquette) = 8, where the first four elements are vertex bag states
+    and the last four elements are the link states. Assumes the ordering convention:
+
+    |v1 v2 v3 v4 l1 l2 l3 l4>
+
+    according to the layout:
+
+    v4 ----l3--- v3
+    |            |
+    |            |
+    l4           l2
+    |            |
+    |            |
+    v1 ----l1--- v2
+
+    If vertex_bitmap is empty, it is assumed that vertex degrees of freedom
+    are redundant, and they are treated as the "empty" string. Operationally,
+    this translates to encoding
+
+    |l1 l2 l3 l4>
+
+    in a bitstring instead.
+    """
+    if len(plaquette) != 8:
+        raise ValueError(
+            "Plaquette states should be a tuple of four vertices and four links. "
+            f"Encountered:\nlen(plaquette) = {len(plaquette)}.")
+
+    vertices = [item for item in plaquette[:4]]
+    links = [item for item in plaquette[4:]]
+    bitstring_encoding = ""
+
+    if not len(vertex_bitmap) == 0:
+        for vertex in vertices:
+            if not (len(vertex) == 2 and all(isinstance(irrep, tuple) and len(irrep) == 3 for irrep in vertex[0]) and isinstance(vertex[1], int)):
+                raise ValueError("Vertex data must take the form of a length-2 tuple. "
+                                 "The first element should be a tuple of irreps, "
+                                 "and the second element should be an int indicating "
+                                 f"multiplicity.\nEncountered: {vertex}.")
+            bitstring_encoding += vertex_bitmap[vertex]
+    for link in links:
+        if not (len(link) == 3 and all(isinstance(elem, int) for elem in link)):
+            raise ValueError("Link data must take the form of an SU(3) i-Weight. "
+                             "They should be length-3 tuples of ints. "
+                             f"Encountered:\n{link}.")
+        bitstring_encoding += link_bitmap[link]
+
+    return bitstring_encoding
+
+
+def decode_bitstring_to_plaquette_state(
+        bitstring: str,
+        link_bitmap: IrrepBitmap,
+        vertex_bitmap: VertexMultiplicityBitmap
+) -> PlaquetteState:
+    """
+    Decode bitstring to a plaquette state in terms of iWeights.
+
+    State ordering convetion starts at bottom left vertex and goes
+
+    |v1 v2 v3 v4 l1 l2 l3 l4>
+
+    according to the layout:
+
+    v4 ----l3--- v3
+    |            |
+    |            |
+    l4           l2
+    |            |
+    |            |
+    v1 ----l1--- v2
+    """
+    raise NotImplementedError()
+
+
+def _test_singlet_bitmaps():
     print("Testing singlet bitmaps...")
     # Check that there are 6 vertex singlet bitmaps (3 dimensionalities * 2 irrep truncations).
     there_are_six_singlet_bitmaps = len(VERTEX_SINGLET_BITMAPS) == 6
     print(f"\nlen(VERTEX_SINGLET_BITMAPS) == 6? {there_are_six_singlet_bitmaps}.")
     assert there_are_six_singlet_bitmaps
 
+
+def _test_vertex_bitmaps_have_right_amount_of_singlets():
     # Check that all vertex bitmaps have the right amount of distinct singlets.
     # The values for expected_nums come from classical precomputation.
     cases = ["d=3/2, T1", "d=3/2, T2", "d=2, T1", "d=2, T2", "d=3, T1", "d=3, T2"]
@@ -185,5 +330,145 @@ if __name__ == "__main__":
             print(f"Encountered {len(set(VERTEX_SINGLET_BITMAPS[current_case].values()))} distinct bitstrings.")
 
         assert test_result_singlets_have_unique_bitstring
+
+
+def _test_bitstring_encoding_of_plaquette():
+    # Check that the encoding is as expected.
+    assert VERTEX_SINGLET_BITMAPS["d=3/2, T1"] == {
+        ((ONE, ONE, ONE), 1): "00",
+        ((ONE, THREE, THREE_BAR), 1): "01",
+        ((THREE, THREE, THREE), 1): "10",
+        ((THREE_BAR, THREE_BAR, THREE_BAR), 1): "11"
+    }
+    v1: VertexBag = ((ONE, THREE, THREE_BAR), 1)
+    v2: VertexBag = ((ONE, THREE, THREE_BAR), 1)
+    v3: VertexBag = ((ONE, THREE, THREE_BAR), 1)
+    v4: VertexBag = ((ONE, ONE, ONE), 1)
+    l1: IrrepWeight = THREE
+    l2: IrrepWeight = THREE_BAR
+    l3: IrrepWeight = ONE
+    l4: IrrepWeight = ONE
+    plaquette: PlaquetteState = (v1, v2, v3, v4, l1, l2, l3, l4)
+    expected_bitstring = "01010100" + "10010000"  # vertices encoding + link encoding
+    print(
+        "Checking that that the following plaquette is encoded in the bit "
+        f"string {expected_bitstring}:\n"
+        f"{plaquette}"
+    )
+    resulting_bitstring = encode_plaquette_state_as_bitstring(
+        plaquette,
+        link_bitmap=IRREP_TRUNCATION_DICT_1_3_3BAR,
+        vertex_bitmap=VERTEX_SINGLET_BITMAPS["d=3/2, T1"])
+    assert expected_bitstring == resulting_bitstring, f"Test failed, resulting_bitstring == {resulting_bitstring}."
+    print("Test passed.")
+
+
+def _test_bad_plaquette_input_fails():
+    v1: VertexBag = ((ONE, THREE, THREE_BAR), 1)
+    v2: VertexBag = ((ONE, THREE, THREE_BAR), 1)
+    v3: VertexBag = ((ONE, THREE, THREE_BAR), 1)
+    v4: VertexBag = ((ONE, ONE, ONE), 1)
+    l1: IrrepWeight = THREE
+    l2: IrrepWeight = THREE_BAR
+    l3: IrrepWeight = ONE
+    l4: IrrepWeight = ONE
+
+    print("Checking that a wrong-length plaquette input fails to be encoded.")
+    plaquette_wrong_length: PlaquetteState = (v1, v2, v3, l1, l2, l3)
+    try:
+        encode_plaquette_state_as_bitstring(
+            plaquette_wrong_length,
+            link_bitmap=IRREP_TRUNCATION_DICT_1_3_3BAR,
+            vertex_bitmap=VERTEX_SINGLET_BITMAPS["d=3/2, T1"])
+    except ValueError as e:
+        print(f"Test passed. Raised ValueError:\n{e}")
+    else:
+        raise AssertionError("Test failed. No ValueError raised.")
+
+    print("Checking that a plaquette which isn't ordered with vertices first "
+          "followed by links fails.")
+    plaquette_wrong_ordering = (l1, l2, l3, l4, v1, v2, v3, v4)
+    try:
+        encode_plaquette_state_as_bitstring(
+            plaquette_wrong_ordering,
+            link_bitmap=IRREP_TRUNCATION_DICT_1_3_3BAR,
+            vertex_bitmap=VERTEX_SINGLET_BITMAPS["d=3/2, T1"])
+    except ValueError as e:
+        print(f"Test passed. Raised ValueError:\n{e}")
+    else:
+        raise AssertionError("Test failed. No ValueError raised.")
+
+    print("Checking that a plaquette which has too many vertices fails.")
+    plaquette_too_many_vertices = (v1, v2, v3, v4, v4, l1, l2, l3)
+    try:
+        encode_plaquette_state_as_bitstring(
+            plaquette_too_many_vertices,
+            link_bitmap=IRREP_TRUNCATION_DICT_1_3_3BAR,
+            vertex_bitmap=VERTEX_SINGLET_BITMAPS["d=3/2, T1"])
+    except ValueError as e:
+        print(f"Test passed. Raise ValueError:\n{e}")
+    else:
+        raise AssertionError("Test failed. No ValueError raised.")
+
+
+def _test_all_plaquette_states_have_unique_bitstring_encoding():
+    """
+    Check that all plaquette states appearing in the magnetic
+    Hamiltonian can be encoded in unique bitstrings.
+
+    Attempts encoding on the following cases:
+    - d=3/2, T1
+    - d=3/2, T2
+    - d=2, T1
+    """
+    cases = ["d=3/2, T1", "d=3/2, T2", "d=2, T1"]
+    # expected_bitlength = 4 * (n_link_qubits + n_vertex_qubits)
+    expected_bitlength = [4*(2 + 0) , 4*(4 + 3), 4*(3 + 2)]
+    print(
+        "Checking that there is a unique bitstring encoding available for all "
+        "the plaquette states appearing in all the matrix elements for the "
+        f"following cases:\n{cases}."
+    )
+    for current_expected_bitlength, current_case in zip(expected_bitlength, cases):
+        link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR if \
+                current_case[-2:] == "T1" else IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
+        # No vertices needed for T1 and d=3/2
+        vertex_bitmap = {} if current_case[-2:] == "T1" \
+                and current_case[:5] == "d=3/2" else VERTEX_SINGLET_BITMAPS[current_case]
+        print(f"Case {current_case}: confirming all initial and final states "
+              "appearing in the magnetic Hamiltonian can be succesfully encoded.\n"
+              f"Link bitmap: {link_bitmap}\n"
+              f"Vertex bitmap: {vertex_bitmap}")
+
+        # Get the set of unique plaquette states.
+        all_plaquette_states = set([
+            final_and_initial_state_tuple[0] for final_and_initial_state_tuple in MAGNETIC_HAMILTONIANS[current_case].keys()] + [
+                final_and_initial_state_tuple[1] for final_and_initial_state_tuple in MAGNETIC_HAMILTONIANS[current_case].keys()
+            ])
+
+        # Attempt encodings and check for uniqueness.
+        all_encoded_plaquette_bitstrings = []
+        for plaquette_state in all_plaquette_states:
+            plaquette_state_bitstring = encode_plaquette_state_as_bitstring(
+                plaquette_state,
+                link_bitmap,
+                vertex_bitmap
+            )
+            assert len(plaquette_state_bitstring) == current_expected_bitlength, f"len(plaquette_state_bitstring) == {len(plaquette_state_bitstring)}; expected len == {current_expected_bitlength}."
+            all_encoded_plaquette_bitstrings.append(plaquette_state_bitstring)
+        n_unique_plaquette_encodings = len(set(all_encoded_plaquette_bitstrings))
+        assert n_unique_plaquette_encodings == len(all_plaquette_states), f"Encountered {n_unique_plaquette_encodings} unique bitstrings encoding {len(all_plaquette_states)} unique plaquette states."
+        
+        print("Test passed.")
+
+def _run_tests():
+    _test_singlet_bitmaps()
+    _test_vertex_bitmaps_have_right_amount_of_singlets()
+    _test_bitstring_encoding_of_plaquette()
+    _test_bad_plaquette_input_fails()
+    _test_all_plaquette_states_have_unique_bitstring_encoding()
+
+if __name__ == "__main__":
+    _run_tests()
 
     print("All tests passed.")
