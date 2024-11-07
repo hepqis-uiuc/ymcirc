@@ -310,27 +310,33 @@ class LatticeStateEncoder:
 
     def encode_link_state_as_bit_string(self, link: IrrepWeight) -> str:
         """Encode an i-Weight tuple as a bit string."""
-        raise NotImplementedError()
+        return self._link_bitmap[link]
 
-    def decode_link_state_as_bit_string(self, encoded_link: str) -> Union[IrrepWeight, None]:
+    def decode_bit_string_to_link_state(self, encoded_link: str) -> Union[IrrepWeight, None]:
         """
-        Decode a bit string to an i-Weight tuple.
+        Decode a bit string to a linke state i-Weight tuple.
 
         If the bit string doesn't have a valid decoding, returns None.
         """
-        raise NotImplementedError()
+        try:
+            return self._bit_string_to_link_map[encoded_link]
+        except KeyError:
+            return None
 
-    def encode_vertex_state_as_bitstring(self, vertex: VertexBag) -> str:
-        """Encode a vertex bag as a bit string."""
-        raise NotImplementedError()
+    def encode_vertex_state_as_bit_string(self, vertex: VertexBag) -> str:
+        """Encode a vertex bag state tuple as a bit string."""
+        return self._vertex_bitmap[vertex]
 
-    def decode_vertex_state_as_bitstring(self, encoded_vertex: str) -> Union[VertexBag, None]:
+    def decode_bit_string_to_vertex_state(self, encoded_vertex: str) -> Union[VertexBag, None]:
         """
-        Decode a bit string to a vertex bag tuple.
+        Decode a bit string to a vertex bag state tuple.
 
         If the bit string doesn't have a valid decoding, returns None.
         """
-        raise NotImplementedError()
+        try:
+            return self._bit_string_to_vertex_map[encoded_vertex]
+        except KeyError:
+            return None
 
     def encode_plaquette_state_as_bitstring(
             self,
@@ -409,6 +415,9 @@ class LatticeStateEncoder:
         If using an empty vertex bitmap, the input bitstring is assumed to consist
         exclusively of encoded links, and dummy "decoded" vertices will take the
         value None.
+
+        Any link or vertex bit string which doesn't correspond to a known
+        link or vertex state will also be decoded as None.
         """
         if self._expected_plaquette_bit_string_length != len(bit_string):
             raise ValueError("Vertex and link bitmaps are inconsistent with length of\n"
@@ -423,13 +432,15 @@ class LatticeStateEncoder:
         if self._expected_vertex_bit_string_length != 0:
             for encoded_vertex in LatticeStateEncoder._split_string_evenly(
                     vertices_substring, self._expected_vertex_bit_string_length):
-                decoded_vertex = self._bit_string_to_vertex_map[encoded_vertex]
+                decoded_vertex = self.decode_bit_string_to_vertex_state(encoded_vertex)
                 decoded_plaquette.append(decoded_vertex)
+        else:  # Set all decoded vertices to None.
+            decoded_plaquette += [None,] * 4
         # Link decoding.
         links_substring = bit_string[idx_first_link_bit:]
         for encoded_link in LatticeStateEncoder._split_string_evenly(
                 links_substring, self._expected_link_bit_string_length):
-            decoded_link = self._bit_string_to_link_map[encoded_link]
+            decoded_link = self.decode_bit_string_to_link_state(encoded_link)
             decoded_plaquette.append(decoded_link)
 
         return tuple(decoded_plaquette)
@@ -468,6 +479,7 @@ def _test_vertex_bitmaps_have_right_amount_of_singlets():
             print(f"Encountered {len(set(VERTEX_SINGLET_BITMAPS[current_case].values()))} distinct bit strings.")
 
         assert test_result_singlets_have_unique_bitstring
+
 
 def _test_lattice_encoder_fails_on_bad_bitmaps():
     print("Checking that a vertex bitmap with non-unique bit string values causes ValueError.")
@@ -533,7 +545,63 @@ def _test_lattice_encoder_fails_on_bad_bitmaps():
         raise AssertionError("No ValueError raised.")
 
 
-def _test_bad_plaquette_input_fails():
+def _test_encode_decode_various_links():
+    link_bitmap = {
+        ONE: "00",
+        THREE: "10",
+        EIGHT: "11"
+    }
+    # Test data, not physically meaningful but has right format for creating creating an encoder.
+    vertex_bitmap = {
+        ((ONE, ONE, ONE), 1): "00",
+        ((THREE, THREE, THREE), 1): "01",
+        ((THREE, THREE, THREE), 2): "10"
+    }
+    lattice_encoder = LatticeStateEncoder(link_bitmap, vertex_bitmap)
+
+    print("Checking that the following link_bitmap is used to correctly encode/decode links:")
+    print(link_bitmap)
+    for link_state, bit_string_encoding in link_bitmap.items():
+        result_encoding = lattice_encoder.encode_link_state_as_bit_string(link_state)
+        result_decoding = lattice_encoder.decode_bit_string_to_link_state(bit_string_encoding)
+        assert result_encoding == bit_string_encoding, f"(result != expected): {result_encoding} != {bit_string_encoding}"
+        assert result_decoding == link_state, f"(result != expected): {result_decoding} != {link_state}"
+        print(f"Test passed. Validated {bit_string_encoding} <-> {link_state}")
+
+    print("Verifying that unknown bit string is decoded to None.")
+    assert lattice_encoder.decode_bit_string_to_link_state("01") is None
+    print("Test passed.")
+
+
+def _test_encode_decode_various_vertices():
+    link_bitmap = {
+        ONE: "00",
+        THREE: "10",
+        EIGHT: "11"
+    }
+    # Test data, not physically meaningful but has right format for creating creating an encoder.
+    vertex_bitmap = {
+        ((ONE, ONE, ONE), 1): "00",
+        ((THREE, THREE, THREE), 1): "01",
+        ((THREE, THREE, THREE), 2): "10"
+    }
+    lattice_encoder = LatticeStateEncoder(link_bitmap, vertex_bitmap)
+
+    print("Checking that the following vertex_bitmap is used to correctly encode/decode vertices:")
+    print(vertex_bitmap)
+    for vertex_state, bit_string_encoding in vertex_bitmap.items():
+        result_encoding = lattice_encoder.encode_vertex_state_as_bit_string(vertex_state)
+        result_decoding = lattice_encoder.decode_bit_string_to_vertex_state(bit_string_encoding)
+        assert result_encoding == bit_string_encoding, f"(result != expected): {result_encoding} != {bit_string_encoding}"
+        assert result_decoding == vertex_state, f"(result != expected): {result_decoding} != {vertex_state}"
+        print(f"Test passed. Validated {bit_string_encoding} <-> {vertex_state}")
+
+    print("Verifying that unknown bit string is decoded to None.")
+    assert lattice_encoder.decode_bit_string_to_vertex_state("11") is None
+    print("Test passed.")
+    
+
+def _test_encoding_malformed_plaquette_fails():
     v1: VertexBag = ((ONE, THREE, THREE_BAR), 1)
     v2: VertexBag = ((ONE, THREE, THREE_BAR), 1)
     v3: VertexBag = ((ONE, THREE, THREE_BAR), 1)
@@ -576,7 +644,7 @@ def _test_bad_plaquette_input_fails():
         raise AssertionError("Test failed. No ValueError raised.")
 
 
-def _test_all_plaquette_states_have_unique_bitstring_encoding():
+def _test_all_mag_hamiltonian_plaquette_states_have_unique_bitstring_encoding():
     """
     Check that all plaquette states appearing in the magnetic
     Hamiltonian can be encoded in unique bit strings.
@@ -625,7 +693,8 @@ def _test_all_plaquette_states_have_unique_bitstring_encoding():
 
         print("Test passed.")
 
-def _test_bitstring_encoding_of_plaquette():
+
+def _test_encoding_good_plaquette():
     # Check that the encoding is as expected.
     assert VERTEX_SINGLET_BITMAPS["d=3/2, T1"] == {
         ((ONE, ONE, ONE), 1): "00",
@@ -668,7 +737,10 @@ def _test_bitstring_decoding_to_plaquette():
             "10101001",
             {},  # No vertex data needed  for d=3/2, T1.
             IRREP_TRUNCATION_DICT_1_3_3BAR,
-            (THREE, THREE, THREE, THREE_BAR)
+            (
+                None, None, None, None,  # When using empty vertex bitmap, should get back None for decoded vertices.
+                THREE, THREE, THREE, THREE_BAR
+            )
         ),
         (
             "d=3/2, T2",
@@ -751,11 +823,15 @@ def _run_tests():
     print()
     _test_lattice_encoder_fails_on_bad_bitmaps()
     print()
-    _test_bad_plaquette_input_fails()
+    _test_encode_decode_various_links()
     print()
-    _test_bitstring_encoding_of_plaquette()
+    _test_encode_decode_various_vertices()
     print()
-    _test_all_plaquette_states_have_unique_bitstring_encoding()
+    _test_encoding_malformed_plaquette_fails()
+    print()
+    _test_encoding_good_plaquette()
+    print()
+    _test_all_mag_hamiltonian_plaquette_states_have_unique_bitstring_encoding()
     print()
     _test_bitstring_decoding_to_plaquette()
     print()
