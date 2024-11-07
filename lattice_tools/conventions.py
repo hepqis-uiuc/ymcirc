@@ -128,7 +128,7 @@ combinations of dimension and truncation data.
 from __future__ import annotations
 import ast
 from pathlib import Path
-from typing import Tuple, Dict
+from typing import Tuple, Dict, Union
 import json
 
 # Filesystem stuff.
@@ -159,9 +159,12 @@ SingletsDef = Tuple[Tuple[IrrepWeight, ...], Tuple[MultiplicityIndex, ...]]
 VertexBag = Tuple[Tuple[IrrepWeight, ...], MultiplicityIndex]
 VertexState = VertexBag  # Another useful semantic alias
 VertexMultiplicityBitmap = Dict[VertexBag, BitString]
-PlaquetteState = Tuple[
-    VertexState, VertexState, VertexState, VertexState,
-    LinkState, LinkState, LinkState, LinkState]
+PlaquetteState = Union[
+    Tuple[
+        VertexState, VertexState, VertexState, VertexState,
+        LinkState, LinkState, LinkState, LinkState],
+    Tuple[LinkState, LinkState, LinkState, LinkState]
+]
 
 # Irrep iweights (top row of GT pattern).
 ONE: IrrepWeight = (0, 0, 0)
@@ -283,6 +286,10 @@ def decode_bitstring_to_plaquette_state(
 ) -> PlaquetteState:
     """
     Decode bitstring to a plaquette state in terms of iWeights.
+    
+    Bitmaps are assumed to have unique bitstrings as values,
+    and the desired link iWeight tuple or vertex bag tuple
+    as keys. Inverting of the bitmaps is handled internally.
 
     State ordering convetion starts at bottom left vertex and goes
 
@@ -298,7 +305,39 @@ def decode_bitstring_to_plaquette_state(
     |            |
     v1 ----l1--- v2
     """
-    raise NotImplementedError()
+    # Validate input.
+    try:
+        expected_len_vertex_bitstring = len(list(vertex_bitmap.values())[0])
+    except IndexError:  # Allowed to have no vertices for d=3/2, T1 case.
+        expected_len_vertex_bitstring = 0
+    expected_len_link_bitstring = len(list(link_bitmap.values())[0])
+    expected_n_bits = (expected_len_vertex_bitstring + expected_len_link_bitstring) * 4
+    if expected_n_bits != len(bitstring):
+        raise ValueError("Vertex and link bitmaps are inconsistent with length of\n"
+                         f"bit string {bitstring}. Expected n_bits: {expected_n_bits}; encountered n_bits: {len(bitstring)}.")
+    idx_first_link_bit = 4 * expected_len_vertex_bitstring
+    vertices_substring = bitstring[:idx_first_link_bit]
+    links_substring = bitstring[idx_first_link_bit:]
+
+    # Invert bitmaps.
+    inverted_vertex_bitmap = {bitstring: vertex for vertex, bitstring in vertex_bitmap.items()}
+    inverted_link_bitmap = {bitstring: link for link, bitstring in link_bitmap.items()}
+
+    # Decode plaquette.
+    split_bitstring_evenly = lambda s, split_len: [s[i:i+split_len] for i in range(0, len(s), split_len)]
+    decoded_plaquette = []
+    # Vertex decoding.
+    if expected_len_vertex_bitstring != 0:
+        for encoded_vertex in split_bitstring_evenly(vertices_substring, expected_len_vertex_bitstring):
+            decoded_vertex = inverted_vertex_bitmap[encoded_vertex]
+            decoded_plaquette.append(decoded_vertex)
+    # Link decoding..
+    links_substring = bitstring[idx_first_link_bit:]
+    for encoded_link in split_bitstring_evenly(links_substring, expected_len_link_bitstring):
+        decoded_link = inverted_link_bitmap[encoded_link]
+        decoded_plaquette.append(decoded_link)
+
+    return tuple(decoded_plaquette)
 
 
 def _test_singlet_bitmaps():
@@ -330,37 +369,6 @@ def _test_vertex_bitmaps_have_right_amount_of_singlets():
             print(f"Encountered {len(set(VERTEX_SINGLET_BITMAPS[current_case].values()))} distinct bitstrings.")
 
         assert test_result_singlets_have_unique_bitstring
-
-
-def _test_bitstring_encoding_of_plaquette():
-    # Check that the encoding is as expected.
-    assert VERTEX_SINGLET_BITMAPS["d=3/2, T1"] == {
-        ((ONE, ONE, ONE), 1): "00",
-        ((ONE, THREE, THREE_BAR), 1): "01",
-        ((THREE, THREE, THREE), 1): "10",
-        ((THREE_BAR, THREE_BAR, THREE_BAR), 1): "11"
-    }
-    v1: VertexBag = ((ONE, THREE, THREE_BAR), 1)
-    v2: VertexBag = ((ONE, THREE, THREE_BAR), 1)
-    v3: VertexBag = ((ONE, THREE, THREE_BAR), 1)
-    v4: VertexBag = ((ONE, ONE, ONE), 1)
-    l1: IrrepWeight = THREE
-    l2: IrrepWeight = THREE_BAR
-    l3: IrrepWeight = ONE
-    l4: IrrepWeight = ONE
-    plaquette: PlaquetteState = (v1, v2, v3, v4, l1, l2, l3, l4)
-    expected_bitstring = "01010100" + "10010000"  # vertices encoding + link encoding
-    print(
-        "Checking that that the following plaquette is encoded in the bit "
-        f"string {expected_bitstring}:\n"
-        f"{plaquette}"
-    )
-    resulting_bitstring = encode_plaquette_state_as_bitstring(
-        plaquette,
-        link_bitmap=IRREP_TRUNCATION_DICT_1_3_3BAR,
-        vertex_bitmap=VERTEX_SINGLET_BITMAPS["d=3/2, T1"])
-    assert expected_bitstring == resulting_bitstring, f"Test failed, resulting_bitstring == {resulting_bitstring}."
-    print("Test passed.")
 
 
 def _test_bad_plaquette_input_fails():
@@ -458,15 +466,129 @@ def _test_all_plaquette_states_have_unique_bitstring_encoding():
             all_encoded_plaquette_bitstrings.append(plaquette_state_bitstring)
         n_unique_plaquette_encodings = len(set(all_encoded_plaquette_bitstrings))
         assert n_unique_plaquette_encodings == len(all_plaquette_states), f"Encountered {n_unique_plaquette_encodings} unique bitstrings encoding {len(all_plaquette_states)} unique plaquette states."
-        
+
         print("Test passed.")
+
+def _test_bitstring_encoding_of_plaquette():
+    # Check that the encoding is as expected.
+    assert VERTEX_SINGLET_BITMAPS["d=3/2, T1"] == {
+        ((ONE, ONE, ONE), 1): "00",
+        ((ONE, THREE, THREE_BAR), 1): "01",
+        ((THREE, THREE, THREE), 1): "10",
+        ((THREE_BAR, THREE_BAR, THREE_BAR), 1): "11"
+    }
+    v1: VertexBag = ((ONE, THREE, THREE_BAR), 1)
+    v2: VertexBag = ((ONE, THREE, THREE_BAR), 1)
+    v3: VertexBag = ((ONE, THREE, THREE_BAR), 1)
+    v4: VertexBag = ((ONE, ONE, ONE), 1)
+    l1: IrrepWeight = THREE
+    l2: IrrepWeight = THREE_BAR
+    l3: IrrepWeight = ONE
+    l4: IrrepWeight = ONE
+    plaquette: PlaquetteState = (v1, v2, v3, v4, l1, l2, l3, l4)
+    expected_bitstring = "01010100" + "10010000"  # vertices encoding + link encoding
+    print(
+        "Checking that that the following plaquette is encoded in the bit "
+        f"string {expected_bitstring}:\n"
+        f"{plaquette}"
+    )
+    resulting_bitstring = encode_plaquette_state_as_bitstring(
+        plaquette,
+        link_bitmap=IRREP_TRUNCATION_DICT_1_3_3BAR,
+        vertex_bitmap=VERTEX_SINGLET_BITMAPS["d=3/2, T1"])
+    assert expected_bitstring == resulting_bitstring, f"Test failed, resulting_bitstring == {resulting_bitstring}."
+    print("Test passed.")
+
+
+def _test_bitstring_decoding_to_plaquette():
+    # Check that decoding of bitstrings is as expected.
+    # Case data tuple format:
+    # case_name, encoded_plaquette, vertex_bitmap, link_bitmap, expected_decoded_plaquette.
+    # Note that the data were manually constructed by irrep encoding bitmaps
+    # with data in vertex singlet json files.
+    cases = [
+        (
+            "d=3/2, T1",
+            "10101001",
+            {},  # No vertex data needed  for d=3/2, T1.
+            IRREP_TRUNCATION_DICT_1_3_3BAR,
+            (THREE, THREE, THREE, THREE_BAR)
+        ),
+        (
+            "d=3/2, T2",
+            "1001" + "1100" + "0011" + "0001" + "110111000001",  # Vertex strings + link string
+            VERTEX_SINGLET_BITMAPS["d=3/2, T2"],
+            IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8,
+            (
+                ((THREE_BAR, THREE_BAR, SIX), 1),
+                ((SIX, EIGHT, SIX_BAR), 1),
+                ((ONE, EIGHT, EIGHT), 1),
+                ((ONE, THREE, THREE_BAR), 1),
+                SIX, EIGHT, ONE, THREE_BAR
+            )
+        ),
+        (
+            "d=2, T1",
+            "101" + "100" + "010" + "001" + "10101001",  # Vertex strings + link string
+            VERTEX_SINGLET_BITMAPS["d=2, T1"],
+            IRREP_TRUNCATION_DICT_1_3_3BAR,
+            (
+                ((THREE, THREE, THREE_BAR, THREE_BAR), 2),
+                ((THREE, THREE, THREE_BAR, THREE_BAR), 1),
+                ((ONE, THREE, THREE, THREE), 1),
+                ((ONE, ONE, THREE, THREE_BAR), 1),
+                THREE, THREE, THREE, THREE_BAR
+            )
+        )
+    ]
+
+    print("Checking decoding of bitstrings corresponding to gauge-invariant plaquette states.")
+
+    for current_case, encoded_plaquette, vertex_bitmap, link_bitmap, expected_decoded_plaquette in cases:
+        print(f"Checking plaquette bit string decoding for a {current_case} plaquette...")
+        resulting_decoded_plaquette = decode_bitstring_to_plaquette_state(encoded_plaquette, link_bitmap, vertex_bitmap)
+        assert resulting_decoded_plaquette == expected_decoded_plaquette, f"Expected: {expected_decoded_plaquette}\nEncountered: {resulting_decoded_plaquette}"
+        print(f"Test passed.\n{encoded_plaquette} successfully decoded to {resulting_decoded_plaquette}.")
+
+
+def _test_decoding_non_gauge_invariant_bitstring():
+    raise NotImplementedError()
+
+
+def _test_decoding_garbage_bitstring():
+    raise NotImplementedError()
+
+
+def _test_decoding_fails_when_len_bitstring_doesnt_match_bitmaps():
+    raise NotImplementedError()
+
+
+def _test_decoding_fails_when_bitmaps_have_inconsistent_lengths():
+    raise NotImplementedError()
+
 
 def _run_tests():
     _test_singlet_bitmaps()
+    print()
     _test_vertex_bitmaps_have_right_amount_of_singlets()
+    print()
     _test_bitstring_encoding_of_plaquette()
+    print()
     _test_bad_plaquette_input_fails()
+    print()
     _test_all_plaquette_states_have_unique_bitstring_encoding()
+    print()
+    _test_bitstring_decoding_to_plaquette()
+    print()
+    _test_decoding_non_gauge_invariant_bitstring()
+    print()
+    _test_decoding_garbage_bitstring()
+    print()
+    _test_decoding_fails_when_len_bitstring_doesnt_match_bitmaps()
+    print()
+    _test_decoding_fails_when_bitmaps_have_inconsistent_lengths()
+    print()
+
 
 if __name__ == "__main__":
     _run_tests()
