@@ -1,0 +1,6 @@
+# All files are checked into the repo with LF
+# see e.g. https://www.aleksandrhovhannisyan.com/blog/
+# crlf-vs-lf-normalizing-line-endings-in-git/
+# #configuring-line-endings-in-git-with-coreautocrlf
+
+* text=auto
