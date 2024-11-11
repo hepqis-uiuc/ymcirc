@@ -123,7 +123,7 @@ from __future__ import annotations
 import ast
 import copy
 from pathlib import Path
-from typing import Tuple, Dict, Union
+from typing import Tuple, Dict, Union, List
 import json
 
 # Filesystem stuff.
