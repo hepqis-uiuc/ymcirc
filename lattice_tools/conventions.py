@@ -95,7 +95,7 @@ import json
 
 # Filesystem stuff.
 _PROJECT_ROOT = Path(__file__).parent
-_DATA_DIR = _PROJECT_ROOT / "data/singlet-bitmaps/"
+_DATA_DIR = _PROJECT_ROOT / "lattice_tools_data/singlet-bitmaps/"
 _SINGLET_DATA_FILE_PATHS: Dict[str, Path] = {
     "d=3/2, T1": _DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3_2)_singlet_bitmaps.json",
     "d=3/2, T2": _DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(3_2)_singlet_bitmaps.json",
