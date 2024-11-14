@@ -23,7 +23,7 @@ from lattice_tools.conventions import (
     VERTEX_SINGLET_BITMAPS,
     IRREP_TRUNCATION_DICT_1_3_3BAR,
     IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8)
-from lattice_tools.circuit import apply_electric_trotter_step, apply_magnetic_trotter_step
+from lattice_tools.circuit import apply_electric_trotter_step, apply_magnetic_trotter_step, LatticeCircuitManager
 from lattice_tools.lattice_registers import LatticeRegisters
 from lattice_tools.conventions import MAGNETIC_HAMILTONIANS, LatticeStateEncoder
 from math import comb
@@ -43,8 +43,11 @@ from qiskit import qpy
 # Filesystem stuff
 PROJECT_ROOT = Path(__file__).parent.parent
 SERIALIZED_CIRCUITS_DIR = PROJECT_ROOT / "serialized-circuits"
+SERIALIZED_CIRCUITS_DIR.mkdir(exist_ok=True)
 PLOTS_DIR = PROJECT_ROOT / "plots"
+PLOTS_DIR.mkdir(exist_ok=True)
 SIM_RESULTS_DIR = PROJECT_ROOT / "sim-results"
+SIM_RESULTS_DIR.mkdir(exist_ok=True)
 
 
 # Configure simulation parameters and data.
@@ -58,8 +61,8 @@ linear_size = 2  # To indirectly control the number of plaquettes
 coupling_g = 1.0
 mag_hamiltonian_matrix_element_threshold = 0.6 # Drop all matrix elements that have an abs value less than this.
 run_circuit_optimization = False
-n_trotter_steps_cases = [1,] # Make this a list that iterates from 1 to 3
-sim_times = np.linspace(0.05, 1.0, num=20) # set num to 20 for comparison with trailhead
+n_trotter_steps_cases = [1, 2, 3] # Make this a list that iterates from 1 to 3
+sim_times = np.linspace(0.05, 3.0, num=20) # set num to 20 for comparison with trailhead
 
 
 if __name__ == "__main__":
@@ -67,7 +70,9 @@ if __name__ == "__main__":
     sim_index = pd.MultiIndex.from_product([n_trotter_steps_cases, sim_times], names=["num_trotter_steps", "time"])
     df_job_results = pd.DataFrame(columns = ["vacuum_persistence_probability"], index=sim_index)
 
-    # Set the right vertex and link bitmaps based on dimensionality_and_truncation_string
+    # Set the right vertex and link bitmaps based on
+    # dimensionality_and_truncation_string.
+    # OK to not use vertex DOFs for d=3/2, T1.
     vertex_bitmap = {} if dimensionality_and_truncation_string == "d=3/2, T1" else VERTEX_SINGLET_BITMAPS[dimensionality_and_truncation_string]  # Ok to not use vertex DoFs in this case.
     link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR if dimensionality_and_truncation_string[-2:] == "T1" else IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
 
@@ -90,8 +95,7 @@ if __name__ == "__main__":
 
     print(mag_hamiltonian)
     print("Num matrix elements:", len(mag_hamiltonian))
-    breakpoint()
-    # TODO generate all parameterize givens rotation circuits here?
+    # TODO generate all parameterized givens rotation circuits here?
 
     # Iterate over cases of trotter steps and sim times.
     for sim_time in sim_times:
@@ -123,11 +127,10 @@ if __name__ == "__main__":
                 print(f"Vertex singlet bag encoding: {vertex_bag} -> {encoding}")
             print(f"It has the vacuum state: {current_vacuum_state}")
 
-            # Assemble all lattice registers into a blank circuit
-            master_circuit = QuantumCircuit(
-                *[lattice.get_link_register(link_address[0], link_address[1]) for link_address in lattice.link_register_keys],
-                *[lattice.get_vertex_register(vertex_address) for vertex_address in lattice.vertex_register_keys]
-            )
+            # # Assemble all lattice registers into a blank circuit.
+            master_circuit = LatticeCircuitManager(
+                lattice_encoder,
+                mag_hamiltonian).create_blank_full_lattice_circuit(lattice)
 
             # Compute the rotation angle per trotter step
             # Append a single Trotter step over the lattice.
@@ -144,25 +147,25 @@ if __name__ == "__main__":
                         dt=dt,
                         optimize_circuits=run_circuit_optimization
                     )
-                print("Applied trotter step. Current gate count:", master_circuit.count_ops())
 
             # Uncomment for a final attempt at optimization.
             master_circuit.measure_all()
             master_circuit = transpile(master_circuit, optimization_level=3)
             print("Gate counts:\n", master_circuit.count_ops())
-            #breakpoint()
 
-            #Uncomment to write circuits to disk in either QASM or QPY form.
+            # TODO Compute this elsewhere, not efficient.
+            # Needed to format file paths.
             if lattice.dim >= 2:
                 n_plaquettes = int(len(lattice.vertex_register_keys) * comb(lattice.dim, 2))
             else:
                 n_plaquettes = int(len(lattice.vertex_register_keys) / 2)
+
+            #Uncomment to write circuits to disk in either QASM or QPY form.
             # Dump qasm of circuit to file.
             #qasm_file_path =  SERIALIZED_CIRCUITS_DIR / Path(f"qasm-{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}/n_trotter={n_trotter_steps}-t={sim_time}.qasm")
-            qasm_file_path =  SERIALIZED_CIRCUITS_DIR / Path(f"qasm-{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut=2/n_trotter={n_trotter_steps}-t={sim_time}.qasm")
-            qasm_file_path.parent.mkdir(parents=True, exist_ok=True)
-            with qasm_file_path.open('w') as qasm_file:
-                qasm_file.write(dumps(master_circuit))
+            # qasm_file_path.parent.mkdir(parents=True, exist_ok=True)
+            # with qasm_file_path.open('w') as qasm_file:
+            #     qasm_file.write(dumps(master_circuit))
             #continue
             
             #Dump QPY serialization of circuit to file.

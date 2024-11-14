@@ -16,7 +16,7 @@ from lattice_tools.conventions import (
     VERTEX_SINGLET_BITMAPS,
     IRREP_TRUNCATION_DICT_1_3_3BAR,
     IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8)
-from lattice_tools.circuit import apply_electric_trotter_step, apply_magnetic_trotter_step
+from lattice_tools.circuit import apply_electric_trotter_step, apply_magnetic_trotter_step, LatticeCircuitManager
 from lattice_tools.lattice_registers import LatticeRegisters
 from lattice_tools.conventions import MAGNETIC_HAMILTONIANS, LatticeStateEncoder
 from math import comb
@@ -33,23 +33,26 @@ import matplotlib.pyplot as plt
 # Filesystem stuff
 PROJECT_ROOT = Path(__file__).parent.parent
 SERIALIZED_CIRCUITS_DIR = PROJECT_ROOT / "serialized-circuits"
+SERIALIZED_CIRCUITS_DIR.mkdir(exist_ok=True)
 PLOTS_DIR = PROJECT_ROOT / "plots"
+PLOTS_DIR.mkdir(exist_ok=True)
 SIM_RESULTS_DIR = PROJECT_ROOT / "sim-results"
+SIM_RESULTS_DIR.mkdir(exist_ok=True)
 
 
 # Configure simulation parameters and data.
 do_electric_evolution = False
 do_magnetic_evolution = True
-dimensionality_and_truncation_string = "d=2, T1"
-#dimensionality_and_truncation_string = "d=3/2, T1"
+#dimensionality_and_truncation_string = "d=2, T1"
+dimensionality_and_truncation_string = "d=3/2, T1"
 trunc_string = dimensionality_and_truncation_string[-2:]
-dimensions = 2
+dimensions = 1.5
 linear_size = 2  # To indirectly control the number of plaquettes
 coupling_g = 1.0
 run_circuit_optimization = False
 n_trotter_steps = 2
 matrix_elem_truc_levels = [0.95]#[0.0, 0.2, 0.4, 0.6]
-sim_times = np.linspace(0.05, 4.0, num=1)
+sim_times = np.linspace(0.05, 4.0, num=20)
 
 
 if __name__ == "__main__":
@@ -68,8 +71,7 @@ if __name__ == "__main__":
     # Create an encoder for converting between physical states and bit strings.
     lattice_encoder = LatticeStateEncoder(link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap)
 
-    # Or, Iterate over a fixed trotter step with different matrix trucations.
-    # Comment out as desired.
+    # Iterate over a fixed trotter step with different matrix trucations.
     for trunc_level in matrix_elem_truc_levels:
         print(f"Truncating the Hamiltonian at level {trunc_level}.")
         mag_hamiltonian: List[Tuple[str, str, float]] = []
@@ -110,11 +112,10 @@ if __name__ == "__main__":
                 print(f"Vertex singlet bag encoding: {vertex_bag} -> {encoding}")
             print(f"It has the vacuum state: {current_vacuum_state}")
 
-            # Assemble all lattice registers into a blank circuit
-            master_circuit = QuantumCircuit(
-                *[lattice.get_link_register(link_address[0], link_address[1]) for link_address in lattice.link_register_keys],
-                *[lattice.get_vertex_register(vertex_address) for vertex_address in lattice.vertex_register_keys]
-            )
+            # Assemble all lattice registers into a blank circuit.
+            master_circuit = LatticeCircuitManager(
+                lattice_encoder,
+                mag_hamiltonian).create_blank_full_lattice_circuit(lattice)
 
             # Compute the rotation angle per trotter step
             # Append a single Trotter step over the lattice.
@@ -136,9 +137,9 @@ if __name__ == "__main__":
             master_circuit.measure_all()
             master_circuit = transpile(master_circuit, optimization_level=3)
             print("Gate counts:\n", master_circuit.count_ops())
-            continue
 
-            #Uncomment to write circuits to disk in either QASM or QPY form.
+            # TODO Compute this elsewhere, not efficient.
+            # Needed to format file paths.
             if lattice.dim >= 2:
                 n_plaquettes = int(len(lattice.vertex_register_keys) * comb(lattice.dim, 2))
             else:
@@ -171,7 +172,6 @@ if __name__ == "__main__":
 
             print("Updated df:\n", df_job_results)
 
-    assert False
     print("All simulations complete. Final results:")
     print(df_job_results)
 
