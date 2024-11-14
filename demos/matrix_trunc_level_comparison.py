@@ -16,7 +16,7 @@ from lattice_tools.conventions import (
     VERTEX_SINGLET_BITMAPS,
     IRREP_TRUNCATION_DICT_1_3_3BAR,
     IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8)
-from lattice_tools.circuit import apply_electric_trotter_step, apply_magnetic_trotter_step, LatticeCircuitManager
+from lattice_tools.circuit import LatticeCircuitManager
 from lattice_tools.lattice_registers import LatticeRegisters
 from lattice_tools.conventions import MAGNETIC_HAMILTONIANS, LatticeStateEncoder
 from math import comb
@@ -113,21 +113,19 @@ if __name__ == "__main__":
             print(f"It has the vacuum state: {current_vacuum_state}")
 
             # Assemble all lattice registers into a blank circuit.
-            master_circuit = LatticeCircuitManager(
-                lattice_encoder,
-                mag_hamiltonian).create_blank_full_lattice_circuit(lattice)
+            circ_mgr = LatticeCircuitManager(lattice_encoder, mag_hamiltonian)
+            master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
 
             # Compute the rotation angle per trotter step
             # Append a single Trotter step over the lattice.
             # Put this inside a for loop for multiple Trotter steps?
             for _ in range(n_trotter_steps):
                 if do_electric_evolution is True:
-                    apply_electric_trotter_step(master_circuit, lattice)
+                    circ_mgr.apply_electric_trotter_step(master_circuit, lattice)
                 if do_magnetic_evolution is True:
-                    apply_magnetic_trotter_step(
+                    circ_mgr.apply_magnetic_trotter_step(
                         master_circuit,
                         lattice,
-                        hamiltonian=mag_hamiltonian,
                         coupling_g=coupling_g,
                         dt=dt,
                         optimize_circuits=run_circuit_optimization
