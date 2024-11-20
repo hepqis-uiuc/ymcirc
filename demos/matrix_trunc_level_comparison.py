@@ -23,7 +23,6 @@ from math import comb
 from qiskit import transpile
 from qiskit_aer.primitives import SamplerV2
 from qiskit_aer import AerSimulator
-from qiskit.circuit import QuantumCircuit
 from typing import List, Tuple
 import numpy as np
 import pandas as pd
@@ -53,6 +52,8 @@ run_circuit_optimization = False
 n_trotter_steps = 2
 matrix_elem_truc_levels = [0.95]#[0.0, 0.2, 0.4, 0.6]
 sim_times = np.linspace(0.05, 4.0, num=20)
+only_include_elems_connected_to_electric_vacuum = True
+use_2box_hack = True  # Halves circuit depth by taking box + box^dagger = 2box. Only true if all nonzero matrix elements have the same magnitude.
 
 
 if __name__ == "__main__":
@@ -75,13 +76,24 @@ if __name__ == "__main__":
     for trunc_level in matrix_elem_truc_levels:
         print(f"Truncating the Hamiltonian at level {trunc_level}.")
         mag_hamiltonian: List[Tuple[str, str, float]] = []
+        if use_2box_hack is False:
+            box_term: List[Tuple[str, str, float]] = []
+            box_dagger_term: List[Tuple[str, str, float]] = []
         for (final_plaquette_state, initial_plaquette_state), matrix_element_value in MAGNETIC_HAMILTONIANS[dimensionality_and_truncation_string].items():
             if abs(matrix_element_value) < trunc_level:
                 continue
             final_state_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(final_plaquette_state)
             initial_state_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(initial_plaquette_state)
-            mag_hamiltonian.append((final_state_bitstring, initial_state_bitstring, 2*matrix_element_value))
+            if only_include_elems_connected_to_electric_vacuum and ('1' in final_state_bitstring) and ('1' in initial_state_bitstring):
+                continue
+            if use_2box_hack is False:
+                box_term.append((final_state_bitstring, initial_state_bitstring, matrix_element_value))
+                box_dagger_term.append((initial_state_bitstring, final_state_bitstring, matrix_element_value))
+            else:
+                mag_hamiltonian.append((final_state_bitstring, initial_state_bitstring, 2*matrix_element_value))
 
+        if use_2box_hack is False:
+            mag_hamiltonian = box_term + box_dagger_term
         #print("Using the Hamiltonian:", mag_hamiltonian)
         print("Num matrix elements:", len(mag_hamiltonian))
         for sim_time in sim_times:

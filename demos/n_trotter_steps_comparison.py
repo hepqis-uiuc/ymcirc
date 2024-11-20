@@ -61,8 +61,11 @@ linear_size = 2  # To indirectly control the number of plaquettes
 coupling_g = 1.0
 mag_hamiltonian_matrix_element_threshold = 0.6 # Drop all matrix elements that have an abs value less than this.
 run_circuit_optimization = False
-n_trotter_steps_cases = [1, 2, 3] # Make this a list that iterates from 1 to 3
-sim_times = np.linspace(0.05, 3.0, num=20) # set num to 20 for comparison with trailhead
+n_trotter_steps_cases = [1] # Make this a list that iterates from 1 to 3
+sim_times = np.linspace(0.05, 2.0, num=40) # set num to 20 for comparison with trailhead
+#sim_times = [0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
+only_include_elems_connected_to_electric_vacuum = False
+use_2box_hack = True  # Halves circuit depth by taking box + box^dagger = 2box. Only true if all nonzero matrix elements have the same magnitude.
 
 
 if __name__ == "__main__":
@@ -84,17 +87,27 @@ if __name__ == "__main__":
     # Because of the givens rotation sim strategy, we can let
     # H_mag = \box + \box^\dagger = 2\box, which is why we multiply by 2.
     mag_hamiltonian: List[Tuple[str, str, float]] = []
+    if use_2box_hack is False:
+        box_term: List[Tuple[str, str, float]] = []
+        box_dagger_term: List[Tuple[str, str, float]] = []
     for (final_plaquette_state, initial_plaquette_state), matrix_element_value in MAGNETIC_HAMILTONIANS[dimensionality_and_truncation_string].items():
         if abs(matrix_element_value) < mag_hamiltonian_matrix_element_threshold:
             continue
         final_state_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(final_plaquette_state)
         initial_state_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(initial_plaquette_state)
-        if ('1' in final_state_bitstring) and ('1' in initial_state_bitstring):
+        if only_include_elems_connected_to_electric_vacuum and ('1' in final_state_bitstring) and ('1' in initial_state_bitstring):
             continue
-        mag_hamiltonian.append((final_state_bitstring, initial_state_bitstring, 2*matrix_element_value))
+        if use_2box_hack is False:
+            box_term.append((final_state_bitstring, initial_state_bitstring, matrix_element_value))
+            box_dagger_term.append((initial_state_bitstring, final_state_bitstring, matrix_element_value))
+        else:
+            mag_hamiltonian.append((final_state_bitstring, initial_state_bitstring, 2*matrix_element_value))
 
+    if use_2box_hack is False:
+        mag_hamiltonian = box_term + box_dagger_term
     print(mag_hamiltonian)
     print("Num matrix elements:", len(mag_hamiltonian))
+    breakpoint()
     # TODO generate all parameterized givens rotation circuits here?
 
     # Iterate over cases of trotter steps and sim times.
@@ -126,6 +139,12 @@ if __name__ == "__main__":
             for vertex_bag, encoding in lattice.vertex_singlet_bitmap.items():
                 print(f"Vertex singlet bag encoding: {vertex_bag} -> {encoding}")
             print(f"It has the vacuum state: {current_vacuum_state}")
+            # TODO Compute this elsewhere, not efficient.
+            # Needed to format file paths.
+            if lattice.dim >= 2:
+                n_plaquettes = int(len(lattice.vertex_register_keys) * comb(lattice.dim, 2))
+            else:
+                n_plaquettes = int(len(lattice.vertex_register_keys) / 2)
 
             # # Assemble all lattice registers into a blank circuit.
             circ_mgr = LatticeCircuitManager(lattice_encoder, mag_hamiltonian)
@@ -146,26 +165,25 @@ if __name__ == "__main__":
                         optimize_circuits=run_circuit_optimization
                     )
 
+            # Uncomment to save pre pre transpiliation circuit diagram.
+            #master_circuit.draw(output="mpl", filename=f"{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}-n_trotter={n_trotter_steps}-t={sim_time}.pdf", fold=False)
+
             # Uncomment for a final attempt at optimization.
             master_circuit.measure_all()
             master_circuit = transpile(master_circuit, optimization_level=3)
             print("Gate counts:\n", master_circuit.count_ops())
 
-            # TODO Compute this elsewhere, not efficient.
-            # Needed to format file paths.
-            if lattice.dim >= 2:
-                n_plaquettes = int(len(lattice.vertex_register_keys) * comb(lattice.dim, 2))
-            else:
-                n_plaquettes = int(len(lattice.vertex_register_keys) / 2)
+            #Uncomment to save post transpiliation circuit diagram.
+            # master_circuit.draw(output="mpl", filename="out-transpiled.pdf", fold=False)
 
-            #Uncomment to write circuits to disk in either QASM or QPY form.
+            # Uncomment to write circuits to disk in either QASM or QPY form.
             # Dump qasm of circuit to file.
-            #qasm_file_path =  SERIALIZED_CIRCUITS_DIR / Path(f"qasm-{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}/n_trotter={n_trotter_steps}-t={sim_time}.qasm")
+            # qasm_file_path =  SERIALIZED_CIRCUITS_DIR / Path(f"qasm-{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}/n_trotter={n_trotter_steps}-t={sim_time}.qasm")
             # qasm_file_path.parent.mkdir(parents=True, exist_ok=True)
             # with qasm_file_path.open('w') as qasm_file:
             #     qasm_file.write(dumps(master_circuit))
             #continue
-            
+
             #Dump QPY serialization of circuit to file.
             # qpy_file_path =  SERIALIZED_CIRCUITS_DIR / Path(f"qpy-{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}/n_trotter={n_trotter_steps}-t={sim_time}.qpy")
             # qpy_file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -177,9 +195,6 @@ if __name__ == "__main__":
             sim = AerSimulator()
             sampler = SamplerV2()
             n_shots = 1024
-
-            # Uncomment to save circuit diagram.
-            # master_circuit.draw(output="mpl", filename="out.pdf", fold=False)
 
             print("Running simulation...")
             job = sampler.run([master_circuit], shots = n_shots)
@@ -203,19 +218,19 @@ if __name__ == "__main__":
     print("All simulations complete. Final results:")
     print(df_job_results)
 
-    print("Plotting...")
-    fig, ax = plt.subplots()
-    for n_steps in n_trotter_steps_cases:
-        extracted_data = df_job_results.xs(n_steps, level = 'num_trotter_steps')
-        extracted_data.plot(y = "vacuum_persistence_probability", label = f"$N_T = {n_steps}$", ax=ax)
-    plt.title(f'Vacuum persistence probability ({n_plaquettes} plaquettes, mat. trunc = {mag_hamiltonian_matrix_element_threshold})')
-    plt.xlabel('Time')
-    plt.ylabel('Probability')
-    plt.xticks(rotation=45)
-    plt.grid()
-    plt.tight_layout()
-    plt.show()
-    fig.savefig(PLOTS_DIR / Path(f"{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}.pdf"))
+    # print("Plotting...")
+    # fig, ax = plt.subplots()
+    # for n_steps in n_trotter_steps_cases:
+    #     extracted_data = df_job_results.xs(n_steps, level = 'num_trotter_steps')
+    #     extracted_data.plot(y = "vacuum_persistence_probability", label = f"$N_T = {n_steps}$", ax=ax)
+    # plt.title(f'Vacuum persistence probability ({n_plaquettes} plaquettes, mat. trunc = {mag_hamiltonian_matrix_element_threshold})')
+    # plt.xlabel('Time')
+    # plt.ylabel('Probability')
+    # plt.xticks(rotation=45)
+    # plt.grid()
+    # plt.tight_layout()
+    # plt.show()
+    # fig.savefig(PLOTS_DIR / Path(f"{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}.pdf"))
 
     #Uncomment to save all job counts to disk.
     print("Saving data to disk...")
