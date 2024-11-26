@@ -86,7 +86,7 @@ class LatticeRegisters:
     must match the dimensionality of the lattice. In particular,
     the number of iWeights in the keys must be 2*dim for dim >= 2,
     or 3 for dim 1.5. For example, a key for dim 1.5 should look like:
-    
+
     (((1, 1, 0), (1, 1, 0), (0, 0, 0)), 1)
 
     This key is a length-two tuple whose first element is a tuple of three
@@ -139,8 +139,8 @@ class LatticeRegisters:
                         n_qubits_per_link: int = 1,
                         n_qubits_per_vertex: int = 1,
                         boundary_conds: str = "periodic"):
-        if size < 2:
-            raise ValueError("Lattice must have at least two vertices in each "
+        if size < 1:
+            raise ValueError("Lattice must have at least one vertices in each "
                              f"dimension. A size = {size} doesn't make sense.")
 
         if n_qubits_per_vertex < 0:
@@ -1057,7 +1057,196 @@ def test_d_equals_2_lattice_from_bitmaps():
     assert lattice.vertex_singlet_bitmap == vertex_bitmap
     assert lattice.link_truncation_bitmap == link_bitmap
     print("Test passed.")
-    
+
+def test_size_1_lattices_behave_as_expected():
+    """Check size=1 behavior in d=3/2, 2, and 3."""
+
+    print("Checking creation and indexing of d=3/2 lattice with size 1...")
+    lattice = LatticeRegisters(dim=1.5, size=1, n_qubits_per_link=3, n_qubits_per_vertex=1)
+
+    # Check that there's only two independent vertices, and 3 independent links.
+    print("Check # vertex registers == 2...")
+    assert len(lattice.vertex_register_keys) == 2, f"{len(lattice.vertex_register_keys)} != 2!"
+    print("Check # link registers == 3...")
+    assert len(lattice.link_register_keys) == 3, f"{len(lattice.link_register_keys)} != 3!"
+
+    # Check that the created registers are in the expected lattice positions.
+    d_three_halves_expected_link_registers = {
+        ((0, 0), 1): 'l:((0, 0), 1)',
+        ((0, 0), 2): 'l:((0, 0), 2)',
+        ((0, 1), 1): 'l:((0, 1), 1)'
+        }
+    d_three_halves_expected_vertex_registers = {
+        (0, 0): 'v:(0, 0)',
+        (0, 1): 'v:(0, 1)'
+    }
+    for vertex, direction in d_three_halves_expected_link_registers.keys():
+        print(f"Check ({vertex}, {direction}) fetches the right link register...")
+        assert lattice.get_link_register(vertex, direction).name == d_three_halves_expected_link_registers[vertex, direction], f"{(vertex, direction)} gave register {d_three_halves_expected_link_registers[vertex, direction]}"
+    for vertex in d_three_halves_expected_vertex_registers.keys():
+        print(f"Check {vertex} fetches the right vertex register...")
+        assert lattice.get_vertex_register(vertex).name == d_three_halves_expected_vertex_registers[vertex], f"{vertex} gave register {d_three_halves_expected_vertex_registers[vertex]}"
+
+    # Check that the sole plaquette in this system has the expected registers.
+    print("Checking there is one plaquette in d=3/2...")
+    plaquette_d_three_halves = lattice.get_plaquette_registers(lattice_vector=(0, 0))
+    assert isinstance(plaquette_d_three_halves, Plaquette), f"Expected a single plaquette, got {plaquette_d_three_halves}"
+    print("Checking link and vertex registers in plaquette...")
+    expected_link_names = [
+        "l:((0, 0), 1)",
+        "l:((0, 0), 2)",
+        "l:((0, 1), 1)",
+        "l:((0, 0), 2)",
+    ]
+    expected_vertex_names = [
+        "v:(0, 0)",
+        "v:(0, 0)",
+        "v:(0, 1)",
+        "v:(0, 1)",
+    ]
+    for idx, link_reg in enumerate(plaquette_d_three_halves.link_registers):
+        print(f"Checking link {expected_link_names[idx]} is at register {link_reg}...")
+        assert expected_link_names[idx] == link_reg.name
+    for idx, vertex_reg in enumerate(plaquette_d_three_halves.vertex_registers):
+        print(f"Checking vertex {expected_vertex_names[idx]} is at register {vertex_reg}...")
+        assert expected_vertex_names[idx] == vertex_reg.name
+
+    print("d=3/2 tests passed.")
+
+    print("Checking creation and indexing of d=2 lattice with size 1...")
+    lattice_2d = LatticeRegisters(dim=2, size=1, n_qubits_per_link=6, n_qubits_per_vertex=4)
+
+    # Check that there's only one independent vertex, and 2 independent links.
+    print("Check # vertex registers == 1...")
+    assert len(lattice_2d.vertex_register_keys) == 1, f"{len(lattice_2d.vertex_register_keys)} != 1!"
+    print("Check # link registers == 2...")
+    assert len(lattice_2d.link_register_keys) == 2, f"{len(lattice_2d.link_register_keys)} != 2!"
+
+    # Check that the created registers are in the expected lattice positions.
+    d_2_expected_link_registers = {
+        ((0, 0), 1): 'l:((0, 0), 1)',
+        ((0, 0), 2): 'l:((0, 0), 2)',
+        }
+    d_2_expected_vertex_registers = {
+        (0, 0): 'v:(0, 0)',
+    }
+    for vertex, direction in d_2_expected_link_registers.keys():
+        print(f"Check ({vertex}, {direction}) fetches the right link register...")
+        assert lattice_2d.get_link_register(vertex, direction).name == d_2_expected_link_registers[vertex, direction], f"{(vertex, direction)} gave register {d_2_expected_link_registers[vertex, direction]}"
+    for vertex in d_2_expected_vertex_registers.keys():
+        print(f"Check {vertex} fetches the right vertex register...")
+        assert lattice_2d.get_vertex_register(vertex).name == d_2_expected_vertex_registers[vertex], f"{vertex} gave register {d_2_expected_vertex_registers[vertex]}"
+
+    # Check that the sole plaquette in this system has the expected registers.
+    print("Checking there is one plaquette in d=2...")
+    plaquette_d_2 = lattice_2d.get_plaquette_registers(lattice_vector=(0, 0))
+    assert isinstance(plaquette_d_2, Plaquette), f"Expected a single plaquette, got {plaquette_d_2}"
+    print("Checking link and vertex registers in plaquette...")
+    expected_link_names_2d = [
+        "l:((0, 0), 1)",
+        "l:((0, 0), 2)",
+        "l:((0, 0), 1)",
+        "l:((0, 0), 2)",
+    ]
+    expected_vertex_names_2d = [
+        "v:(0, 0)",
+        "v:(0, 0)",
+        "v:(0, 0)",
+        "v:(0, 0)",
+    ]
+    for idx, link_reg in enumerate(plaquette_d_2.link_registers):
+        print(f"Checking link {expected_link_names_2d[idx]} is at register {link_reg}...")
+        assert expected_link_names_2d[idx] == link_reg.name
+    for idx, vertex_reg in enumerate(plaquette_d_2.vertex_registers):
+        print(f"Checking vertex {expected_vertex_names_2d[idx]} is at register {vertex_reg}...")
+        assert expected_vertex_names_2d[idx] == vertex_reg.name
+
+    print("d=2 test passed.")
+
+    print("Checking creation and indexing of d=3 lattice with size 1...")
+    lattice_3d = LatticeRegisters(dim=3, size=1, n_qubits_per_link=1, n_qubits_per_vertex=10)
+
+    # Check that there's only one independent vertex, and 2 independent links.
+    print("Check # vertex registers == 1...")
+    assert len(lattice_3d.vertex_register_keys) == 1, f"{len(lattice_3d.vertex_register_keys)} != 1!"
+    print("Check # link registers == 3...")
+    assert len(lattice_3d.link_register_keys) == 3, f"{len(lattice_3d.link_register_keys)} != 3!"
+
+    # Check that the created registers are in the expected lattice positions.
+    d_3_expected_link_registers = {
+        ((0, 0, 0), 1): 'l:((0, 0, 0), 1)',
+        ((0, 0, 0), 2): 'l:((0, 0, 0), 2)',
+        ((0, 0, 0), 3): 'l:((0, 0, 0), 3)',
+        }
+    d_3_expected_vertex_registers = {
+        (0, 0, 0): 'v:(0, 0, 0)',
+    }
+    for vertex, direction in d_3_expected_link_registers.keys():
+        print(f"Check ({vertex}, {direction}) fetches the right link register...")
+        assert lattice_3d.get_link_register(vertex, direction).name == d_3_expected_link_registers[vertex, direction], f"{(vertex, direction)} gave register {d_3_expected_link_registers[vertex, direction]}"
+    for vertex in d_3_expected_vertex_registers.keys():
+        print(f"Check {vertex} fetches the right vertex register...")
+        assert lattice_3d.get_vertex_register(vertex).name == d_3_expected_vertex_registers[vertex], f"{vertex} gave register {d_3_expected_vertex_registers[vertex]}"
+
+    # Check that there are three plaquette in this system and that they
+    # all have the expected registers.
+    print("Checking there are three plaquettes in d=3...")
+    # Configure test data.
+    expected_unique_vertex = (0, 0, 0)
+    plane_plaq_12 = (1, 2)
+    plane_plaq_13 = (1, 3)
+    plane_plaq_23 = (2, 3)
+    expected_link_names_3d_plaq_12 = [
+        "l:((0, 0, 0), 1)",
+        "l:((0, 0, 0), 2)",
+        "l:((0, 0, 0), 1)",
+        "l:((0, 0, 0), 2)",
+    ]
+    expected_link_names_3d_plaq_13 = [
+        "l:((0, 0, 0), 1)",
+        "l:((0, 0, 0), 3)",
+        "l:((0, 0, 0), 1)",
+        "l:((0, 0, 0), 3)",
+    ]
+    expected_link_names_3d_plaq_23 = [
+        "l:((0, 0, 0), 2)",
+        "l:((0, 0, 0), 3)",
+        "l:((0, 0, 0), 2)",
+        "l:((0, 0, 0), 3)",
+    ]
+    expected_vertex_names_3d_plaq_12 = [
+        "v:(0, 0, 0)",
+        "v:(0, 0, 0)",
+        "v:(0, 0, 0)",
+        "v:(0, 0, 0)",
+    ]
+    expected_vertex_names_3d_plaq_23 = expected_vertex_names_3d_plaq_13 = expected_vertex_names_3d_plaq_12
+    expected_plaquette_data = [
+        (plane_plaq_12, expected_link_names_3d_plaq_12, expected_vertex_names_3d_plaq_12),
+        (plane_plaq_13, expected_link_names_3d_plaq_13, expected_vertex_names_3d_plaq_13),
+        (plane_plaq_23, expected_link_names_3d_plaq_23, expected_vertex_names_3d_plaq_23)
+    ]
+
+    # Fetch plaquettes and test there are three of them.
+    plaquettes_d_3 = lattice_3d.get_plaquette_registers(lattice_vector=(0, 0, 0))
+    assert len(plaquettes_d_3) == 3, f"Got {len(plaquettes_d_3)} plaquettes. Expected 3."
+    print("Checking link and vertex registers in plaquette...")
+
+    # Check all three plaquettes have the expected registers.
+    for idx, plaquette in enumerate(plaquettes_d_3):
+        expected_plane, expected_link_names, expected_vertex_names = expected_plaquette_data[idx]
+        print(f"Checking that current plaquette is in plane {expected_plane}, with bottom left vertex {expected_unique_vertex}.")
+        assert plaquette.bottom_left_vertex == expected_unique_vertex
+        assert plaquette.plane == expected_plane
+        for idx, link_reg in enumerate(plaquette.link_registers):
+            print(f"Checking link {expected_link_names[idx]} is at register {link_reg}...")
+            assert expected_link_names[idx] == link_reg.name
+        for idx, vertex_reg in enumerate(plaquette.vertex_registers):
+            print(f"Checking vertex {expected_vertex_names[idx]} is at register {vertex_reg}...")
+            assert expected_vertex_names[idx] == vertex_reg.name
+
+    print("d=3 test passed.")
+
 
 def run_tests():
     """
@@ -1115,6 +1304,8 @@ def run_tests():
     test_get_bitmaps_from_lattice()
     print()
     test_d_equals_2_lattice_from_bitmaps()
+    print()
+    test_size_1_lattices_behave_as_expected()
 
     print("All tests passed.")
 
