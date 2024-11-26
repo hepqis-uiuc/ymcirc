@@ -2,7 +2,7 @@
 This module is a canonical source for project conventions, including:
 
 - Bit string encodings.
-- Magnetic Hamiltonian data.
+- Magnetic Hamiltonian box term data.
 
 This module loads data for both of these from package-local json files.
 The module also provides the class LatticeStateEncoder for converting
@@ -95,10 +95,10 @@ case:
 
 VERTEX_SINGLET_DICT_D_3HALVES_133BAR_NO_VERTEX_DATA = {}
 
-########## Magnetic Hamiltonian data ##########
+########## Magnetic Hamiltonian box term data ##########
 
-Magnetic Hamiltonian data is loaded into the dict
-MAGNETIC_HAMILTONIANS. This dict follows an indexing pattern similar
+Data on the box term of the magnetic Hamiltonian is loaded into the dict
+HAMILTONIAN_BOX_TERMS. This dict follows an indexing pattern similar
 to thar of VERTEX_SINGLET_BITMAPS, where strings of the form
 
 "d=3/2, T1"
@@ -110,12 +110,12 @@ dictionary whose keys are tuples (final_plaquette_state, initial_plaquette_state
 and whose values are floats. The plaquette state data consists of nested tuples conveying
 vertex bag states and link states. As an example,
 
-MAGNETIC_HAMILTONIANS["d=3/2, T1"] = {
+HAMILTONIAN_BOX_TERMS["d=3/2, T1"] = {
     (((((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (1, 0, 0), (1, 0, 0), (1, 1, 0), (1, 1, 0)), ((((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1), (((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1), (((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1), (((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1), (0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))): 0.9999999999999994,
     (((((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (1, 0, 0), (1, 0, 0), (0, 0, 0), (1, 1, 0)), ((((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1), (((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (0, 0, 0), (0, 0, 0), (1, 0, 0), (0, 0, 0))): 0.33333333333333304,
     ...
 
-See the definition of MAGNETIC_HAMILTONIANS below for a complete listing of all available
+See the definition of HAMILTONIAN_BOX_TERMS below for a complete listing of all available
 combinations of dimension and truncation data.
 }
 """
@@ -129,7 +129,7 @@ import json
 # Filesystem stuff.
 _PROJECT_ROOT = Path(__file__).parent
 _SINGLET_DATA_DIR = _PROJECT_ROOT / "lattice_tools_data/singlet-bitmaps/"
-_HAMILTONIAN_DATA_DIR = _PROJECT_ROOT / "lattice_tools_data/magnetic-hamiltonian-matrix-elements/"
+_HAMILTONIAN_DATA_DIR = _PROJECT_ROOT / "lattice_tools_data/magnetic-hamiltonian-box-term-matrix-elements/"
 _SINGLET_DATA_FILE_PATHS: Dict[str, Path] = {
     "d=3/2, T1": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3_2)_singlet_bitmaps.json",
     "d=3/2, T2": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(3_2)_singlet_bitmaps.json",
@@ -141,7 +141,8 @@ _SINGLET_DATA_FILE_PATHS: Dict[str, Path] = {
 _HAMILTONIAN_DATA_FILE_PATHS: Dict[str, Path] = {
     "d=3/2, T1": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3_2)_magnetic_hamiltonian.json",
     "d=3/2, T2": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(3_2)_magnetic_hamiltonian.json",
-    "d=2, T1": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(2)_magnetic_hamiltonian.json"
+    "d=2, T1": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(2)_magnetic_hamiltonian.json",
+    "d=3, T1": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3)_magnetic_hamiltonian.json"
 }
 
 # Useful type aliases.
@@ -207,15 +208,16 @@ for dim_trunc_case, file_path in _SINGLET_DATA_FILE_PATHS.items():
 # determine that of the third link.
 VERTEX_SINGLET_DICT_D_3HALVES_133BAR_NO_VERTEX_DATA: VertexMultiplicityBitmap = {}
 
-# The following magnetic Hamiltonian data is available:
+# The following magnetic Hamiltonian box term data is available:
 # d=3/2, T1
 # d=3/2, T2
 # d=2, T1
-MAGNETIC_HAMILTONIANS: Dict[str, Dict[PlaquetteState, float]] = {}
+# d=3, T1
+HAMILTONIAN_BOX_TERMS: Dict[str, Dict[Tuple[PlaquetteState, PlaquetteState], float]] = {}
 for dim_trunc_case, file_path in _HAMILTONIAN_DATA_FILE_PATHS.items():
     with file_path.open('r') as json_data:
         d = json.load(json_data)
-        MAGNETIC_HAMILTONIANS[dim_trunc_case] = {ast.literal_eval(key): value for key, value in d.items()}
+        HAMILTONIAN_BOX_TERMS[dim_trunc_case] = {ast.literal_eval(key): value for key, value in d.items()}
 
 
 class LatticeStateEncoder:
@@ -651,16 +653,22 @@ def _test_encoding_malformed_plaquette_fails():
 def _test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding():
     """
     Check that all plaquette states appearing in the magnetic
-    Hamiltonian can be encoded in unique bit strings.
+    Hamiltonian box term can be encoded in unique bit strings.
 
     Attempts encoding on the following cases:
     - d=3/2, T1
     - d=3/2, T2
     - d=2, T1
+    - d=3, T1
     """
-    cases = ["d=3/2, T1", "d=3/2, T2", "d=2, T1"]
-    # expected_bitlength = 4 * (n_link_qubits + n_vertex_qubits)
-    expected_bitlength = [4*(2 + 0) , 4*(4 + 3), 4*(3 + 2)]
+    cases = ["d=3/2, T1", "d=3/2, T2", "d=2, T1", "d=3, T1"]
+    # Each expected_bitlength = 4 * (n_link_qubits + n_vertex_qubits) for the corresponding case.
+    expected_bitlength = [
+        4*(2 + 0),
+        4*(4 + 3),
+        4*(2 + 3),
+        4*(2 + 5)
+    ]
     print(
         "Checking that there is a unique bit string encoding available for all "
         "the plaquette states appearing in all the matrix elements for the "
@@ -676,14 +684,14 @@ def _test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding()
         lattice_encoder = LatticeStateEncoder(link_bitmap, vertex_bitmap)
         
         print(f"Case {current_case}: confirming all initial and final states "
-              "appearing in the magnetic Hamiltonian can be succesfully encoded.\n"
+              "appearing in the magnetic Hamiltonian box term can be succesfully encoded.\n"
               f"Link bitmap: {link_bitmap}\n"
               f"Vertex bitmap: {vertex_bitmap}")
 
         # Get the set of unique plaquette states.
         all_plaquette_states = set([
-            final_and_initial_state_tuple[0] for final_and_initial_state_tuple in MAGNETIC_HAMILTONIANS[current_case].keys()] + [
-                final_and_initial_state_tuple[1] for final_and_initial_state_tuple in MAGNETIC_HAMILTONIANS[current_case].keys()
+            final_and_initial_state_tuple[0] for final_and_initial_state_tuple in HAMILTONIAN_BOX_TERMS[current_case].keys()] + [
+                final_and_initial_state_tuple[1] for final_and_initial_state_tuple in HAMILTONIAN_BOX_TERMS[current_case].keys()
             ])
 
         # Attempt encodings and check for uniqueness.

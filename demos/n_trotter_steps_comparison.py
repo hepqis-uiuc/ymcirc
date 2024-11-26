@@ -25,7 +25,7 @@ from lattice_tools.conventions import (
     IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8)
 from lattice_tools.circuit import LatticeCircuitManager
 from lattice_tools.lattice_registers import LatticeRegisters
-from lattice_tools.conventions import MAGNETIC_HAMILTONIANS, LatticeStateEncoder
+from lattice_tools.conventions import HAMILTONIAN_BOX_TERMS, LatticeStateEncoder
 from math import comb
 from qiskit import transpile
 from qiskit_aer.primitives import SamplerV2
@@ -90,7 +90,7 @@ if __name__ == "__main__":
     if use_2box_hack is False:
         box_term: List[Tuple[str, str, float]] = []
         box_dagger_term: List[Tuple[str, str, float]] = []
-    for (final_plaquette_state, initial_plaquette_state), matrix_element_value in MAGNETIC_HAMILTONIANS[dimensionality_and_truncation_string].items():
+    for (final_plaquette_state, initial_plaquette_state), matrix_element_value in HAMILTONIAN_BOX_TERMS[dimensionality_and_truncation_string].items():
         if abs(matrix_element_value) < mag_hamiltonian_matrix_element_threshold:
             continue
         final_state_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(final_plaquette_state)
@@ -178,7 +178,7 @@ if __name__ == "__main__":
 
             # Uncomment to write circuits to disk in either QASM or QPY form.
             # Dump qasm of circuit to file.
-            # qasm_file_path =  SERIALIZED_CIRCUITS_DIR / Path(f"qasm-{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}/n_trotter={n_trotter_steps}-t={sim_time}.qasm")
+            # qasm_file_path = SERIALIZED_CIRCUITS_DIR / Path(f"qasm-{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}/n_trotter={n_trotter_steps}-t={sim_time}.qasm")
             # qasm_file_path.parent.mkdir(parents=True, exist_ok=True)
             # with qasm_file_path.open('w') as qasm_file:
             #     qasm_file.write(dumps(master_circuit))
