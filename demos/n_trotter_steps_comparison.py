@@ -35,6 +35,7 @@ from typing import List, Tuple
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from lattice_tools.electric_helper import electric_hamiltonian
 
 from qiskit.qasm2 import dumps
 from qiskit import qpy
@@ -51,7 +52,7 @@ SIM_RESULTS_DIR.mkdir(exist_ok=True)
 
 
 # Configure simulation parameters and data.
-do_electric_evolution = False
+do_electric_evolution = True
 do_magnetic_evolution = True
 #dimensionality_and_truncation_string = "d=2, T1"
 dimensionality_and_truncation_string = "d=3/2, T1"
@@ -59,7 +60,7 @@ trunc_string = dimensionality_and_truncation_string[-2:]
 dimensions = 1.5
 linear_size = 2  # To indirectly control the number of plaquettes
 coupling_g = 1.0
-mag_hamiltonian_matrix_element_threshold = 0.6 # Drop all matrix elements that have an abs value less than this.
+mag_hamiltonian_matrix_element_threshold = 0.0 # Drop all matrix elements that have an abs value less than this.
 run_circuit_optimization = False
 n_trotter_steps_cases = [1, 2, 3] # Make this a list that iterates from 1 to 3
 sim_times = np.linspace(0.05, 3.0, num=20) # set num to 20 for comparison with trailhead
@@ -135,8 +136,6 @@ if __name__ == "__main__":
             # Append a single Trotter step over the lattice.
             # Put this inside a for loop for multiple Trotter steps?
             for _ in range(n_trotter_steps):
-                if do_electric_evolution is True:
-                    circ_mgr.apply_electric_trotter_step(master_circuit, lattice)
                 if do_magnetic_evolution is True:
                     circ_mgr.apply_magnetic_trotter_step(
                         master_circuit,
@@ -145,7 +144,26 @@ if __name__ == "__main__":
                         dt=dt,
                         optimize_circuits=run_circuit_optimization
                     )
+                if do_electric_evolution is True:
+                    circ_mgr.apply_electric_trotter_step(master_circuit, lattice, electric_hamiltonian(link_bitmap), coupling_g=coupling_g,
+                        dt=dt)
+            """
+            circ_mgr.apply_electric_trotter_step(master_circuit, lattice, electric_hamiltonian(link_bitmap), coupling_g=coupling_g, dt=1.0)
 
+            for _ in range(n_trotter_steps):
+                if do_electric_evolution is True:
+                    circ_mgr.apply_electric_trotter_step(master_circuit, lattice, electric_hamiltonian(link_bitmap), coupling_g=coupling_g,
+                        dt=-1*dt)
+                if do_magnetic_evolution is True:
+                    circ_mgr.apply_magnetic_trotter_step(
+                        master_circuit,
+                        lattice,
+                        coupling_g=coupling_g,
+                        dt=-1*dt,
+                        optimize_circuits=run_circuit_optimization
+                    )
+            """
+                
             # Uncomment for a final attempt at optimization.
             master_circuit.measure_all()
             master_circuit = transpile(master_circuit, optimization_level=3)
@@ -208,9 +226,9 @@ if __name__ == "__main__":
     for n_steps in n_trotter_steps_cases:
         extracted_data = df_job_results.xs(n_steps, level = 'num_trotter_steps')
         extracted_data.plot(y = "vacuum_persistence_probability", label = f"$N_T = {n_steps}$", ax=ax)
-    plt.title(f'Vacuum persistence probability ({n_plaquettes} plaquettes, mat. trunc = {mag_hamiltonian_matrix_element_threshold})')
+    plt.title(f'Electric Energy |E|^2 ({n_plaquettes} plaquettes, mat. trunc = {mag_hamiltonian_matrix_element_threshold})')
     plt.xlabel('Time')
-    plt.ylabel('Probability')
+    plt.ylabel('Energy')
     plt.xticks(rotation=45)
     plt.grid()
     plt.tight_layout()

@@ -10,6 +10,8 @@ from math import ceil
 from qiskit import transpile
 from qiskit.circuit import QuantumCircuit, QuantumRegister
 from typing import List, Tuple
+from lattice_tools.electric_helper import electric_hamiltonian
+import numpy as np
 
 
 # A list of tuples: (state bitstring1, state bitstring2, matrix element)
@@ -90,15 +92,38 @@ class LatticeCircuitManager:
     def apply_electric_trotter_step(
             self,
             master_circuit: QuantumCircuit,
-            lattice: LatticeRegisters) -> None:
+            lattice: LatticeRegisters, hamiltonian: list, coupling_g: float = 1.0,
+            dt: float = 1.0) -> None:
         """
         Placeholder for electric trotter step implementation.
 
         Should modify master_circuit in place rather than returning a new circuit because that's more efficient.
         """
         # Loop over links for electric Hamiltonain
+
+        N = int(np.log2(len(hamiltonian)))
+
+        angle_mod = ((coupling_g**2) / 2) * dt
+
+        local_circuit = QuantumCircuit(N) 
+
+        for i in range(len(hamiltonian)):
+            locs = [loc for loc, bit in enumerate(str('{0:0' + str(N) + 'b}').format(i)) if bit=='1']
+            print(locs)
+            for j in locs[:-1]:
+                local_circuit.cx(j, locs[-1])
+            if (len(locs)!=0): local_circuit.rz(-2*angle_mod*hamiltonian[i], locs[-1])
+            for j in locs[:-1]:
+                local_circuit.cx(j, locs[-1])
+
         for link_key in lattice.link_register_keys:
-            raise NotImplementedError()
+            link_qubits = [qubit for qubit in lattice.get_link_register(link_key[0], link_key[1])]
+            master_circuit.compose(
+                        local_circuit,
+                        qubits= link_qubits,
+                        inplace=True
+                    )
+            
 
 
     # TODO Can we get the circuits in a parameterized way?
