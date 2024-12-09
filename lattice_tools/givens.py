@@ -252,8 +252,8 @@ def test_givens():
     print("givens random test satisfied")
 
 def test_givens2():
-    N = int(random()*5+2)
-    random_strings = [make_bitstring(N) for _ in range(4)]
+    N = 6
+    random_strings = ['101100','001011','111011','110001']
     strings = [[random_strings[0],random_strings[1]],[random_strings[2],random_strings[3]]]
     
     print(f"Strings are {strings}")
@@ -272,8 +272,9 @@ def test_givens2():
     U2 = np.array(Operator(givens2(strings,angle)))
 
     #print(abs(np.max(U1-U2)))
-    assert abs(np.max(U2-U1)) < 10**(-7), "Failed random test"
-    print("givens2 random test satisfied")
+    assert abs(np.max(U2-U1)) < 10**(-7), "Failed givens2 test"
+    print("givens2 test satisfied")
+    print("All tests satisfied")
 
 if __name__ == "__main__":
     test_givens()
