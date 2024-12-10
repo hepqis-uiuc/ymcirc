@@ -35,6 +35,7 @@ from typing import List, Tuple
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from lattice_tools.electric_helper import electric_hamiltonian
 
 from qiskit.qasm2 import dumps
 from qiskit import qpy
@@ -51,7 +52,7 @@ SIM_RESULTS_DIR.mkdir(exist_ok=True)
 
 
 # Configure simulation parameters and data.
-do_electric_evolution = False
+do_electric_evolution = True
 do_magnetic_evolution = True
 #dimensionality_and_truncation_string = "d=2, T1"
 dimensionality_and_truncation_string = "d=3/2, T1"
@@ -61,7 +62,7 @@ linear_size = 2  # To indirectly control the number of plaquettes
 coupling_g = 1.0
 mag_hamiltonian_matrix_element_threshold = 0.6 # Drop all matrix elements that have an abs value less than this.
 run_circuit_optimization = False
-n_trotter_steps_cases = [1] # Make this a list that iterates from 1 to 3
+n_trotter_steps_cases = [2] # Make this a list that iterates from 1 to 3
 sim_times = np.linspace(0.05, 2.0, num=40) # set num to 20 for comparison with trailhead
 #sim_times = [0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
 only_include_elems_connected_to_electric_vacuum = False
@@ -108,6 +109,7 @@ if __name__ == "__main__":
     print(mag_hamiltonian)
     print("Num matrix elements:", len(mag_hamiltonian))
     breakpoint()
+
     # TODO generate all parameterized givens rotation circuits here?
 
     # Iterate over cases of trotter steps and sim times.
@@ -139,6 +141,7 @@ if __name__ == "__main__":
             for vertex_bag, encoding in lattice.vertex_singlet_bitmap.items():
                 print(f"Vertex singlet bag encoding: {vertex_bag} -> {encoding}")
             print(f"It has the vacuum state: {current_vacuum_state}")
+
             # TODO Compute this elsewhere, not efficient.
             # Needed to format file paths.
             if lattice.dim >= 2:
@@ -154,8 +157,6 @@ if __name__ == "__main__":
             # Append a single Trotter step over the lattice.
             # Put this inside a for loop for multiple Trotter steps?
             for _ in range(n_trotter_steps):
-                if do_electric_evolution is True:
-                    circ_mgr.apply_electric_trotter_step(master_circuit, lattice)
                 if do_magnetic_evolution is True:
                     circ_mgr.apply_magnetic_trotter_step(
                         master_circuit,
@@ -165,16 +166,20 @@ if __name__ == "__main__":
                         optimize_circuits=run_circuit_optimization
                     )
 
+                if do_electric_evolution is True:
+                    circ_mgr.apply_electric_trotter_step(master_circuit, lattice, electric_hamiltonian(link_bitmap), coupling_g=coupling_g,
+                        dt=dt)
+                
+
             # Uncomment to save pre pre transpiliation circuit diagram.
             #master_circuit.draw(output="mpl", filename=f"{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}-n_trotter={n_trotter_steps}-t={sim_time}.pdf", fold=False)
+
 
             # Uncomment for a final attempt at optimization.
             master_circuit.measure_all()
             master_circuit = transpile(master_circuit, optimization_level=3)
             print("Gate counts:\n", master_circuit.count_ops())
 
-            #Uncomment to save post transpiliation circuit diagram.
-            # master_circuit.draw(output="mpl", filename="out-transpiled.pdf", fold=False)
 
             # Uncomment to write circuits to disk in either QASM or QPY form.
             # Dump qasm of circuit to file.
@@ -195,6 +200,7 @@ if __name__ == "__main__":
             sim = AerSimulator()
             sampler = SamplerV2()
             n_shots = 1024
+
 
             print("Running simulation...")
             job = sampler.run([master_circuit], shots = n_shots)

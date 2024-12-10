@@ -1,5 +1,12 @@
 """
-This demo compares performing different numbers of trotter steps.
+This script creates "diet QSP" simulation circuits.
+
+Various lattice sizes and dimensionalities are supported
+by working with the LatticeRegisters class in order to
+handle addressing QuantumRegisters for lattice degrees
+of freedom.
+
+Currently a work in progress.
 """
 from __future__ import annotations
 
@@ -18,16 +25,21 @@ from lattice_tools.conventions import (
     IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8)
 from lattice_tools.circuit import LatticeCircuitManager
 from lattice_tools.lattice_registers import LatticeRegisters
-from lattice_tools.conventions import HAMILTONIAN_BOX_TERMS, LatticeStateEncoder
+from lattice_tools.conventions import MAGNETIC_HAMILTONIANS, LatticeStateEncoder
 from math import comb
 from qiskit import transpile
 from qiskit_aer.primitives import SamplerV2
 from qiskit_aer import AerSimulator
+from qiskit.circuit import QuantumCircuit
 from typing import List, Tuple
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from lattice_tools.electric_helper import electric_hamiltonian
+from lattice_tools.electric_helper import convert_bitstring_to_evalue
+
+from qiskit.qasm2 import dumps
+from qiskit import qpy
 
 
 # Filesystem stuff
@@ -49,55 +61,47 @@ trunc_string = dimensionality_and_truncation_string[-2:]
 dimensions = 1.5
 linear_size = 2  # To indirectly control the number of plaquettes
 coupling_g = 1.0
+mag_hamiltonian_matrix_element_threshold = 0.0 # Drop all matrix elements that have an abs value less than this.
 run_circuit_optimization = False
-n_trotter_steps = 2
-matrix_elem_truc_levels = [0.95]#[0.0, 0.2, 0.4, 0.6]
-sim_times = np.linspace(0.05, 4.0, num=20)
-only_include_elems_connected_to_electric_vacuum = True
-use_2box_hack = False  # Halves circuit depth by taking box + box^dagger = 2box. Only true if all nonzero matrix elements have the same magnitude.
+n_trotter_steps_cases = [2, 3] # Make this a list that iterates from 1 to 3
+sim_times = np.linspace(0.05, 3.0, num=20) # set num to 20 for comparison with trailhead
 
 
 if __name__ == "__main__":
     # Configure DataFrame for working with simulation result data.
-    sim_index = pd.MultiIndex.from_product([matrix_elem_truc_levels, sim_times], names=["matrix_element_trunc", "time"])
+    sim_index = pd.MultiIndex.from_product([n_trotter_steps_cases, sim_times], names=["num_trotter_steps", "time"])
     df_job_results = pd.DataFrame(columns = ["vacuum_persistence_probability"], index=sim_index)
 
     # Set the right vertex and link bitmaps based on
     # dimensionality_and_truncation_string.
     # OK to not use vertex DOFs for d=3/2, T1.
-    vertex_bitmap = {} if dimensionality_and_truncation_string == "d=3/2, T1" \
-        else VERTEX_SINGLET_BITMAPS[dimensionality_and_truncation_string]
-    link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR if dimensionality_and_truncation_string[-2:] == "T1" \
-        else IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
+    vertex_bitmap = {} if dimensionality_and_truncation_string == "d=3/2, T1" else VERTEX_SINGLET_BITMAPS[dimensionality_and_truncation_string]  # Ok to not use vertex DoFs in this case.
+    link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR if dimensionality_and_truncation_string[-2:] == "T1" else IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
 
     # Create an encoder for converting between physical states and bit strings.
     lattice_encoder = LatticeStateEncoder(link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap)
 
-    # Iterate over a fixed trotter step with different matrix trucations.
-    for trunc_level in matrix_elem_truc_levels:
-        print(f"Truncating the Hamiltonian at level {trunc_level}.")
-        mag_hamiltonian: List[Tuple[str, str, float]] = []
-        if use_2box_hack is False:
-            box_term: List[Tuple[str, str, float]] = []
-            box_dagger_term: List[Tuple[str, str, float]] = []
-        for (final_plaquette_state, initial_plaquette_state), matrix_element_value in HAMILTONIAN_BOX_TERMS[dimensionality_and_truncation_string].items():
-            if abs(matrix_element_value) < trunc_level:
-                continue
-            final_state_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(final_plaquette_state)
-            initial_state_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(initial_plaquette_state)
-            if only_include_elems_connected_to_electric_vacuum and ('1' in final_state_bitstring) and ('1' in initial_state_bitstring):
-                continue
-            if use_2box_hack is False:
-                box_term.append((final_state_bitstring, initial_state_bitstring, matrix_element_value))
-                box_dagger_term.append((initial_state_bitstring, final_state_bitstring, matrix_element_value))
-            else:
-                mag_hamiltonian.append((final_state_bitstring, initial_state_bitstring, 2*matrix_element_value))
+    # Use the encoder to index Hamiltonian data in terms of bit string encodings of plaquettes.
+    # This will be used to determine rotation angles in the simulation circuit.
+    # Because of the givens rotation sim strategy, we can let
+    # H_mag = \box + \box^\dagger = 2\box, which is why we multiply by 2.
+    mag_hamiltonian: List[Tuple[str, str, float]] = []
+    for (final_plaquette_state, initial_plaquette_state), matrix_element_value in MAGNETIC_HAMILTONIANS[dimensionality_and_truncation_string].items():
+        if abs(matrix_element_value) < mag_hamiltonian_matrix_element_threshold:
+            continue
+        final_state_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(final_plaquette_state)
+        initial_state_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(initial_plaquette_state)
+        if ('1' in final_state_bitstring) and ('1' in initial_state_bitstring):
+            continue
+        mag_hamiltonian.append((final_state_bitstring, initial_state_bitstring, 2*matrix_element_value))
 
-        if use_2box_hack is False:
-            mag_hamiltonian = box_term + box_dagger_term
-        #print("Using the Hamiltonian:", mag_hamiltonian)
-        print("Num matrix elements:", len(mag_hamiltonian))
-        for sim_time in sim_times:
+    print(mag_hamiltonian)
+    print("Num matrix elements:", len(mag_hamiltonian))
+    # TODO generate all parameterized givens rotation circuits here?
+
+    # Iterate over cases of trotter steps and sim times.
+    for sim_time in sim_times:
+        for n_trotter_steps in n_trotter_steps_cases:
             dt = sim_time / n_trotter_steps
             print(
                 f"Simulating evolution to t = {sim_time} in {n_trotter_steps} Trotter steps "
@@ -125,7 +129,7 @@ if __name__ == "__main__":
                 print(f"Vertex singlet bag encoding: {vertex_bag} -> {encoding}")
             print(f"It has the vacuum state: {current_vacuum_state}")
 
-            # Assemble all lattice registers into a blank circuit.
+            # # Assemble all lattice registers into a blank circuit.
             circ_mgr = LatticeCircuitManager(lattice_encoder, mag_hamiltonian)
             master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
 
@@ -141,11 +145,26 @@ if __name__ == "__main__":
                         dt=dt,
                         optimize_circuits=run_circuit_optimization
                     )
-
                 if do_electric_evolution is True:
                     circ_mgr.apply_electric_trotter_step(master_circuit, lattice, electric_hamiltonian(link_bitmap), coupling_g=coupling_g,
                         dt=dt)
+            """
+            circ_mgr.apply_electric_trotter_step(master_circuit, lattice, electric_hamiltonian(link_bitmap), coupling_g=coupling_g, dt=1.0)
 
+            for _ in range(n_trotter_steps):
+                if do_electric_evolution is True:
+                    circ_mgr.apply_electric_trotter_step(master_circuit, lattice, electric_hamiltonian(link_bitmap), coupling_g=coupling_g,
+                        dt=-1*dt)
+                if do_magnetic_evolution is True:
+                    circ_mgr.apply_magnetic_trotter_step(
+                        master_circuit,
+                        lattice,
+                        coupling_g=coupling_g,
+                        dt=-1*dt,
+                        optimize_circuits=run_circuit_optimization
+                    )
+            """
+                
             # Uncomment for a final attempt at optimization.
             master_circuit.measure_all()
             master_circuit = transpile(master_circuit, optimization_level=3)
@@ -157,6 +176,21 @@ if __name__ == "__main__":
                 n_plaquettes = int(len(lattice.vertex_register_keys) * comb(lattice.dim, 2))
             else:
                 n_plaquettes = int(len(lattice.vertex_register_keys) / 2)
+
+            #Uncomment to write circuits to disk in either QASM or QPY form.
+            # Dump qasm of circuit to file.
+            #qasm_file_path =  SERIALIZED_CIRCUITS_DIR / Path(f"qasm-{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}/n_trotter={n_trotter_steps}-t={sim_time}.qasm")
+            # qasm_file_path.parent.mkdir(parents=True, exist_ok=True)
+            # with qasm_file_path.open('w') as qasm_file:
+            #     qasm_file.write(dumps(master_circuit))
+            #continue
+            
+            #Dump QPY serialization of circuit to file.
+            # qpy_file_path =  SERIALIZED_CIRCUITS_DIR / Path(f"qpy-{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}/n_trotter={n_trotter_steps}-t={sim_time}.qpy")
+            # qpy_file_path.parent.mkdir(parents=True, exist_ok=True)
+            # with qpy_file_path.open('wb') as qpy_file:
+            #     qpy.dump(master_circuit, qpy_file)
+            #continue
 
             # Sim config stuff, maybe change?
             sim = AerSimulator()
@@ -172,16 +206,24 @@ if __name__ == "__main__":
             print("Finished.")
 
             # Aggregate data.
-            current_sim_idx = (trunc_level, sim_time)
+            current_sim_idx = (n_trotter_steps, sim_time)
             print(f"Setting data for {current_sim_idx}.")
             for state, counts in job_result[0].data.meas.get_counts().items():
                 df_job_results.loc[current_sim_idx, state] = counts
+
             # Make sure vacuum state data exists.
+            
             if current_vacuum_state not in job_result[0].data.meas.get_counts().keys():
                 df_job_results.loc[current_sim_idx, current_vacuum_state] = 0
-                df_job_results.loc[current_sim_idx, "vacuum_persistence_probability"] = 0
+                df_job_results.loc[current_sim_idx, "eletric_energy"] = 0
             else:
-                df_job_results.loc[current_sim_idx, "vacuum_persistence_probability"] = df_job_results.loc[current_sim_idx, current_vacuum_state] / n_shots
+                value = 0
+                for state, counts in job_result[0].data.meas.get_counts().items():
+                    print(state, convert_bitstring_to_evalue(state, link_bitmap))
+                    value += convert_bitstring_to_evalue(state, link_bitmap)*(counts / n_shots)
+                df_job_results.loc[current_sim_idx, "eletric_energy"] = value
+
+
 
             print("Updated df:\n", df_job_results)
 
@@ -190,19 +232,19 @@ if __name__ == "__main__":
 
     print("Plotting...")
     fig, ax = plt.subplots()
-    for trunc in matrix_elem_truc_levels:
-        extracted_data = df_job_results.xs(trunc, level = 'matrix_element_trunc')
-        extracted_data.plot(y = "vacuum_persistence_probability", label = f"{trunc}", ax=ax)
-    plt.title(f'Vacuum persistence probability ({n_plaquettes} plaquettes)')
+    for n_steps in n_trotter_steps_cases:
+        extracted_data = df_job_results.xs(n_steps, level = 'num_trotter_steps')
+        extracted_data.plot(y = "eletric_energy", label = f"$N_T = {n_steps}$", ax=ax)
+    plt.title(f'Electric Energy |E|^2 ({n_plaquettes} plaquettes, mat. trunc = {mag_hamiltonian_matrix_element_threshold})')
     plt.xlabel('Time')
-    plt.ylabel('Probability')
+    plt.ylabel('Energy')
     plt.xticks(rotation=45)
     plt.grid()
     plt.tight_layout()
     plt.show()
-    fig.savefig(PLOTS_DIR / Path(f"{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-n_trotter={n_trotter_steps}.pdf"))
+    fig.savefig(PLOTS_DIR / Path(f"{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}-electric-energy.pdf"))
 
-    # Uncomment to save all job counts to disk.
+    #Uncomment to save all job counts to disk.
     print("Saving data to disk...")
-    df_job_results.to_csv(SIM_RESULTS_DIR / Path(f"{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-n_trotter={n_trotter_steps}.csv"))
+    df_job_results.to_csv(SIM_RESULTS_DIR / Path(f"{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}-electric-energy.csv"))
     print("Done. Goodbye!")
