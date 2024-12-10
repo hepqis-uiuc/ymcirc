@@ -43,7 +43,7 @@ which yield various "multiplicites" of singlets.
 
 ########## Vertex singlet bit string encodings ##########
 
-The dict VERTEX_SINGLET_BITMAPS can be indexed with strings to obtain bitmaps
+The (lazy-loaded) dict VERTEX_SINGLET_BITMAPS can be indexed with strings to obtain bitmaps
 for the following cases:
 
 - "d=3/2, T1"
@@ -97,7 +97,7 @@ VERTEX_SINGLET_DICT_D_3HALVES_133BAR_NO_VERTEX_DATA = {}
 
 ########## Magnetic Hamiltonian box term data ##########
 
-Data on the box term of the magnetic Hamiltonian is loaded into the dict
+Data on the box term of the magnetic Hamiltonian is (lazy) loaded into the dict
 HAMILTONIAN_BOX_TERMS. This dict follows an indexing pattern similar
 to thar of VERTEX_SINGLET_BITMAPS, where strings of the form
 
@@ -120,11 +120,10 @@ combinations of dimension and truncation data.
 }
 """
 from __future__ import annotations
-import ast
 import copy
 from pathlib import Path
 from typing import Tuple, Dict, Union, List
-import json
+from lattice_tools.utilities import LazyDict, json_dict_loader
 
 # Filesystem stuff.
 _PROJECT_ROOT = Path(__file__).parent
@@ -187,19 +186,11 @@ IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8: IrrepBitmap = {
     EIGHT: "111"
 }
 
-# Load vertex singlet data from precomputed json files.
-# Safer to use ast.literal_eval than eval to convert data keys to tuples.
-# The latter can execute arbitrary potentially malicious code while
-# the worst case attack vector for literal_eval would be to crash
-# the python process.
-# See https://docs.python.org/3/library/ast.html#ast.literal_eval
-# for more information.
-VERTEX_SINGLET_BITMAPS: Dict[str, VertexMultiplicityBitmap] = {}
-# Load singlet bag state encoding bitmaps.
-for dim_trunc_case, file_path in _SINGLET_DATA_FILE_PATHS.items():
-    with file_path.open('r') as json_data:
-        d = json.load(json_data)
-        VERTEX_SINGLET_BITMAPS[dim_trunc_case] = {ast.literal_eval(key): value for key, value in d.items()}  
+# Lazy-load vertex singlet data from precomputed json files.
+VERTEX_SINGLET_BITMAPS: LazyDict = LazyDict({
+    dim_trunc_case: (json_dict_loader, file_path)
+    for dim_trunc_case, file_path in _SINGLET_DATA_FILE_PATHS.items()
+})
 
 # This is a special case where it isn't strictly necessary
 # to disambiguate singlets via additional vertex data.
@@ -208,16 +199,16 @@ for dim_trunc_case, file_path in _SINGLET_DATA_FILE_PATHS.items():
 # determine that of the third link.
 VERTEX_SINGLET_DICT_D_3HALVES_133BAR_NO_VERTEX_DATA: VertexMultiplicityBitmap = {}
 
+# Lazy-load magnetic Hamiltonian box terms from precomputed json files.
 # The following magnetic Hamiltonian box term data is available:
 # d=3/2, T1
 # d=3/2, T2
 # d=2, T1
 # d=3, T1
-HAMILTONIAN_BOX_TERMS: Dict[str, Dict[Tuple[PlaquetteState, PlaquetteState], float]] = {}
-for dim_trunc_case, file_path in _HAMILTONIAN_DATA_FILE_PATHS.items():
-    with file_path.open('r') as json_data:
-        d = json.load(json_data)
-        HAMILTONIAN_BOX_TERMS[dim_trunc_case] = {ast.literal_eval(key): value for key, value in d.items()}
+HAMILTONIAN_BOX_TERMS: LazyDict = LazyDict({
+    dim_trunc_case: (json_dict_loader, file_path)
+    for dim_trunc_case, file_path in _HAMILTONIAN_DATA_FILE_PATHS.items()
+})
 
 
 class LatticeStateEncoder:
