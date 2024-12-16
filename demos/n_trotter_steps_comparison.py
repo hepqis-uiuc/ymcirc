@@ -6,7 +6,8 @@ by working with the LatticeRegisters class in order to
 handle addressing QuantumRegisters for lattice degrees
 of freedom.
 
-Currently a work in progress.
+Currently a work in progress. Current file simulates vacuum persistence probability 
+and electric energy 
 """
 from __future__ import annotations
 
@@ -36,6 +37,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from lattice_tools.electric_helper import electric_hamiltonian
+from lattice_tools.electric_helper import _convert_bitstring_to_evalue
 
 from qiskit.qasm2 import dumps
 from qiskit import qpy
@@ -63,7 +65,7 @@ coupling_g = 1.0
 mag_hamiltonian_matrix_element_threshold = 0.6 # Drop all matrix elements that have an abs value less than this.
 run_circuit_optimization = False
 n_trotter_steps_cases = [2] # Make this a list that iterates from 1 to 3
-sim_times = np.linspace(0.05, 2.0, num=40) # set num to 20 for comparison with trailhead
+sim_times = np.linspace(0.05, 2.5, num=40) # set num to 20 for comparison with trailhead
 #sim_times = [0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
 only_include_elems_connected_to_electric_vacuum = False
 use_2box_hack = True  # Halves circuit depth by taking box + box^dagger = 2box. Only true if all nonzero matrix elements have the same magnitude.
@@ -72,7 +74,7 @@ use_2box_hack = True  # Halves circuit depth by taking box + box^dagger = 2box. 
 if __name__ == "__main__":
     # Configure DataFrame for working with simulation result data.
     sim_index = pd.MultiIndex.from_product([n_trotter_steps_cases, sim_times], names=["num_trotter_steps", "time"])
-    df_job_results = pd.DataFrame(columns = ["vacuum_persistence_probability"], index=sim_index)
+    df_job_results = pd.DataFrame(columns = ["vacuum_persistence_probability", "electric_energy"], index=sim_index)
 
     # Set the right vertex and link bitmaps based on
     # dimensionality_and_truncation_string.
@@ -207,6 +209,7 @@ if __name__ == "__main__":
             job_result = job.result()
             print("Finished.")
 
+
             # Aggregate data.
             current_sim_idx = (n_trotter_steps, sim_time)
             print(f"Setting data for {current_sim_idx}.")
@@ -216,29 +219,48 @@ if __name__ == "__main__":
             if current_vacuum_state not in job_result[0].data.meas.get_counts().keys():
                 df_job_results.loc[current_sim_idx, current_vacuum_state] = 0
                 df_job_results.loc[current_sim_idx, "vacuum_persistence_probability"] = 0
+                df_job_results.loc[current_sim_idx, "electric_energy"] = 0
             else:
                 df_job_results.loc[current_sim_idx, "vacuum_persistence_probability"] = df_job_results.loc[current_sim_idx, current_vacuum_state] / n_shots
+                value = 0
+                for state, counts in job_result[0].data.meas.get_counts().items():
+                    value += _convert_bitstring_to_evalue(state, link_bitmap, vertex_bitmap)*(counts / n_shots)
+                df_job_results.loc[current_sim_idx, "electric_energy"] = value
 
             print("Updated df:\n", df_job_results)
 
     print("All simulations complete. Final results:")
     print(df_job_results)
 
-    # print("Plotting...")
-    # fig, ax = plt.subplots()
-    # for n_steps in n_trotter_steps_cases:
-    #     extracted_data = df_job_results.xs(n_steps, level = 'num_trotter_steps')
-    #     extracted_data.plot(y = "vacuum_persistence_probability", label = f"$N_T = {n_steps}$", ax=ax)
-    # plt.title(f'Vacuum persistence probability ({n_plaquettes} plaquettes, mat. trunc = {mag_hamiltonian_matrix_element_threshold})')
-    # plt.xlabel('Time')
-    # plt.ylabel('Probability')
-    # plt.xticks(rotation=45)
-    # plt.grid()
-    # plt.tight_layout()
-    # plt.show()
-    # fig.savefig(PLOTS_DIR / Path(f"{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}.pdf"))
+
+
+    construct_vacuum_persistence = False
+    construct_electric_energy = True 
+    if (construct_vacuum_persistence):
+        PATH_TO_SAVE = f"{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}_vpp.pdf"
+    if (construct_electric_energy):
+        PATH_TO_SAVE = f"{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}_ee.pdf"
+    print("Plotting...")
+    fig, ax = plt.subplots()
+    for n_steps in n_trotter_steps_cases:
+        extracted_data = df_job_results.xs(n_steps, level = 'num_trotter_steps')
+        if (construct_electric_energy):
+          extracted_data.plot(y = "electric_energy", label = f"$N_T = {n_steps}$", ax=ax)
+          title = f'Electric energy ({n_plaquettes} plaquettes, mat. trunc = {mag_hamiltonian_matrix_element_threshold})'
+          plt.ylabel('Energy |E|^2')
+        if (construct_vacuum_persistence):
+          extracted_data.plot(y = "vacuum_persistence_probability", label = f"$N_T = {n_steps}$", ax=ax)
+          title = f'Vacuum persistence probability ({n_plaquettes} plaquettes, mat. trunc = {mag_hamiltonian_matrix_element_threshold})'
+          plt.ylabel('Probability')
+    plt.title(title)
+    plt.xlabel('Time')
+    plt.xticks(rotation=45)
+    plt.grid()
+    plt.tight_layout()
+    plt.show()
+    # fig.savefig(PLOTS_DIR / Path(PATH_TO_SAVE))
 
     #Uncomment to save all job counts to disk.
-    print("Saving data to disk...")
-    df_job_results.to_csv(SIM_RESULTS_DIR / Path(f"{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}.csv"))
-    print("Done. Goodbye!")
+    #print("Saving data to disk...")
+    #df_job_results.to_csv(SIM_RESULTS_DIR / Path(f"{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}.csv"))
+    #print("Done. Goodbye!")

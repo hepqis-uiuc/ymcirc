@@ -94,10 +94,25 @@ class LatticeCircuitManager:
             lattice: LatticeRegisters, hamiltonian: list, coupling_g: float = 1.0,
             dt: float = 1.0) -> None:
         """
-        Electric trotter step implementation using CX and Zs to implement rotations of Z,I Paulis
+        Electric trotter step implementation using CX and Zs to implement rotations of Z,I Paulis 
 
-        Should modify master_circuit in place rather than returning a new circuit because that's more efficient.
+        Arguments:
+            - lattice: a LatticeRegisters instance which keeps track of all the QuantumRegisters.
+            - master_circuit: a QuantumCircuit instance which is built from all the
+                            QuantumRegister instances in lattice.
+            - hamilonian: pauli decompositon of the single link electric hamiltonian. hamiltonian is a list of coefficients 
+                            s.t. for hamiltonian[i] = coeff, coeff is coeff of bistring(i) with 'Z'=1 and 'I'=0 in the bitstring.
+            - coupling_g: the value of the strong coupling constant.
+            - dt: the size of the Trotter time step.
+            - optimize_circuits: if true, run the qiskit transpiler on each internal givens rotation
+                               with the maximum optimization level before composing with master_circuit.
+                            
+       Returns:
+            A new QuantumCircuit instance which is master_circuit with the electric trotter step appended.
         """
+
+        # Big picture: Construct the single link electric trotter step through Z,I rotations (e.g. e^(i*coeff*IZZZI)))
+        # Such rotatons can be constructed through parity circuits (section 4.2 of arXiv:1001.3855)
         
         N = int(np.log2(len(hamiltonian)))
 
@@ -105,16 +120,16 @@ class LatticeCircuitManager:
 
         local_circuit = QuantumCircuit(N) 
 
+        # The parity circuit primitive of CXs and Zs
         for i in range(len(hamiltonian)):
             locs = [loc for loc, bit in enumerate(str('{0:0' + str(N) + 'b}').format(i)) if bit=='1']
-            print(locs)
             for j in locs[:-1]:
                 local_circuit.cx(j, locs[-1])
             if (len(locs)!=0): local_circuit.rz(-2*angle_mod*hamiltonian[i], locs[-1])
             for j in locs[:-1]:
                 local_circuit.cx(j, locs[-1])
 
-        # Loop over links for electric Hamiltonain
+        # Loop over links for electric Hamiltonian
 
         for link_key in lattice.link_register_keys:
             link_qubits = [qubit for qubit in lattice.get_link_register(link_key[0], link_key[1])]
