@@ -278,5 +278,3 @@ def test_givens2():
 if __name__ == "__main__":
     test_givens()
     test_givens2()
-
-

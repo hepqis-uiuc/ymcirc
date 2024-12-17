@@ -10,7 +10,7 @@ from math import ceil
 from qiskit import transpile
 from qiskit.circuit import QuantumCircuit, QuantumRegister
 from typing import List, Tuple
-
+import numpy as np
 
 # A list of tuples: (state bitstring1, state bitstring2, matrix element)
 HamiltonianData = List[Tuple[str, str, float]]
@@ -86,20 +86,60 @@ class LatticeCircuitManager:
 
         return QuantumCircuit(*all_lattice_registers)
 
-    # TODO implement electric trotter step.
     def apply_electric_trotter_step(
             self,
             master_circuit: QuantumCircuit,
-            lattice: LatticeRegisters) -> None:
+            lattice: LatticeRegisters,
+            hamiltonian: list[float],
+            coupling_g: float = 1.0,
+            dt: float = 1.0) -> None:
         """
-        Placeholder for electric trotter step implementation.
+        Perform an electric Trotter step.
 
-        Should modify master_circuit in place rather than returning a new circuit because that's more efficient.
+        Implementation uses CX and Zs to implement rotations of Z, I Paulis.
+        The single link electric Trotter step is constructed through Z, I
+        rotations (e.g. e^(i*coeff*IZZZI))). Such rotatons can be constructed
+        through parity circuits (see section 4.2 of arXiv:1001.3855).
+
+        Arguments:
+            - master_circuit: A QuantumCircuit instance which is built from all
+                              the QuantumRegister instances in lattice.
+            - lattice: A LatticeRegisters instance which keeps track of all the
+                       QuantumRegisters.
+            - hamilonian: Pauli decompositon of the single link electric
+                          Hamiltonian. The list hamiltonian is contains
+                          coefficients s.t. for hamiltonian[i] = coeff, coeff
+                          is coeff of bistring(i) with 'Z'=1 and 'I'=0 in the
+                          bitstring.
+            - coupling_g: The value of the strong coupling constant.
+            - dt: The size of the Trotter time step.
+
+        Returns:
+            A new QuantumCircuit instance which is master_circuit with the
+            electric Trotter step appended.
         """
-        # Loop over links for electric Hamiltonain
+        N = int(np.log2(len(hamiltonian)))
+        angle_mod = ((coupling_g**2) / 2) * dt
+        local_circuit = QuantumCircuit(N) 
+
+        # The parity circuit primitive of CXs and Zs.
+        for i in range(len(hamiltonian)):
+            locs = [loc for loc, bit in enumerate(str('{0:0' + str(N) + 'b}').format(i)) if bit=='1']
+            for j in locs[:-1]:
+                local_circuit.cx(j, locs[-1])
+            if len(locs) != 0:
+                local_circuit.rz(-2*angle_mod*hamiltonian[i], locs[-1])
+            for j in locs[:-1]:
+                local_circuit.cx(j, locs[-1])
+
+        # Loop over links for electric Hamiltonian
         for link_key in lattice.link_register_keys:
-            raise NotImplementedError()
-
+            link_qubits = [qubit for qubit in lattice.get_link_register(link_key[0], link_key[1])]
+            master_circuit.compose(
+                        local_circuit,
+                        qubits=link_qubits,
+                        inplace=True
+                    )
 
     # TODO Can we get the circuits in a parameterized way?
     def apply_magnetic_trotter_step(
@@ -110,27 +150,33 @@ class LatticeCircuitManager:
             dt: float = 1.0,
             optimize_circuits: bool = True) -> None:
         """
-        Add one Trotter step.
+        Add one magnetic Trotter step to the entire lattice circuit.
 
-        Note that this modifies master_circuit directly rather than returning a new circuit!
+        This is done by iterating over every lattice vertex.At each vertex,
+        there's an additional iteration over every "positive" plaquette.
+        For each such plaquette, the plaquette-local magnetic Trotter step
+        is appended to the circuit.
+
+        Note that this modifies master_circuit directly rather than returning
+        a new circuit!
 
         Arguments:
-          - lattice: a LatticeRegisters instance which keeps track of all the QuantumRegisters.
-          - master_circuit: a QuantumCircuit instance which is built from all the
-                            QuantumRegister instances in lattice.
-          - hamiltonian: a dict whose keys are tuples of bitstrings corrresponding to
-                         "plaquette final state" and "plaquette initial state", and whose
-                         values correspond to numerical matrix element values.
-          - coupling_g: the value of the strong coupling constant.
+          - master_circuit: a QuantumCircuit instance which is built from all
+                            the QuantumRegister instances in lattice.
+          - lattice: a LatticeRegisters instance which keeps track of all the
+                     QuantumRegisters.
+          - coupling_g: The value of the strong coupling constant.
           - dt: the size of the Trotter time step.
-          - optimize_circuits: if true, run the qiskit transpiler on each internal givens rotation
-                               with the maximum optimization level before composing with master_circuit.
+          - optimize_circuits: if true, run the qiskit transpiler on each
+                               internal givens rotation with the maximum
+                               optimization level before composing with
+                               master_circuit.
 
         Returns:
-          A new QuantumCircuit instance which is master_circuit with the Trotter step appended.
+          A new QuantumCircuit instance which is master_circuit with the
+          Trotter step appended.
         """
-        # Big picture: iterate over every lattice vertex, and add the trotter step
-        # to every "postive" plaquette at that vertex.
+        # Vertex iteration loop.
         for vertex_address in lattice.vertex_register_keys:
             # Skip creating "top vertex" plaquettes for d=3/2.
             has_no_vertical_periodic_link_three_halves_case = \
@@ -177,6 +223,7 @@ class LatticeCircuitManager:
                         ],
                         inplace=True
                     )
+
 
 def _test_create_blank_full_lattice_circuit_has_promised_register_order():
     """Check in some cases that we get the ordering promised in the method docstring."""

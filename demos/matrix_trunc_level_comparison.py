@@ -27,6 +27,7 @@ from typing import List, Tuple
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from lattice_tools.electric_helper import electric_hamiltonian
 
 
 # Filesystem stuff
@@ -40,7 +41,7 @@ SIM_RESULTS_DIR.mkdir(exist_ok=True)
 
 
 # Configure simulation parameters and data.
-do_electric_evolution = False
+do_electric_evolution = True
 do_magnetic_evolution = True
 #dimensionality_and_truncation_string = "d=2, T1"
 dimensionality_and_truncation_string = "d=3/2, T1"
@@ -132,8 +133,6 @@ if __name__ == "__main__":
             # Append a single Trotter step over the lattice.
             # Put this inside a for loop for multiple Trotter steps?
             for _ in range(n_trotter_steps):
-                if do_electric_evolution is True:
-                    circ_mgr.apply_electric_trotter_step(master_circuit, lattice)
                 if do_magnetic_evolution is True:
                     circ_mgr.apply_magnetic_trotter_step(
                         master_circuit,
@@ -142,6 +141,10 @@ if __name__ == "__main__":
                         dt=dt,
                         optimize_circuits=run_circuit_optimization
                     )
+
+                if do_electric_evolution is True:
+                    circ_mgr.apply_electric_trotter_step(master_circuit, lattice, electric_hamiltonian(link_bitmap), coupling_g=coupling_g,
+                        dt=dt)
 
             # Uncomment for a final attempt at optimization.
             master_circuit.measure_all()
