@@ -1,7 +1,7 @@
 """Classes for juggling registers in quantum simulations of lattices."""
 from __future__ import annotations
 import copy
-from math import isclose, ceil
+from math import isclose, ceil, comb
 from dataclasses import dataclass
 from qiskit.circuit import QuantumRegister  # type: ignore
 from itertools import product
@@ -86,7 +86,7 @@ class LatticeRegisters:
     must match the dimensionality of the lattice. In particular,
     the number of iWeights in the keys must be 2*dim for dim >= 2,
     or 3 for dim 1.5. For example, a key for dim 1.5 should look like:
-    
+
     (((1, 1, 0), (1, 1, 0), (0, 0, 0)), 1)
 
     This key is a length-two tuple whose first element is a tuple of three
@@ -391,6 +391,28 @@ class LatticeRegisters:
     def n_qubits_per_vertex(self) -> int:
         """Number of qubits per vertex register."""
         return self._n_qubits_per_vertex
+
+    @property
+    def n_total_qubits(self) -> int:
+        """Number of qubits in entire lattice."""
+        return len(self._vertex_registers)*self.n_qubits_per_vertex \
+            + len(self._link_registers)*self.n_qubits_per_link
+
+    @property
+    def n_plaquettes(self) -> link:
+        """Number of unique plaquettes in the entire lattice."""
+        if self.boundary_conds_periodic is True:
+            if self.dim >= 2:
+                # For each unique vertex, there are dim choose 2 unique plaquettes
+                # that are defined by pairs of positive lattice directions.
+                return int(len(self.vertex_register_keys) * comb(self.dim, 2))
+            else:
+                # For d=3/2, only need a count of the number of vertices along the
+                # "bottom" rung of the lattice. This is half the total number of
+                # vertices.
+                return int(len(self.vertex_register_keys) / 2)
+        else:
+            raise NotImplementedError("Number of plaquettes calculation only implemented for periodic lattices.")
 
     @property
     def vertex_register_keys(self) -> list[LatticeVector]:
@@ -1057,7 +1079,46 @@ def test_d_equals_2_lattice_from_bitmaps():
     assert lattice.vertex_singlet_bitmap == vertex_bitmap
     assert lattice.link_truncation_bitmap == link_bitmap
     print("Test passed.")
-    
+
+
+def test_n_qubits_whole_lattice():
+    """Check that full lattice has the right number of qubits."""
+    # Case format = (dim, n_qubits_per_vertex, n_qubits_per_link, size, expected_qubits_in_lattice)
+    lattice_cases = [
+        (1.5, 0, 1, 2, 6),
+        (1.5, 1, 1, 2, 10),
+        (2, 3, 5, 10, (10*10*3 + 2*10*10*5)),
+        (3, 1, 2, 20, (20*20*20*1 + 3*20*20*20*2))
+    ]
+    for dims, n_qubits_per_vertex, n_qubits_per_link, size, expected_qubits_in_lattice in lattice_cases:
+        print(
+            f"Testing that total qubits in d={dims} lattice with size={size}, {n_qubits_per_link}"
+            f" per link, and {n_qubits_per_vertex} qubits per vertex is equal to {expected_qubits_in_lattice}..."
+        )
+        lattice = LatticeRegisters(dim=dims, size=size, n_qubits_per_link=n_qubits_per_link, n_qubits_per_vertex=n_qubits_per_vertex)
+        assert lattice.n_total_qubits == expected_qubits_in_lattice, f"Test failed: lattice has {lattice.n_total_qubits} qubits, expected {expected_qubits_in_lattice} qubits."
+        print("Test passed.")
+
+
+def test_n_plaquettes_whole_lattice():
+    """Check that full lattice has the right number of plaquettes."""
+    # Case format = (dim, size, expected_n_plaquettes = size^dim * (dim choose 2))
+    lattice_cases = [
+        (1.5, 2, 2),
+        (1.5, 7, 7),
+        (2, 2, 2*2*1),
+        (2, 20, 20*20*1),
+        (3, 2, 2*2*2*3),
+        (3, 15, 15*15*15*3)
+    ]
+    for dims, size, expected_n_plaquettes in lattice_cases:
+        print(
+            f"Testing that total qubits in d={dims} lattice with size={size}, has {expected_n_plaquettes} unique plaquettes..."
+        )
+        lattice = LatticeRegisters(dim=dims, size=size)
+        assert lattice.n_plaquettes == expected_n_plaquettes, f"Test failed: lattice has {lattice.n_plaquettes} unique plaquettes, expected {expected_n_plaquettes} unique plaquettes."
+        print("Test passed.")
+
 
 def run_tests():
     """
@@ -1115,6 +1176,10 @@ def run_tests():
     test_get_bitmaps_from_lattice()
     print()
     test_d_equals_2_lattice_from_bitmaps()
+    print()
+    test_n_qubits_whole_lattice()
+    print()
+    test_n_plaquettes_whole_lattice()
 
     print("All tests passed.")
 

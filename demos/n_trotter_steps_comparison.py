@@ -27,7 +27,6 @@ from lattice_tools.conventions import (
 from lattice_tools.circuit import LatticeCircuitManager
 from lattice_tools.lattice_registers import LatticeRegisters
 from lattice_tools.conventions import HAMILTONIAN_BOX_TERMS, LatticeStateEncoder
-from math import comb
 from qiskit import transpile
 from qiskit_aer.primitives import SamplerV2
 from qiskit_aer import AerSimulator
@@ -152,10 +151,7 @@ if __name__ == "__main__":
 
             # TODO Compute this elsewhere, not efficient.
             # Needed to format file paths.
-            if lattice.dim >= 2:
-                n_plaquettes = int(len(lattice.vertex_register_keys) * comb(lattice.dim, 2))
-            else:
-                n_plaquettes = int(len(lattice.vertex_register_keys) / 2)
+            n_plaquettes = lattice.n_plaquettes
 
             # # Assemble all lattice registers into a blank circuit.
             circ_mgr = LatticeCircuitManager(lattice_encoder, mag_hamiltonian)
