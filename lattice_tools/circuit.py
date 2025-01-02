@@ -128,7 +128,7 @@ class LatticeCircuitManager:
             for j in locs[:-1]:
                 local_circuit.cx(j, locs[-1])
             if len(locs) != 0:
-                local_circuit.rz(-2*angle_mod*hamiltonian[i], locs[-1])
+                local_circuit.rz(2*angle_mod*hamiltonian[i], locs[-1])
             for j in locs[:-1]:
                 local_circuit.cx(j, locs[-1])
 
