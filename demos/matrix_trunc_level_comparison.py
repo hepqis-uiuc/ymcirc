@@ -18,7 +18,7 @@ from lattice_tools.conventions import (
     IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8)
 from lattice_tools.circuit import LatticeCircuitManager
 from lattice_tools.lattice_registers import LatticeRegisters
-from lattice_tools.conventions import MAGNETIC_HAMILTONIANS, LatticeStateEncoder
+from lattice_tools.conventions import HAMILTONIAN_BOX_TERMS, LatticeStateEncoder
 from math import comb
 from qiskit import transpile
 from qiskit_aer.primitives import SamplerV2
@@ -27,6 +27,7 @@ from typing import List, Tuple
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from lattice_tools.electric_helper import electric_hamiltonian
 
 
 # Filesystem stuff
@@ -40,7 +41,7 @@ SIM_RESULTS_DIR.mkdir(exist_ok=True)
 
 
 # Configure simulation parameters and data.
-do_electric_evolution = False
+do_electric_evolution = True
 do_magnetic_evolution = True
 #dimensionality_and_truncation_string = "d=2, T1"
 dimensionality_and_truncation_string = "d=3/2, T1"
@@ -53,7 +54,7 @@ n_trotter_steps = 2
 matrix_elem_truc_levels = [0.95]#[0.0, 0.2, 0.4, 0.6]
 sim_times = np.linspace(0.05, 4.0, num=20)
 only_include_elems_connected_to_electric_vacuum = True
-use_2box_hack = True  # Halves circuit depth by taking box + box^dagger = 2box. Only true if all nonzero matrix elements have the same magnitude.
+use_2box_hack = False  # Halves circuit depth by taking box + box^dagger = 2box. Only true if all nonzero matrix elements have the same magnitude.
 
 
 if __name__ == "__main__":
@@ -79,7 +80,7 @@ if __name__ == "__main__":
         if use_2box_hack is False:
             box_term: List[Tuple[str, str, float]] = []
             box_dagger_term: List[Tuple[str, str, float]] = []
-        for (final_plaquette_state, initial_plaquette_state), matrix_element_value in MAGNETIC_HAMILTONIANS[dimensionality_and_truncation_string].items():
+        for (final_plaquette_state, initial_plaquette_state), matrix_element_value in HAMILTONIAN_BOX_TERMS[dimensionality_and_truncation_string].items():
             if abs(matrix_element_value) < trunc_level:
                 continue
             final_state_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(final_plaquette_state)
@@ -132,8 +133,6 @@ if __name__ == "__main__":
             # Append a single Trotter step over the lattice.
             # Put this inside a for loop for multiple Trotter steps?
             for _ in range(n_trotter_steps):
-                if do_electric_evolution is True:
-                    circ_mgr.apply_electric_trotter_step(master_circuit, lattice)
                 if do_magnetic_evolution is True:
                     circ_mgr.apply_magnetic_trotter_step(
                         master_circuit,
@@ -142,6 +141,10 @@ if __name__ == "__main__":
                         dt=dt,
                         optimize_circuits=run_circuit_optimization
                     )
+
+                if do_electric_evolution is True:
+                    circ_mgr.apply_electric_trotter_step(master_circuit, lattice, electric_hamiltonian(link_bitmap), coupling_g=coupling_g,
+                        dt=dt)
 
             # Uncomment for a final attempt at optimization.
             master_circuit.measure_all()
