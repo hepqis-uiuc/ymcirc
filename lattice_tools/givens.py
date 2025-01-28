@@ -6,6 +6,7 @@ Original author: Cianan Conefrey-Shinozaki, Oct 2024.
 A Givens rotation is a generalization of an X-rotation; it rotates
 two multi-qubit states into each other.
 """
+from __future__ import annotations
 from qiskit import QuantumCircuit
 from qiskit.circuit.library.standard_gates import RXGate
 from qiskit.quantum_info import Operator
@@ -15,7 +16,12 @@ from scipy.linalg import expm
 from typing import Tuple, List
 
 
-def givens(bit_string_1: str, bit_string_2: str, angle: float, reverse: bool = False) -> QuantumCircuit:
+def givens(
+        bit_string_1: str,
+        bit_string_2: str,
+        angle: float,
+        reverse: bool = False
+) -> QuantumCircuit:
     """
     Build QuantumCircuit rotating two bit strings into each other by angle.
 
@@ -61,11 +67,12 @@ def givens(bit_string_1: str, bit_string_2: str, angle: float, reverse: bool = F
             bit_string_1_little_endian,
             bit_string_2_little_endian,
             angle,
-            target)
+            target
+        )
 
         # Construct the pre- and post-MCRX circuits.
         Xcirc = _build_Xcirc(
-            bit_string_1_little_endian, bit_string_2_little_endian, target)
+            bit_string_1_little_endian, bit_string_2_little_endian, control=target)
 
         # Add multiRX to the circuit, specifying
         # The proper control locations and target location
@@ -88,7 +95,8 @@ def _build_multiRX(
         bs1_little_endian: str,
         bs2_little_endian: str,
         angle: float,
-        target: int) -> Tuple[List[int], str, QuantumCircuit]:
+        target: int
+) -> Tuple[List[int], str, QuantumCircuit]:
     """
     Build the multi-control RX gate (MCRX) in Givens rotations.
 
@@ -103,10 +111,21 @@ def _build_multiRX(
     # The target (qu)bit isn't a control by definition.
     num_qubits = len(bs1_little_endian)
     ctrls = list(range(0, num_qubits))
+    ctrl_state_delete_list = [target]
     ctrls.remove(target)
-
+    
     # Construct the bit string ctrl_state which triggers the MCRX gate.
-    ctrl_state = bs1_little_endian[:target] + bs1_little_endian[(target + 1):]
+    mask_bitstring = bs1_little_endian if bs1_little_endian[target] == '0' else bs2_little_endian
+    if mask_bitstring[target] != '0':
+        raise ValueError(
+            "The two input bitstrings must differ at the target index.\n"
+            f"bs1 = {bs1_little_endian}\n"
+            f"bs2 = {bs2_little_endian}\n"
+            f"target = {target}."
+        )
+
+    ctrl_state = ''.join([char for idx, char in enumerate(mask_bitstring) if idx not in ctrl_state_delete_list])
+    #ctrl_state = bs1_little_endian[:target] + bs1_little_endian[(target + 1):]
     # TODO: The following reversal cancels some other reversal of unknown
     # origin. This may indicate an endianness issue elsewhere in the codebase
     # to be figured out.
@@ -125,23 +144,24 @@ def _build_multiRX(
 def _build_Xcirc(
         bs1_little_endian: str,
         bs2_little_endian: str,
-        target: int) -> QuantumCircuit:
+        control: int) -> QuantumCircuit:
     """
     Build pre/post computation change-of-basis circuit in the Givens rotation.
 
-    Assumes all bit strings are little-endian.
+    Assumes all bit strings are little-endian (that is, bit strings are read/indexed right-to-left).
+    Applies CX gates conditioned on control, and all other bits where there's a bit flip
+    between bs1 and bs2 as targets.
     """
     num_qubits = len(bs1_little_endian)
-    ctrl_val = 0 if bs1_little_endian[target] == "1" else 1
     Xcirc = QuantumCircuit(num_qubits)
-    for idx in range(target-1, -1, -1):
-        X_gate_needed_at_idx = bs1_little_endian[idx] != \
+    for idx in range(control-1, -1, -1):
+        bit_flip_happens_at_idx = bs1_little_endian[idx] != \
             bs2_little_endian[idx]
-        if X_gate_needed_at_idx is True:
+        if bit_flip_happens_at_idx is True:
             Xcirc.cx(
-                control_qubit=target,
+                control_qubit=control,
                 target_qubit=idx,
-                ctrl_state=ctrl_val)
+                ctrl_state="1")
 
     return Xcirc
 
@@ -331,6 +351,98 @@ def _test_givens2():
     print("givens2 random test satisfied.")
 
 
+def _test_Xcirc():
+    print("Verifying that the diagonalization subcircuit is correctly constructed.")
+
+    # Case 1
+    bs1 = "1000101"
+    bs2 = "1001110"
+    control_qubit = 6
+    print(f"Case 1: bs1 = {bs1}, bs2 = {bs2}, ctrl_qubit = {control_qubit}.")
+    Xcirc_expected = QuantumCircuit(7)
+    Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=5)
+    Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=3)
+    Xcirc = _build_Xcirc(bs1, bs2, control_qubit)
+
+    assert Xcirc_expected == Xcirc, "Encountered inequivalent circuits. Expected:\n" \
+        f"{Xcirc_expected.draw()}\nObtained:\n" \
+        f"{Xcirc.draw()}"
+
+    print(f"Test passed. Obtained circuit:\n{Xcirc.draw()}\n")
+
+    # Case 2
+    bs1 = "00000111111"
+    bs2 = "10101111101"
+    control_qubit = 9
+    print(f"Case 2: bs1 = {bs1}, bs2 = {bs2}, ctrl_qubit = {control_qubit}.")
+    Xcirc_expected = QuantumCircuit(11)
+    Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=4)
+    Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=2)
+    Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=0)
+    Xcirc = _build_Xcirc(bs1, bs2, control_qubit)
+
+    assert Xcirc_expected == Xcirc, "Encountered inequivalent circuits. Expected:\n" \
+        f"{Xcirc_expected.draw()}\nObtained:\n" \
+        f"{Xcirc.draw()}"
+
+    print(f"Test passed. Obtained circuit:\n{Xcirc.draw()}\n")
+
+
+def _test_multiRX():
+    print("Verifying that the multiRX subcircuit is correctly constructed.")
+
+    # Case 1
+    bs1 = "1011"
+    bs2 = "0001"
+    control_qubit = 2
+    angle = 0.5
+    expected_ctrls = [0, 1, 3]
+    expected_ctrl_state = "100"
+    print(f"Case 1: bs1 = {bs1}, bs2 = {bs2}, ctrl_qubit = {control_qubit}, angle = {angle}.")
+    print(f"Expected ctrl qubits = {expected_ctrls}, expected control state = {expected_ctrl_state}.")
+    expected_circ = QuantumCircuit(4)
+    multiRX_expected_gate = RXGate(angle).control(
+        num_ctrl_qubits=len(expected_ctrls), ctrl_state=expected_ctrl_state)
+    expected_circ.append(multiRX_expected_gate, expected_ctrls + [control_qubit])
+
+    actual_circ = QuantumCircuit(4)
+    actual_ctrls, actual_ctrl_state, multiRX_actual = _build_multiRX(bs1, bs2, angle, target=control_qubit)
+    actual_circ.append(multiRX_actual, actual_ctrls + [control_qubit])
+
+    assert expected_circ == actual_circ, "Encountered inequivalent circuits. Expected:\n" \
+        f"{expected_circ.draw()}\nObtained:\n" \
+        f"{actual_circ.draw()}"
+
+    print(f"Test passed. Obtained circuit:\n{actual_circ.draw()}\n")
+
+    # Case 2
+    bs1 = "001100010011"
+    bs2 = "111100011011"
+    control_qubit = 8
+    angle = 0.5
+    expected_ctrls = [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11]
+    expected_ctrl_state = "11010001100"
+    print(f"Case 2: bs1 = {bs1}, bs2 = {bs2}, ctrl_qubit = {control_qubit}, angle = {angle}.")
+    print(f"Expected ctrl qubits = {expected_ctrls}, expected control state = {expected_ctrl_state}.")
+    expected_circ = QuantumCircuit(12)
+    multiRX_expected_gate = RXGate(angle).control(
+        num_ctrl_qubits=len(expected_ctrls), ctrl_state=expected_ctrl_state)
+    expected_circ.append(multiRX_expected_gate, expected_ctrls + [control_qubit])
+
+    actual_circ = QuantumCircuit(12)
+    actual_ctrls, actual_ctrl_state, multiRX_actual = _build_multiRX(bs1, bs2, angle, target=control_qubit)
+    actual_circ.append(multiRX_actual, actual_ctrls + [control_qubit])
+
+    assert expected_circ == actual_circ, "Encountered inequivalent circuits. Expected:\n" \
+        f"{expected_circ.draw()}\nObtained:\n" \
+        f"{actual_circ.draw()}"
+
+    print(f"Test passed. Obtained circuit:\n{actual_circ.draw()}\n")
+
+
 if __name__ == "__main__":
     _test_givens()
     _test_givens2()
+    _test_Xcirc()
+    _test_multiRX()
+    print("All tests passed.")
