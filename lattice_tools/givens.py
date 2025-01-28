@@ -155,6 +155,11 @@ def givens2(
     Expects a nested list of pairs of bitstrings in physicist / big-endian notation,
     e.g. strings = [['10','01'],['00','11']], and a float as an angle.
     Optional reverse arg for little-endian.
+
+    Note that ValueErrors are raised under the following circumstances:
+      - Unequal string lengths are encountered.
+      - There is no suitable "lock"/"pin" found during the algorithm.
+      - The string pairs fail various "goodness" checks for the validity of the method.
     """
     if len(strings) != 2:
         raise ValueError('Need two pairs')
@@ -177,7 +182,7 @@ def givens2(
             pin = ii
             break
     if pin is None:
-        raise ValueError('Your bitstrings lack the special sauce')
+        raise ValueError('Unable to find a pin.')
 
     lock = None
     type_2 = True
@@ -198,12 +203,12 @@ def givens2(
                 break
 
     if lock is None:
-        raise ValueError('Your bitstrings lack the special sauce')
+        raise ValueError('Unable to find a lock.')
 
     bad1 = strings[0][0][pin] + strings[0][0][lock] == strings[1][0][pin] + strings[1][0][lock]
     bad2 = strings[0][0][pin] + strings[0][0][lock] == strings[1][1][pin] + strings[1][1][lock]
     if type_2 and (bad1 or bad2):
-        raise ValueError('Your bitstrings lack the special sauce')
+        raise ValueError('Bit string pairs failed "goodness" check.')
 
     R_ctrls = list(range(0, num_qubits))
     R_ctrls.remove(pin)
@@ -329,7 +334,22 @@ def _test_givens2():
     ).all(), f"Failed test. Constructed and expected givens operators not close. Largest difference = {np.max(givens2_circuit_as_operator-expected_givens2_operator)}"
     print("givens2 test passed.")
 
+def _test_givens_value_errors():
+    print("Testing that givens raises ValueError for bad input.")
 
+    str_1 = "110"
+    str_2 = "0011"
+
+    try:
+        givens(str_1, str_2, 0.1)
+    except ValueError as e:
+        print(f"Test passed. Raised ValueError: {e}")
+    else:
+        raise AssertionError("ValueError not raised.")
+
+# TODO write some givens2 tests for the raising of ValueError.
+    
 if __name__ == "__main__":
     _test_givens()
     _test_givens2()
+    _test_givens_value_errors()
