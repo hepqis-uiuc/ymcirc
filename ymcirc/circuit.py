@@ -3,9 +3,9 @@ A collection of utilities for building circuits.
 """
 from __future__ import annotations
 import copy
-from lattice_tools.conventions import LatticeStateEncoder
-from lattice_tools.lattice_registers import LatticeRegisters, Plaquette
-from lattice_tools.givens import givens
+from ymcirc.conventions import LatticeStateEncoder
+from ymcirc.lattice_registers import LatticeRegisters, Plaquette
+from ymcirc.givens import givens
 from math import ceil
 from qiskit import transpile
 from qiskit.circuit import QuantumCircuit, QuantumRegister

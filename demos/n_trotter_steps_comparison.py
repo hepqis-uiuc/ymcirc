@@ -11,7 +11,7 @@ and electric energy
 """
 from __future__ import annotations
 
-# Hacky way to make lattice_tools imports work
+# Hacky way to make ymcirc imports work
 import sys
 import os
 # Get the parent directory path
@@ -20,13 +20,13 @@ parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(parent_dir)
 
 from pathlib import Path
-from lattice_tools.conventions import (
+from ymcirc.conventions import (
     VERTEX_SINGLET_BITMAPS,
     IRREP_TRUNCATION_DICT_1_3_3BAR,
     IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8)
-from lattice_tools.circuit import LatticeCircuitManager
-from lattice_tools.lattice_registers import LatticeRegisters
-from lattice_tools.conventions import HAMILTONIAN_BOX_TERMS, LatticeStateEncoder
+from ymcirc.circuit import LatticeCircuitManager
+from ymcirc.lattice_registers import LatticeRegisters
+from ymcirc.conventions import HAMILTONIAN_BOX_TERMS, LatticeStateEncoder
 from qiskit import transpile
 from qiskit_aer.primitives import SamplerV2
 from qiskit_aer import AerSimulator
@@ -34,8 +34,8 @@ from typing import List, Tuple
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from lattice_tools.electric_helper import electric_hamiltonian
-from lattice_tools.electric_helper import convert_bitstring_to_evalue
+from ymcirc.electric_helper import electric_hamiltonian
+from ymcirc.electric_helper import convert_bitstring_to_evalue
 
 from qiskit.qasm2 import dumps
 

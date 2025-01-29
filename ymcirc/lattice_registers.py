@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from qiskit.circuit import QuantumRegister  # type: ignore
 from itertools import product
 from typing import List, Tuple, Dict, Union, Set
-from lattice_tools.conventions import IrrepBitmap, VertexMultiplicityBitmap
+from ymcirc.conventions import IrrepBitmap, VertexMultiplicityBitmap
 
 # Type aliases and constants.
 LatticeVector = Union[List[int], Tuple[int, ...]]
