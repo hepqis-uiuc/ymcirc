@@ -6,7 +6,7 @@ construct the Pauli decomposition for matrix with 1 at (i,i) and weights
 decomposition by the electric Casimir (according to the link_bitmap).
 """
 from __future__ import annotations
-from lattice_tools.conventions import (
+from ymcirc.conventions import (
     IrrepWeight, BitString, IrrepBitmap, VertexMultiplicityBitmap
 )
 import numpy as np
