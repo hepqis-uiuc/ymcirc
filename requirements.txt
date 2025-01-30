@@ -1,5 +1,5 @@
-matplotlib-label-lines~=0.7.0
 matplotlib~=3.9
+matplotlib-label-lines~=0.7.0
 numpy~=2.1
 pandas~=2.2
 qiskit~=1.2
