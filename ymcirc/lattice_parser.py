@@ -1,13 +1,15 @@
-# 1) Read Quantinuum Data
+"""
+Data structures for interacting with measurement outcomes on lattices.
 
+Currently a work in progress.
+"""
 import json
 import pickle
-from lattice_tools.lattice_registers import LatticeRegisters
-from lattice_tools.conventions import (
+from ymcirc.conventions import (
     VERTEX_SINGLET_BITMAPS,
     IRREP_TRUNCATION_DICT_1_3_3BAR,
     IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8,
-    ONE,THREE,THREE_BAR,SIX,SIX_BAR,EIGHT)
+    ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT)
 from labellines import labelLines
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
@@ -38,11 +40,11 @@ class ParsedData:
         self.truncation = truncation
         self.size = lattice_size
         self.rawdata = filepath
-        #Read the json file
+        # Read the json file
         json_file = filepath
         with open(json_file) as json_data:
             data = json.load(json_data)
-        #import link truncation and vertex dictionaries
+        # import link truncation and vertex dictionaries
         # TO DO: Replace these cumbersome definitions with
         # LatticeRegisters class.
         if dim == "3/2" and truncation == "T1":
@@ -212,7 +214,7 @@ class ParsedData:
         if generate_pdf == True:
             pdf_filepath = filepath + "-image_pdf"
             pdf = PdfPages(pdf_filepath)
-        #dictionary of colors
+        # dictionary of colors
         color_dict = {}
         color_dict[ONE] = "black"
         color_dict[THREE] = "blue"
@@ -220,8 +222,8 @@ class ParsedData:
         color_dict[SIX] = "cyan"
         color_dict[SIX_BAR] = "teal"
         color_dict[EIGHT] = "seagreen"
-        color_dict[''] = "red" #Unphysical links are given red color
-        #dictionary of link states
+        color_dict[''] = "red" # Unphysical links are given red color
+        # dictionary of link states
         link_state = {}
         link_state[ONE] = "1"
         link_state[THREE] = "3"
@@ -230,7 +232,7 @@ class ParsedData:
         link_state[SIX_BAR] = "$\\bar{6}$"
         link_state[EIGHT] = "8"
         link_state[''] = "U"
-        #Construction of the lattice images
+        # Construction of the lattice images
         if dim == "3/2":
             yiter = 2
         elif dim == "2":
