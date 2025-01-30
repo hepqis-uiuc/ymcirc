@@ -59,6 +59,9 @@ class ParsedData:
         elif dim == "2" and truncation == "T2":
             link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
             vertex_bitmap = VERTEX_SINGLET_BITMAPS["d=2, T2"]
+        # Dealing with a case when the input is neither d=2 or d=3/2.
+        elif dim != "3/2" and dim != "2":
+            raise ValueError("The class ParsedData can only deal with dim=3/2 or dim=2 for now")
         self._data = data
         self._vertex_bitmap = vertex_bitmap
         self._link_bitmap = link_bitmap
@@ -320,3 +323,5 @@ class ParsedData:
         plt.imshow(image)
         plt.axis('off')
         plt.show()
+
+x = ParsedData(dim="5",truncation="T1",lattice_size=3,filepath="n_trotter=1-t=0.0_H1-1.json")
