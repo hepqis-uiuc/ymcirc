@@ -324,4 +324,4 @@ class ParsedData:
         plt.axis('off')
         plt.show()
 
-x = ParsedData(dim="5",truncation="T1",lattice_size=3,filepath="n_trotter=1-t=0.0_H1-1.json")
+
