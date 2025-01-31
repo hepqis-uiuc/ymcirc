@@ -214,7 +214,7 @@ if __name__ == "__main__":
                 df_job_results.loc[current_sim_idx, "vacuum_persistence_probability"] = df_job_results.loc[current_sim_idx, current_vacuum_state] / n_shots
                 value = 0
                 for state, counts in job_result[0].data.meas.get_counts().items():
-                    value += convert_bitstring_to_evalue(state, link_bitmap, vertex_bitmap)*(counts / n_shots)
+                    value += convert_bitstring_to_evalue(state, link_bitmap, vertex_bitmap)*(counts / n_shots)*(1.0 / len(lattice.link_register_keys))
                 df_job_results.loc[current_sim_idx, "electric_energy"] = value
 
             print("Updated df:\n", df_job_results)
