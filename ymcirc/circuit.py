@@ -334,7 +334,7 @@ class LatticeCircuitManager:
         bit_string_2_tilde = LatticeCircuitManager._apply_LP_family_to_bit_string(representative_LP_family, q_prime_idx, bit_string_2)
         should_continue_loop = True
         while should_continue_loop:
-            # Find most frequently differeing bit idx
+            # Find most frequently differing bit idx
             index_counts = [0,] * len(representative_P_tilde)
             for phys_tilde_state in P_tilde:
                 for idx, (rep_char, phys_char) in enumerate(zip(representative_P_tilde, phys_tilde_state)):
@@ -350,7 +350,6 @@ class LatticeCircuitManager:
                 Q_set.add(max_counts_idx)
 
             # Update loop params.
-            previous_P_tilde_len = len(P_tilde)
             P_tilde = LatticeCircuitManager._eliminate_phys_states_that_differ_from_rep_at_Q_idx(
                 representative_P_tilde, P_tilde, Q_set)
             should_continue_loop = not all([tilde_state in {bit_string_1_tilde, bit_string_2_tilde} for tilde_state in P_tilde])
