@@ -1,9 +1,10 @@
 """Utility classes and modules."""
+from __future__ import annotations
 import ast
 from collections.abc import Mapping
 import json
 from pathlib import Path
-from typing import Dict
+from typing import Dict, List
 
 
 class LazyDict(Mapping):
@@ -46,9 +47,10 @@ class LazyDict(Mapping):
     def __len__(self):
         return len(self._raw_dict)
 
-def json_dict_loader(json_path: Path) -> Dict:
+
+def json_loader(json_path: Path) -> Dict | List:
     """
-    Load the json file at json_path, and return the data as a dict.
+    Load the json file at json_path, and return the data as dict or list.
     """
     with json_path.open('r') as json_file:
         raw_data = json.load(json_file)
@@ -58,5 +60,8 @@ def json_dict_loader(json_path: Path) -> Dict:
         # the python process.
         # See https://docs.python.org/3/library/ast.html#ast.literal_eval
         # for more information.
-        result_dict = {ast.literal_eval(key): value for key, value in raw_data.items()}
-    return result_dict
+        if isinstance(raw_data, dict):
+            result = {ast.literal_eval(key): value for key, value in raw_data.items()}
+        elif isinstance(raw_data, list):
+            result = [ast.literal_eval(item) for item in raw_data]
+    return result

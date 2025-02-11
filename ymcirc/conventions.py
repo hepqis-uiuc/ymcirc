@@ -99,7 +99,7 @@ VERTEX_SINGLET_DICT_D_3HALVES_133BAR_NO_VERTEX_DATA = {}
 
 Data on the box term of the magnetic Hamiltonian is (lazy) loaded into the dict
 HAMILTONIAN_BOX_TERMS. This dict follows an indexing pattern similar
-to thar of VERTEX_SINGLET_BITMAPS, where strings of the form
+to that of VERTEX_SINGLET_BITMAPS, where strings of the form
 
 "d=3/2, T1"
 
@@ -122,26 +122,23 @@ combinations of dimension and truncation data.
 from __future__ import annotations
 import copy
 from pathlib import Path
+import numpy as np
 from typing import Tuple, Dict, Union, List
-from ymcirc.utilities import LazyDict, json_dict_loader
+from ymcirc.utilities import LazyDict, json_loader
 
 # Filesystem stuff.
 _PROJECT_ROOT = Path(__file__).parent
-_SINGLET_DATA_DIR = _PROJECT_ROOT / "ymcirc_data/singlet-bitmaps/"
 _HAMILTONIAN_DATA_DIR = _PROJECT_ROOT / "ymcirc_data/magnetic-hamiltonian-box-term-matrix-elements/"
-_SINGLET_DATA_FILE_PATHS: Dict[str, Path] = {
-    "d=3/2, T1": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3_2)_singlet_bitmaps.json",
-    "d=3/2, T2": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(3_2)_singlet_bitmaps.json",
-    "d=2, T1": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(2)_singlet_bitmaps.json",
-    "d=2, T2": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(2)_singlet_bitmaps.json",
-    "d=3, T1": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3)_singlet_bitmaps.json",
-    "d=3, T2": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(3)_singlet_bitmaps.json",
-}
+_PLAQUETTE_STATES_DATA_DIR = _PROJECT_ROOT / "ymcirc_data/plaquette-states/"
 _HAMILTONIAN_DATA_FILE_PATHS: Dict[str, Path] = {
-    "d=3/2, T1": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3_2)_magnetic_hamiltonian.json",
-    "d=3/2, T2": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(3_2)_magnetic_hamiltonian.json",
-    "d=2, T1": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(2)_magnetic_hamiltonian.json",
-    "d=3, T1": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3)_magnetic_hamiltonian.json"
+    "d=3/2, T1": _HAMILTONIAN_DATA_DIR / "T1_dim(3_2)_magnetic_hamiltonian.json",
+    "d=3/2, T2": _HAMILTONIAN_DATA_DIR / "T2_dim(3_2)_magnetic_hamiltonian.json",
+    "d=2, T1": _HAMILTONIAN_DATA_DIR / "T1_dim(2)_magnetic_hamiltonian.json",
+}
+_PLAQUETTE_STATES_DATA_FILE_PATHS: Dict[str, Path] = {
+    "d=3/2, T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(3_2)_plaquette_states.json",
+    "d=3/2, T2": _PLAQUETTE_STATES_DATA_DIR / "T2_dim(3_2)_plaquette_states.json",
+    "d=2, T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(2)_plaquette_states.json",
 }
 
 # Useful type aliases.
@@ -150,17 +147,18 @@ LinkState = IrrepWeight  # A useful semantic alias
 BitString = str
 MultiplicityIndex = int
 IrrepBitmap = Dict[IrrepWeight, BitString]
-SingletsDef = Tuple[Tuple[IrrepWeight, ...], Tuple[MultiplicityIndex, ...]]
-VertexBag = Tuple[Tuple[IrrepWeight, ...], MultiplicityIndex]
-VertexState = VertexBag  # Another useful semantic alias
-VertexMultiplicityBitmap = Dict[VertexBag, BitString]
+VertexMultiplicityBitmap = Dict[MultiplicityIndex, BitString]
+# Tuple of 4 vertex multiplicites, tuple of 4 "active links", tuple of arbitrary num "control links".
 PlaquetteState = Union[
     Tuple[
-        VertexState, VertexState, VertexState, VertexState,
-        LinkState, LinkState, LinkState, LinkState],
+        Tuple[MultiplicityIndex, MultiplicityIndex, MultiplicityIndex, MultiplicityIndex],
+        Tuple[LinkState, LinkState, LinkState, LinkState],
+        Tuple[LinkState, ...]
+    ],
     Tuple[
-        None, None, None, None,
-        LinkState, LinkState, LinkState, LinkState]
+        Tuple[None, None, None, None],
+        Tuple[LinkState, LinkState, LinkState, LinkState],
+        Tuple[LinkState, ...]]
 ]
 
 # Irrep iweights (top row of GT pattern).
@@ -186,31 +184,28 @@ IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8: IrrepBitmap = {
     EIGHT: "111"
 }
 
-# Lazy-load vertex singlet data from precomputed json files.
-VERTEX_SINGLET_BITMAPS: LazyDict = LazyDict({
-    dim_trunc_case: (json_dict_loader, file_path)
-    for dim_trunc_case, file_path in _SINGLET_DATA_FILE_PATHS.items()
+# Lazy-load vertex physical plaquette states from precomputed json files.
+# Entries has the format s, a, c,
+# where s is a tuple of 4 site multiplicity indices,
+# a is a tuple of 4 "active link" iweights,
+# and c is a variable-length tuple of "control_link" iweights.
+PHYSICAL_PLAQUETTE_STATES: LazyDict = LazyDict({
+    dim_trunc_case: (json_loader, file_path)
+    for dim_trunc_case, file_path in _PLAQUETTE_STATES_DATA_FILE_PATHS.items()
 })
-
-# This is a special case where it isn't strictly necessary
-# to disambiguate singlets via additional vertex data.
-# Essentially, with 3 irreps and 3 links per vertex,
-# Knowledge of two link irrep states is sufficient to unambiguously
-# determine that of the third link.
-VERTEX_SINGLET_DICT_D_3HALVES_133BAR_NO_VERTEX_DATA: VertexMultiplicityBitmap = {}
 
 # Lazy-load magnetic Hamiltonian box terms from precomputed json files.
 # The following magnetic Hamiltonian box term data is available:
 # d=3/2, T1
 # d=3/2, T2
 # d=2, T1
-# d=3, T1
 HAMILTONIAN_BOX_TERMS: LazyDict = LazyDict({
-    dim_trunc_case: (json_dict_loader, file_path)
+    dim_trunc_case: (json_loader, file_path)
     for dim_trunc_case, file_path in _HAMILTONIAN_DATA_FILE_PATHS.items()
 })
 
 
+# TODO floor(log2(n) + 1).
 class LatticeStateEncoder:
     """
     Class for encoding/decode lattice state data.
@@ -222,41 +217,46 @@ class LatticeStateEncoder:
     def __init__(
             self,
             link_bitmap: IrrepBitmap,
-            vertex_bitmap: VertexMultiplicityBitmap):
+            physical_plaquette_states: List[PlaquetteState]):
         """
-        Create a LatticeStateEncoder using the provided bitmaps.
+        Create a LatticeStateEncoder using link_bitmap and list of physical plaquette states.
 
         Inputs:
         - link_bitmap: a dictionary of link iWeights mapping to bit strings.
-        - vertex_bitmap: a dictionary of vertex bags with a multiplicity index
-                         mapping to bit strings.
+        - physical_plaquette_states: a list of physical plaquette states.
 
-        Bitmaps are assumed to have unique bit strings as values,
-        and the desired link iWeight tuple or vertex bag tuple
-        as keys. Inverting of the bitmaps is handled internally when decoding.
+        The link bitmap is assumed to have unique bit strings as values,
+        and the desired link iWeight tuple as keys as keys. A multiplicity bitmap is
+        automatically constructed from physical_plaquette_states by examining the largest
+        vertex multiplicity integer n appearing among the physical states, and allocating
+        a length l = floor(log2(n) + 1) bitstring to store the binary encoding of each integer.
+        Inverting of the bitmaps is handled internally when decoding.
 
         ValueError raised if there are inconsistent length bit strings among the values
-        of the bitmap dictionaries.
+        of the link bitmap dictionary, or there are duplicate entries in the
+        list of physical plaquette states.
         """
-        # Check bitmaps for uniqueness of bit string encodings.
-        vertex_bitmap_has_unique_values = len(set(bit_string for bit_string in vertex_bitmap.values())) \
-            == len([bit_string for bit_string in vertex_bitmap.values()])
+        # Check link bitmaps for uniqueness of bit string encodings.
+        # Also check physical states for uniqueness (no dupes allowed).
         link_bitmap_has_unique_values = len(set(bit_string for bit_string in link_bitmap.values())) \
             == len([bit_string for bit_string in link_bitmap.values()])
-        if vertex_bitmap_has_unique_values is False:
-            raise ValueError("Argument vertex_bitmap must be a dict with unique values. "
-                             f"Encountered: {vertex_bitmap}")
+        plaquette_states_are_unique = len(physical_plaquette_states) == len(set(physical_plaquette_states))
         if link_bitmap_has_unique_values is False:
             raise ValueError("Argument link_bitmap must be a dict with unique values. "
                              f"Encountered: {link_bitmap}")
+        if plaquette_states_are_unique is False:
+            raise ValueError("Argument physical_plaquette_states must be a list"
+                             f" with unique values. Encountered: {physical_plaquette_states}.")
 
-        # Extract expected lengths of various kinds of bit strings.
-        try:
-            self._expected_vertex_bit_string_length = len(list(vertex_bitmap.values())[0])
-        except IndexError:  # Allowed to have no vertices for d=3/2, T1 case.
-            self._expected_vertex_bit_string_length = 0
+        # TODO handle T1 d=3/2 where multiplicity indices might not be needed
+        max_one_indexed_multiplicity = max([current_vertex for vertices, a_links, c_links in physical_plaquette_states for current_vertex in vertices])
+        max_zero_indexed_multiplicity = max_one_indexed_multiplicity - 1
+        if max_zero_indexed_multiplicity == 0:
+            raise NotImplementedError("Parsing lattices with trivial multiplicity indices not yet supported.")
+        self._expected_vertex_bit_string_length = int(np.floor(np.log2(max_zero_indexed_multiplicity) + 1))
         self._expected_link_bit_string_length = len(list(link_bitmap.values())[0])
-        self._expected_plaquette_bit_string_length = (self._expected_vertex_bit_string_length + self._expected_link_bit_string_length) * 4
+        # TODO update plaquette bit string length to depend on umber of phys states
+        #self._expected_plaquette_bit_string_length = (self._expected_vertex_bit_string_length + self._expected_link_bit_string_length) * 4
 
         # Check bitmaps for consistency of length of bit string encodings.
         if any(len(bit_string) != self._expected_vertex_bit_string_length for bit_string in vertex_bitmap.values()):
@@ -266,13 +266,16 @@ class LatticeStateEncoder:
 
         # Set the internal bitmaps.
         self._link_bitmap = copy.deepcopy(link_bitmap)
-        self._vertex_bitmap = copy.deepcopy(vertex_bitmap)
+        self._vertex_bitmap = {
+            multiplicity_index + 1: f"{multiplicity_index:0{self._expected_vertex_bit_string_length}d}"
+            for multiplicity_index in range(self._expected_vertex_bit_string_length)
+        }
         self._bit_string_to_vertex_map = {bit_string: vertex for vertex, bit_string in vertex_bitmap.items()}
         self._bit_string_to_link_map = {bit_string: link for link, bit_string in link_bitmap.items()}
 
     @property
     def vertex_bitmap(self) -> VertexMultiplicityBitmap:
-        """Return a copy of the vertex bitmap in use."""
+        """Return a copy of the vertex multiplicity bitmap in use."""
         return copy.deepcopy(self._vertex_bitmap)
 
     @property
@@ -315,13 +318,14 @@ class LatticeStateEncoder:
         except KeyError:
             return None
 
-    def encode_vertex_state_as_bit_string(self, vertex: VertexBag) -> str:
-        """Encode a vertex bag state tuple as a bit string."""
+    def encode_vertex_state_as_bit_string(self, vertex: MultiplicityIndex) -> str:
+        """Encode a vertex 1-indexed multiplicity integer as a bit string."""
+        #  TODO raise error if input is nonpositive
         return self._vertex_bitmap[vertex]
 
     def decode_bit_string_to_vertex_state(self, encoded_vertex: str) -> Union[VertexBag, None]:
         """
-        Decode a bit string to a vertex bag state tuple.
+        Decode a bit string to a vertex multiplicity index.
 
         If the bit string doesn't have a valid decoding, returns None.
         """
@@ -335,6 +339,7 @@ class LatticeStateEncoder:
         except KeyError:
             return None
 
+    # TODO need to include controls in this.
     def encode_plaquette_state_as_bit_string(
             self,
             plaquette: PlaquetteState) -> str:
@@ -391,6 +396,7 @@ class LatticeStateEncoder:
 
         return bit_string_encoding
 
+    # TODO: Need to include controls in this.
     def decode_bit_string_to_plaquette_state(self, bit_string: str) -> PlaquetteState:
         """
         Decode bit string to a plaquette state in terms of iWeights.
@@ -444,70 +450,214 @@ class LatticeStateEncoder:
 
     @staticmethod
     def _split_string_evenly(string, split_length) -> List[str]:
-        """Helper to break up a string into parts of equal length."""
+        """Break up a string into parts of equal length."""
         return [string[i:i+split_length] for i in range(0, len(string), split_length)]
 
-def _test_singlet_bitmaps():
-    print("Testing singlet bitmaps...")
-    # Check that there are 6 vertex singlet bitmaps (3 dimensionalities * 2 irrep truncations).
-    there_are_six_singlet_bitmaps = len(VERTEX_SINGLET_BITMAPS) == 6
-    print(f"\nlen(VERTEX_SINGLET_BITMAPS) == 6? {there_are_six_singlet_bitmaps}.")
-    assert there_are_six_singlet_bitmaps
+
+# def _test_singlet_bitmaps():
+#     print("Testing singlet bitmaps...")
+#     # Check that there are 6 vertex singlet bitmaps (3 dimensionalities * 2 irrep truncations).
+#     there_are_six_singlet_bitmaps = len(VERTEX_SINGLET_BITMAPS) == 6
+#     print(f"\nlen(VERTEX_SINGLET_BITMAPS) == 6? {there_are_six_singlet_bitmaps}.")
+#     assert there_are_six_singlet_bitmaps
 
 
-def _test_vertex_bitmaps_have_right_amount_of_singlets():
-    # Check that all vertex bitmaps have the right amount of distinct singlets.
-    # The values for expected_nums come from classical precomputation.
-    cases = ["d=3/2, T1", "d=3/2, T2", "d=2, T1", "d=2, T2", "d=3, T1", "d=3, T2"]
-    expected_nums = [4, 16, 6, 66, 28, 1646]
-    for current_case, expected_num_singlets in zip(cases, expected_nums):
-        # Number check.
-        test_result_num_singlets = len(VERTEX_SINGLET_BITMAPS[current_case]) == expected_num_singlets
-        print(f'\nlen(VERTEX_SINGLET_BITMAPS["{current_case}"]) == {expected_num_singlets}? {test_result_num_singlets}.')
-        if test_result_num_singlets is False:
-            print(f"Encountered {len(VERTEX_SINGLET_BITMAPS[current_case])} singlets.")
+# def _test_vertex_bitmaps_have_right_amount_of_singlets():
+#     # Check that all vertex bitmaps have the right amount of distinct singlets.
+#     # The values for expected_nums come from classical precomputation.
+#     cases = ["d=3/2, T1", "d=3/2, T2", "d=2, T1", "d=2, T2", "d=3, T1", "d=3, T2"]
+#     expected_nums = [4, 16, 6, 66, 28, 1646]
+#     for current_case, expected_num_singlets in zip(cases, expected_nums):
+#         # Number check.
+#         test_result_num_singlets = len(VERTEX_SINGLET_BITMAPS[current_case]) == expected_num_singlets
+#         print(f'\nlen(VERTEX_SINGLET_BITMAPS["{current_case}"]) == {expected_num_singlets}? {test_result_num_singlets}.')
+#         if test_result_num_singlets is False:
+#             print(f"Encountered {len(VERTEX_SINGLET_BITMAPS[current_case])} singlets.")
 
-        assert test_result_num_singlets
+#         assert test_result_num_singlets
 
-        # Uniqueness of encoding check.
-        test_result_singlets_have_unique_bit_string = expected_num_singlets == len(set(VERTEX_SINGLET_BITMAPS[current_case].values()))
-        print(f'# of distinct bit string encodings for VERTEX_SINGLET_BITMAPS["{current_case}"] == {expected_num_singlets}? {test_result_singlets_have_unique_bit_string}.')
-        if test_result_singlets_have_unique_bit_string is False:
-            print(f"Encountered {len(set(VERTEX_SINGLET_BITMAPS[current_case].values()))} distinct bit strings.")
+#         # Uniqueness of encoding check.
+#         test_result_singlets_have_unique_bit_string = expected_num_singlets == len(set(VERTEX_SINGLET_BITMAPS[current_case].values()))
+#         print(f'# of distinct bit string encodings for VERTEX_SINGLET_BITMAPS["{current_case}"] == {expected_num_singlets}? {test_result_singlets_have_unique_bit_string}.')
+#         if test_result_singlets_have_unique_bit_string is False:
+#             print(f"Encountered {len(set(VERTEX_SINGLET_BITMAPS[current_case].values()))} distinct bit strings.")
 
-        assert test_result_singlets_have_unique_bit_string
+#         assert test_result_singlets_have_unique_bit_string
+
+def _test_no_duplicate_physical_plaquette_states():
+    print("Checking that none of the physical plaquette states data contain duplicates.")
+    for dim_trunc_case in PHYSICAL_PLAQUETTE_STATES.keys():
+        print(f"Checking {dim_trunc_case}...")
+        num_duplicates = len(PHYSICAL_PLAQUETTE_STATES[dim_trunc_case]) \
+            - len(set(PHYSICAL_PLAQUETTE_STATES[dim_trunc_case]))
+        has_no_duplicates = num_duplicates == 0
+        assert has_no_duplicates, f"Detected {num_duplicates} duplicate entries."
+        print("Test passed.")
 
 
-def _test_lattice_encoder_fails_on_bad_bitmaps():
-    print("Checking that a vertex bitmap with non-unique bit string values causes ValueError.")
-    good_link_bitmap = {
+def _test_no_duplicate_matrix_elements():
+    print("Checking that none of the matrix element data contain duplicates.")
+    for dim_trunc_case in HAMILTONIAN_BOX_TERMS.keys():
+        print(f"Checking {dim_trunc_case}...")
+        # list of tuples ()final state, initial state) that index matrix elements.
+        state_indices = list(HAMILTONIAN_BOX_TERMS[dim_trunc_case].keys())
+        num_duplicates = len(state_indices) - len(set(state_indices))
+        has_no_duplicates = num_duplicates == 0
+        assert has_no_duplicates, f"Detected {num_duplicates} duplicate entries."
+        print("Test passed.")
+
+
+def _test_lattice_encoder_infers_correct_vertex_bitmaps():
+    print(
+        "Check that LatticeStateEncoder correctly infers (1)"
+        "the number of bits needed to encode vertices and (2) the right bitmaps."
+    )
+
+    # Case 1, d=3/2 implicity
+    good_link_bitmap: IrrepBitmap = {
         ONE: "00",
         THREE: "10",
         THREE_BAR: "01"
     }
-    non_unique_vertex_bitmap = {
-        ((ONE, THREE, THREE), 1): "00",
-        ((ONE, THREE, THREE_BAR), 1): "00",
-        ((ONE, ONE, ONE), 1): "01"
+    good_physical_states: List[PlaquetteState] = [
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, THREE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 1),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        )
+    ]
+    expected_num_vertex_bits = 1
+    expected_vertex_bitmap = {
+        0: "0",
+        1: "1"
     }
+    print("Case:\n"
+          f"link bitmap = {good_link_bitmap}\n"
+          f"plaquette states = {good_link_bitmap}\n"
+          f"expected num vertex bits = {expected_num_vertex_bits}\n"
+          f"expected vertex bitmap = {expected_vertex_bitmap}\n")
+    lattice_encoder = LatticeStateEncoder(
+        link_bitmap=good_link_bitmap,
+        physical_plaquette_states=good_physical_states)
+
+    assert lattice_encoder.expected_vertex_bit_string_length == expected_num_vertex_bits, f"Actual num vertex bits = {lattice_encoder.expected_vertex_bit_string_length}"
+    assert lattice_encoder.vertex_bitmap == expected_vertex_bitmap, f"Actual vertex bitmap = {lattice_encoder.vertex_bitmap}"
+
+    # Case 2, d=2 implicit
+    good_link_bitmap: IrrepBitmap = {
+        ONE: "00",
+        THREE: "10",
+        THREE_BAR: "01"
+    }
+    good_physical_states: List[PlaquetteState] = [
+        (
+            (1, 1, 1, 1),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+        ),
+        (
+            (1, 1, 1, 1),
+            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, THREE, ONE, ONE, ONE, ONE, ONE, ONE)
+        ),
+        (
+            (1, 1, 1, 2),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+        ),
+        (
+            (1, 1, 1, 3),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+        )
+    ]
+    expected_num_vertex_bits = 2
+    raise NotImplementedError("Test not implemented.")
+
+
+# TODO test plaquette and mag hamiltonian data files for validity?
+
+# TODO test lattice encoder infers correct plaquette length.
+def _test_lattice_encoder_infers_correct_plaquette_length():
+    raise NotImplementedError("Test not implemented.")
+
+
+def _test_lattice_encoder_fails_on_bad_creation_args():
+    print("Checking that a vertex bitmap with non-unique bit string values causes ValueError.")
+    good_link_bitmap: IrrepBitmap = {
+        ONE: "00",
+        THREE: "10",
+        THREE_BAR: "01"
+    }
+    # TODO non-unique physical states instead
+    # non_unique_vertex_bitmap = {
+    #     ((ONE, THREE, THREE), 1): "00",
+    #     ((ONE, THREE, THREE_BAR), 1): "00",
+    #     ((ONE, ONE, ONE), 1): "01"
+    # }
+    non_unique_physical_states: List[PlaquetteState] = [
+        (
+            (1, 1, 1, 1),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (
+            (1, 1, 1, 1),
+            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, THREE, ONE, ONE)
+        ),
+        (
+            (1, 1, 1, 1),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        )
+    ]
     try:
-        LatticeStateEncoder(good_link_bitmap, non_unique_vertex_bitmap)
+        LatticeStateEncoder(link_bitmap=good_link_bitmap, physical_plaquette_states=non_unique_physical_states)
     except ValueError as e:
         print(f"Test passed. Raised ValueError: {e}")
     else:
         raise AssertionError("No ValueError raised.")
 
     print("Checking that a link bitmap with non-unique bit string values causes ValueError.")
-    non_unique_link_bitmap = {
+    non_unique_link_bitmap: IrrepBitmap = {
         ONE: "00",
         THREE: "10",
         THREE_BAR: "10"
     }
-    good_vertex_bitmap = {
-        ((ONE, THREE, THREE), 1): "00",
-        ((ONE, THREE, THREE_BAR), 1): "01",
-        ((ONE, ONE, ONE), 1): "10"
-    }
+    # TODO valid physical states instead
+    # good_vertex_bitmap = {
+    #     ((ONE, THREE, THREE), 1): "00",
+    #     ((ONE, THREE, THREE_BAR), 1): "01",
+    #     ((ONE, ONE, ONE), 1): "10"
+    # }
+    good_physical_states: List[PlaquetteState] = [
+        (
+            (1, 1, 1, 1),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (
+            (1, 1, 1, 1),
+            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, THREE, ONE, ONE)
+        ),
+        (
+            (1, 1, 1, 2),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        )
+    ]
     try:
         LatticeStateEncoder(non_unique_link_bitmap, good_vertex_bitmap)
     except ValueError as e:
@@ -515,6 +665,7 @@ def _test_lattice_encoder_fails_on_bad_bitmaps():
     else:
         raise AssertionError("No ValueError raised.")
 
+    # TODO physical states with different numbers of controls causes ValueError
     print("Checking that a vertex bitmap with bit strings of different lengths causes ValueError.")
     vertex_bitmap_different_string_lengths = {
         ((ONE, THREE, THREE), 1): "00",
@@ -528,6 +679,7 @@ def _test_lattice_encoder_fails_on_bad_bitmaps():
     else:
         raise AssertionError("No ValueError raised.")
 
+    # Swap in a good value of physical states
     print("Checking that a link bitmap with bit strings of different lengths causes ValueError.")
     link_bitmap_different_string_lengths = {
         ONE: "00",
@@ -541,7 +693,7 @@ def _test_lattice_encoder_fails_on_bad_bitmaps():
     else:
         raise AssertionError("No ValueError raised.")
 
-
+# TODO: fix test data to use physical states
 def _test_encode_decode_various_links():
     link_bitmap = {
         ONE: "00",
@@ -571,6 +723,8 @@ def _test_encode_decode_various_links():
 
 
 def _test_encode_decode_various_vertices():
+    # TODO check to make sure that vertex bitmaps are inferred correctly from the physical plaquette states argument
+
     link_bitmap = {
         ONE: "00",
         THREE: "10",
@@ -597,7 +751,7 @@ def _test_encode_decode_various_vertices():
     assert lattice_encoder.decode_bit_string_to_vertex_state("11") is None
     print("Test passed.")
     
-
+# TODO: this one requires updating the input data
 def _test_encoding_malformed_plaquette_fails():
     v1: VertexBag = ((ONE, THREE, THREE_BAR), 1)
     v2: VertexBag = ((ONE, THREE, THREE_BAR), 1)
@@ -640,7 +794,7 @@ def _test_encoding_malformed_plaquette_fails():
     else:
         raise AssertionError("Test failed. No ValueError raised.")
 
-
+# TODO fix
 def _test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding():
     """
     Check that all plaquette states appearing in the magnetic
@@ -696,7 +850,7 @@ def _test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding()
 
         print("Test passed.")
 
-
+# TODO fix
 def _test_encoding_good_plaquette():
     # Check that the encoding is as expected.
     assert VERTEX_SINGLET_BITMAPS["d=3/2, T1"] == {
@@ -727,7 +881,7 @@ def _test_encoding_good_plaquette():
     assert expected_bit_string == resulting_bit_string, f"Test failed, resulting_bit_string == {resulting_bit_string}."
     print("Test passed.")
 
-
+# TODO fix
 def _test_bit_string_decoding_to_plaquette():
     # Check that decoding of bit strings is as expected.
     # Case data tuple format:
@@ -782,7 +936,7 @@ def _test_bit_string_decoding_to_plaquette():
         assert resulting_decoded_plaquette == expected_decoded_plaquette, f"Expected: {expected_decoded_plaquette}\nEncountered: {resulting_decoded_plaquette}"
         print(f"Test passed.\n{encoded_plaquette} successfully decoded to {resulting_decoded_plaquette}.")
 
-
+# TODO fix
 def _test_decoding_non_gauge_invariant_bit_string():
     print("Checking decoding of a bit string corresponding to a non-gauge-invariant plaquette state.")
     # Configure test data and encoder.
@@ -805,7 +959,7 @@ def _test_decoding_non_gauge_invariant_bit_string():
     assert decoded_plaquette == expected_plaquette_broken_gauge_invariance, f"Expected: {expected_plaquette_broken_gauge_invariance}\nEncountered: {decoded_plaquette}"
     print(f"Test passed.\n{encoded_plaquette} successfully decoded to {expected_plaquette_broken_gauge_invariance}.")
 
-
+# TODO fix
 def _test_decoding_garbage_bit_strings_result_in_none():
     # This should map to something since it's possible for noise to result in such states.
     link_bitmap = {
@@ -848,7 +1002,7 @@ def _test_decoding_garbage_bit_strings_result_in_none():
     assert decoded_plaquette  == expected_decoded_plaquette_some_links_and_vertices_good_others_bad, f"(decoded != expected): {decoded_plaquette}\n!=\n{expected_decoded_plaquette_some_links_and_vertices_good_others_bad}"
     print("Test passed.")
 
-
+# TODO fix
 def _test_decoding_fails_when_len_bit_string_doesnt_match_bitmaps():
     # This should map to something since it's possible for noise to result in such states.
     link_bitmap = {
@@ -909,11 +1063,15 @@ def _test_decoding_fails_when_len_bit_string_doesnt_match_bitmaps():
 
 
 def _run_tests():
-    _test_singlet_bitmaps()
+    # _test_no_duplicate_physical_plaquette_states()
+    # print()
+    # _test_no_duplicate_matrix_elements()
+    # print()
+    _test_lattice_encoder_infers_correct_vertex_bitmaps()
     print()
-    _test_vertex_bitmaps_have_right_amount_of_singlets()
+    _test_lattice_encoder_infers_correct_plaquette_length()
     print()
-    _test_lattice_encoder_fails_on_bad_bitmaps()
+    _test_lattice_encoder_fails_on_bad_creation_args()
     print()
     _test_encode_decode_various_links()
     print()
