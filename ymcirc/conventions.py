@@ -123,12 +123,12 @@ from __future__ import annotations
 import copy
 from pathlib import Path
 from typing import Tuple, Dict, Union, List
-from lattice_tools.utilities import LazyDict, json_dict_loader
+from ymcirc.utilities import LazyDict, json_dict_loader
 
 # Filesystem stuff.
 _PROJECT_ROOT = Path(__file__).parent
-_SINGLET_DATA_DIR = _PROJECT_ROOT / "lattice_tools_data/singlet-bitmaps/"
-_HAMILTONIAN_DATA_DIR = _PROJECT_ROOT / "lattice_tools_data/magnetic-hamiltonian-box-term-matrix-elements/"
+_SINGLET_DATA_DIR = _PROJECT_ROOT / "ymcirc_data/singlet-bitmaps/"
+_HAMILTONIAN_DATA_DIR = _PROJECT_ROOT / "ymcirc_data/magnetic-hamiltonian-box-term-matrix-elements/"
 _SINGLET_DATA_FILE_PATHS: Dict[str, Path] = {
     "d=3/2, T1": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3_2)_singlet_bitmaps.json",
     "d=3/2, T2": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(3_2)_singlet_bitmaps.json",
@@ -209,6 +209,58 @@ HAMILTONIAN_BOX_TERMS: LazyDict = LazyDict({
     dim_trunc_case: (json_dict_loader, file_path)
     for dim_trunc_case, file_path in _HAMILTONIAN_DATA_FILE_PATHS.items()
 })
+
+
+def load_magnetic_hamiltonian(
+        dimensionality_and_truncation_string: str,
+        lattice_encoder: LatticeStateEncoder,
+        mag_hamiltonian_matrix_element_threshold: float = 0,
+        only_include_elems_connected_to_electric_vacuum: bool = False,
+        use_2box_hack: bool = False
+) -> List[Tuple[str, str, float]]:
+    """
+    Compute box + box^dagger as a list.
+
+    This is a convenince method to obtain the magnetic Hamiltonian terms in a format
+    which facilitates the construction of rotation cicuits.
+    The return list consists of tuples whose first two elements
+    are encoded plaquette states representing a matrix element of
+    box + box dagger. The third element of each tuple is the numerical
+    value of the matrix element.
+
+    Necessary arguments:
+      - dimensionality_and_truncation_string: a string of the form "d=3/2, T2" which specifies
+        the particular matrix elements for a given dimensionality and irrep truncation. See
+        the module docstring on ymcirc.conventions for more information.
+      - lattice_encoder: A LatticeStateEncoder instance that allows en/decoding lattices states
+        as bit strings.
+
+    Optional arguments:
+      - mag_hamiltonian_matrix_element_threshold: Only include matrix elements greater than this value.
+      - only_include_elems_connected_to_electric_vacuum: Drop any matrix elements which aren't connected to the electric vacuum state.
+      - use_2box_hack: Don't include box^dagger, and double the values of each matrix element to compensate.
+    """
+    mag_hamiltonian: List[Tuple[str, str, float]] = []
+    if use_2box_hack is False:
+        box_term: List[Tuple[str, str, float]] = []
+        box_dagger_term: List[Tuple[str, str, float]] = []
+    for (final_plaquette_state, initial_plaquette_state), matrix_element_value in HAMILTONIAN_BOX_TERMS[dimensionality_and_truncation_string].items():
+        if abs(matrix_element_value) < mag_hamiltonian_matrix_element_threshold:
+            continue
+        final_state_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(final_plaquette_state)
+        initial_state_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(initial_plaquette_state)
+        if only_include_elems_connected_to_electric_vacuum and ('1' in final_state_bitstring) and ('1' in initial_state_bitstring):
+            continue
+        if use_2box_hack is False:
+            box_term.append((final_state_bitstring, initial_state_bitstring, matrix_element_value))
+            box_dagger_term.append((initial_state_bitstring, final_state_bitstring, matrix_element_value))
+        else:
+            mag_hamiltonian.append((final_state_bitstring, initial_state_bitstring, 2*matrix_element_value))
+
+    if use_2box_hack is False:
+        mag_hamiltonian = box_term + box_dagger_term
+
+    return mag_hamiltonian
 
 
 class LatticeStateEncoder:
