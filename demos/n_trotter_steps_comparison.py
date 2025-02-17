@@ -54,9 +54,9 @@ SIM_RESULTS_DIR.mkdir(exist_ok=True)
 do_electric_evolution = True
 do_magnetic_evolution = True
 #dimensionality_and_truncation_string = "d=2, T1"
-dimensionality_and_truncation_string = "d=3/2, T1"
+dimensionality_and_truncation_string = "d=2, T1p"
 trunc_string = dimensionality_and_truncation_string[-2:]
-dimensions = 1.5
+dimensions = 2
 linear_size = 2  # To indirectly control the number of plaquettes
 coupling_g = 1.0
 mag_hamiltonian_matrix_element_threshold = 0.6 # Drop all matrix elements that have an abs value less than this.
@@ -65,7 +65,10 @@ n_trotter_steps_cases = [2, 3] # Make this a list that iterates from 1 to 3
 sim_times = np.linspace(0.05, 2.5, num=40) # set num to 20 for comparison with trailhead
 #sim_times = [0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
 only_include_elems_connected_to_electric_vacuum = False
-use_2box_hack = True  # Halves circuit depth by taking box + box^dagger = 2box. Only true if all nonzero matrix elements have the same magnitude.
+use_2box_hack = False  # Halves circuit depth by taking box + box^dagger = 2box. Only true if all nonzero matrix elements have the same magnitude.
+note_unphysical_states = True # Note on finding an unphysical state. Assign 0.0 electric energy 
+stop_on_unphysical_states = False # Raise an error on finding an unphysical state. Terminate simulation
+
 
 # Specify plotting options if desired, and whether to save plots/circuits/data to disk
 plot_vacuum_persistence = True
@@ -84,8 +87,8 @@ if __name__ == "__main__":
     # Set the right vertex and link bitmaps based on
     # dimensionality_and_truncation_string.
     # OK to not use vertex DOFs for d=3/2, T1.
-    vertex_bitmap = {} if dimensionality_and_truncation_string == "d=3/2, T1" else VERTEX_SINGLET_BITMAPS[dimensionality_and_truncation_string]  # Ok to not use vertex DoFs in this case.
-    link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR if dimensionality_and_truncation_string[-2:] == "T1" else IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
+    vertex_bitmap = {} if (dimensionality_and_truncation_string == "d=3/2, T1" or dimensionality_and_truncation_string == "d=3/2, T1p") else VERTEX_SINGLET_BITMAPS[dimensionality_and_truncation_string]  # Ok to not use vertex DoFs in this case.
+    link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR if (dimensionality_and_truncation_string[-2:] == "T1" or dimensionality_and_truncation_string[-3:] == "T1p") else IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
 
     # Create an encoder for converting between physical states and bit strings.
     lattice_encoder = LatticeStateEncoder(link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap)
@@ -214,7 +217,8 @@ if __name__ == "__main__":
                 df_job_results.loc[current_sim_idx, "vacuum_persistence_probability"] = df_job_results.loc[current_sim_idx, current_vacuum_state] / n_shots
                 value = 0
                 for state, counts in job_result[0].data.meas.get_counts().items():
-                    value += convert_bitstring_to_evalue(state, lattice_encoder)*(counts / n_shots)*(1.0 / len(lattice.link_register_keys))
+                    value += convert_bitstring_to_evalue(state[::-1], lattice_encoder, note_unphysical_states, 
+                        stop_on_unphysical_states)*(counts / n_shots)*(1.0 / len(lattice.link_register_keys))
                 df_job_results.loc[current_sim_idx, "electric_energy"] = value
 
             print("Updated df:\n", df_job_results)

@@ -49,19 +49,38 @@ def _gt_pattern_iweight_to_casimir(gt_tuple: IrrepWeight) -> float:
     return (p**2 + q**2 + p * q + 3 * p + 3 * q) / 3.0
 
 
+
+def _handle_electric_energy_unphysical_states(global_state: str, link_state: str, note_unphysical_states : bool, 
+    stop_on_unphysical_states : bool):
+    """ 
+    Handling for unphysical link states in electric energy calculation.
+    """
+    if (stop_on_unphysical_states):
+        # Terminate simulation 
+        raise ValueError("Computation of electric energy terminated due to unphysical link state " + str(link_state) + " in " + str(global_state))
+    elif (note_unphysical_states):
+        # Just print an error, but continue simulation with electric energy for the state 0.0
+        print("Unphysical link state " + str(link_state) + " in " + str(global_state) + " found during computation of electric energy. " 
+            + "Assigning zero energy")
+        return 0.0
+    else:
+        return 0.0
+
+
 def casimirs(link_bitmap: IrrepBitmap) -> List[float]:
     """Generate a list of Casimir eigenvalues from link bitmap i-Weights."""
     return [_gt_pattern_iweight_to_casimir(irrep) for irrep in list(link_bitmap.keys())]
 
 
 def convert_bitstring_to_evalue(
-        bitstring: str, lattice_encoder: LatticeStateEncoder) -> float:
+        global_bitstring: str, lattice_encoder: LatticeStateEncoder, note_unphysical_states : bool = True, 
+        stop_on_unphysical_states : bool = False) -> float:
     """
     Convert lattice links to total energy.
 
     Used for computing the average electric energy. 
     Chunks the bitstring into |v l1 l2 ..> for each vertex when 
-    there are bag states
+    there are bag states. Default behavior for unphysical states is to note them and assign 0.0 energy
     """
 
     link_bitmap = lattice_encoder.link_bitmap
@@ -80,23 +99,25 @@ def convert_bitstring_to_evalue(
 
     has_vertex_bitmap_data = not len(vertex_bitmap) == 0
     if not has_vertex_bitmap_data:
-        for i in range(0, len(bitstring), len_string):
-            link_bitstring_chunk = bitstring[i:i + len_string]
+        for i in range(0, len(global_bitstring), len_string):
+            link_bitstring_chunk = global_bitstring[i:i + len_string]
             link_state = lattice_encoder.decode_bit_string_to_link_state(link_bitstring_chunk)
-            # return energy of 0 for unphysical states 
+            # Handle unphysical link state 
             if (link_state is None):
-                return 0.0 
+                return _handle_electric_energy_unphysical_states(global_bitstring, link_bitstring_chunk, 
+                    note_unphysical_states, stop_on_unphysical_states)
             evalue += casimirs_dict[link_state]
     else:
         vertex_singlet_length = lattice_encoder.expected_vertex_bit_string_length
-        dim = int(len(list(vertex_bitmap.keys())[0][0]) / 2.0)
-        if (dim == 1):
-            total_length_x = vertex_singlet_length + (dim+1) * len_string
-            total_length_y = vertex_singlet_length + dim * len_string
+        # Find the spatial dimension of the lattice from vertex state 
+        spatial_dim = int(len(list(vertex_bitmap.keys())[0][0]) / 2.0)
+        if (spatial_dim == 1):
+            total_length_x = vertex_singlet_length + (spatial_dim+1) * len_string
+            total_length_y = vertex_singlet_length + spatial_dim * len_string
 
             chunks = [
-            bitstring[i:i + total_length_x+total_length_y]
-            for i in range(0, len(bitstring), total_length_x+total_length_y)
+            global_bitstring[i:i + total_length_x+total_length_y]
+            for i in range(0, len(global_bitstring), total_length_x+total_length_y)
             ]
 
             for chunk in chunks:
@@ -105,33 +126,35 @@ def convert_bitstring_to_evalue(
                 for i in range(vertex_singlet_length, total_length_x, len_string):
                     link_bitstring_chunk = x_chunk[i:i + len_string]
                     link_state = lattice_encoder.decode_bit_string_to_link_state(link_bitstring_chunk)
-                    # return energy of 0 for unphysical states 
+                    # Handle unphysical link state 
                     if (link_state is None):
-                        return 0.0 
+                        return _handle_electric_energy_unphysical_states(global_bitstring, link_bitstring_chunk, 
+                            note_unphysical_states, stop_on_unphysical_states)
                     evalue += casimirs_dict[link_state]
                 for i in range(vertex_singlet_length, total_length_y, len_string):
                     link_bitstring_chunk = y_chunk[i:i + len_string]
                     link_state = lattice_encoder.decode_bit_string_to_link_state(link_bitstring_chunk)
-                    # return energy of 0 for unphysical states 
+                    # Handle unphysical link state 
                     if (link_state is None):
-                        return 0.0 
+                        return _handle_electric_energy_unphysical_states(global_bitstring, link_bitstring_chunk, 
+                            note_unphysical_states, stop_on_unphysical_states)
                     evalue += casimirs_dict[link_state]
 
         else:
-            total_length = vertex_singlet_length + dim * len_string
+            total_length = vertex_singlet_length + spatial_dim * len_string
 
             chunks = [
-            bitstring[i:i + total_length]
-            for i in range(0, len(bitstring), total_length)
+            global_bitstring[i:i + total_length]
+            for i in range(0, len(global_bitstring), total_length)
             ]
 
             for chunk in chunks:
                 for i in range(vertex_singlet_length, len(chunk), len_string):
                     link_bitstring_chunk = chunk[i:i + len_string]
                     link_state = lattice_encoder.decode_bit_string_to_link_state(link_bitstring_chunk)
-                    # return energy of 0 for unphysical states 
                     if (link_state is None):
-                        return 0.0 
+                        return _handle_electric_energy_unphysical_states(global_bitstring, link_bitstring_chunk, 
+                            note_unphysical_states, stop_on_unphysical_states)
                     evalue += casimirs_dict[link_state]
         
     return evalue
@@ -323,7 +346,8 @@ def _test_convert_bitstring_to_evalue_case3():
         )
 
 def _test_convert_bitstring_to_evalue_case4():
-    print("Testing if the electric energy |E|^2 is being calculated correctly for d3/2, T1p unphysical state")
+    print("Testing if the electric energy |E|^2 is being calculated correctly for d3/2, T1p unphysical state "  
+        "with just noting an error")
 
     # Use the T1 truncation with T1p vertex maps for ease of creating tests. 
     # Tests strings may or not physical
@@ -345,6 +369,30 @@ def _test_convert_bitstring_to_evalue_case4():
         print(
             "Failure d3/2, T1p excited state. The calculated energy was " + 
             str(convert_bitstring_to_evalue(example_d32_T1p_string2, lattice_encoder)) + " instead of " + 0.0)
+
+
+def _test_convert_bitstring_to_evalue_case5():
+    print("Testing if the electric energy |E|^2 is being calculated correctly for d3/2, T1p unphysical state " + 
+        "with raising an error")
+
+    # Use the T1 truncation with T1p vertex maps for ease of creating tests. 
+    # Tests strings may or not physical
+    T1_map = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+
+    vertex_d32_T1p_map = {
+    (((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1): '0',
+    (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1): '1',
+    }
+
+    # 16 qubits in d=3/2, 2x1, T1p. There is an unphysical link at ((0,0), e_y). Expecting 0.0
+    example_d32_T1p_string2 = "1001111011010100"
+
+    lattice_encoder = LatticeStateEncoder(T1_map, vertex_d32_T1p_map)
+
+    try:
+        convert_bitstring_to_evalue(example_d32_T1p_string2, lattice_encoder, stop_on_unphysical_states=True)
+    except Exception as e:
+        print("Test passed, caught exception: " + str(e))
     
 
 
@@ -356,6 +404,7 @@ if __name__ == "__main__":
     _test_convert_bitstring_to_evalue_case2()
     _test_convert_bitstring_to_evalue_case3()
     _test_convert_bitstring_to_evalue_case4()
+    _test_convert_bitstring_to_evalue_case5()
     print("All tests passed.")
     
 

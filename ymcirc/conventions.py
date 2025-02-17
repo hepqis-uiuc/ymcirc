@@ -136,12 +136,16 @@ _SINGLET_DATA_FILE_PATHS: Dict[str, Path] = {
     "d=2, T2": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(2)_singlet_bitmaps.json",
     "d=3, T1": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3)_singlet_bitmaps.json",
     "d=3, T2": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(3)_singlet_bitmaps.json",
+    "d=3/2, T1p": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3_2)_singlet_prime_bitmaps.json",
+    "d=2, T1p": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(2)_singlet_prime_bitmaps.json"
 }
 _HAMILTONIAN_DATA_FILE_PATHS: Dict[str, Path] = {
     "d=3/2, T1": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3_2)_magnetic_hamiltonian.json",
     "d=3/2, T2": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(3_2)_magnetic_hamiltonian.json",
     "d=2, T1": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(2)_magnetic_hamiltonian.json",
-    "d=3, T1": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3)_magnetic_hamiltonian.json"
+    "d=3, T1": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3)_magnetic_hamiltonian.json",
+    "d=3/2, T1p": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3_2)_prime_magnetic_hamiltonian.json",
+    "d=2, T1p": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(2)_prime_magnetic_hamiltonian.json"
 }
 
 # Useful type aliases.

@@ -42,8 +42,8 @@ def givens(
         return QuantumCircuit(len(bit_string_1))  # The identity circuit.
 
     # Collect data needed to construct rotation circuit, and initialize.
-    bit_string_1_little_endian = bit_string_1[::-1]
-    bit_string_2_little_endian = bit_string_2[::-1]
+    bit_string_1_little_endian = bit_string_1
+    bit_string_2_little_endian = bit_string_2
     num_qubits = len(bit_string_1)
     circ = QuantumCircuit(num_qubits)
 
