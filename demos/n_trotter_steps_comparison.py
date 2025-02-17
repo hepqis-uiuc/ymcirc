@@ -216,8 +216,7 @@ if __name__ == "__main__":
                 avg_electric_energy = 0
                 for state, counts in counts_dict_big_endian.items():
                     print("Encoded state:", state)
-                    n_links_in_lattice = len(lattice.link_register_keys)
-                    avg_electric_energy += convert_bitstring_to_evalue(state, link_bitmap, vertex_bitmap) * (counts / n_shots) / n_links_in_lattice
+                    avg_electric_energy += convert_bitstring_to_evalue(state, link_bitmap, vertex_bitmap) * (counts / n_shots) / lattice.n_links
                 df_job_results.loc[current_sim_idx, "electric_energy"] = avg_electric_energy
 
             print("Updated df:\n", df_job_results)
