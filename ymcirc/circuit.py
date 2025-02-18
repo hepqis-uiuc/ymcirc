@@ -3,12 +3,10 @@ A collection of utilities for building circuits.
 """
 from __future__ import annotations
 import copy
-from ymcirc.conventions import (LatticeStateEncoder,
-                                IRREP_TRUNCATION_DICT_1_3_3BAR,
-                                IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8,
-                                VERTEX_SINGLET_BITMAPS, HAMILTONIAN_BOX_TERMS)
-from ymcirc.lattice_registers import LatticeRegisters, Plaquette
+from ymcirc.conventions import LatticeStateEncoder
+from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import givens
+from ymcirc._abstract.lattice_data import Plaquette
 from math import ceil
 from qiskit import transpile
 from qiskit.circuit import QuantumCircuit, QuantumRegister
@@ -74,10 +72,10 @@ class LatticeCircuitManager:
         because they do not exist on that lattice.
         """
         all_lattice_registers: List[QuantumRegister] = []
-        for vertex_address in lattice.vertex_register_keys:
+        for vertex_address in lattice.vertex_addresses:
             # Add the current vertex, and the positive links connected to it.
             # Skip "top" in d = 3/2.
-            current_vertex_reg = lattice.get_vertex_register(vertex_address)
+            current_vertex_reg = lattice.get_vertex(vertex_address)
             all_lattice_registers.append(current_vertex_reg)
             for positive_direction in range(1, ceil(lattice.dim) + 1):
                 has_no_vertical_periodic_link_three_halves_case = \
@@ -85,7 +83,7 @@ class LatticeCircuitManager:
                 if has_no_vertical_periodic_link_three_halves_case:
                     continue
 
-                current_link_reg = lattice.get_link_register(vertex_address, positive_direction)
+                current_link_reg = lattice.get_link((vertex_address, positive_direction))
                 all_lattice_registers.append(current_link_reg)
 
         return QuantumCircuit(*all_lattice_registers)
@@ -137,8 +135,8 @@ class LatticeCircuitManager:
                 local_circuit.cx(j, locs[-1])
 
         # Loop over links for electric Hamiltonian
-        for link_key in lattice.link_register_keys:
-            link_qubits = [qubit for qubit in lattice.get_link_register(link_key[0], link_key[1])]
+        for link_address in lattice.link_addresses:
+            link_qubits = [qubit for qubit in lattice.get_link((link_address[0], link_address[1]))]
             master_circuit.compose(
                         local_circuit,
                         qubits=link_qubits,
@@ -187,7 +185,7 @@ class LatticeCircuitManager:
           Trotter step appended.
         """
         # Vertex iteration loop.
-        for vertex_address in lattice.vertex_register_keys:
+        for vertex_address in lattice.vertex_addresses:
             # Skip creating "top vertex" plaquettes for d=3/2.
             has_no_vertical_periodic_link_three_halves_case = \
                 lattice.dim == 1.5 and vertex_address[1] == 1
@@ -198,9 +196,9 @@ class LatticeCircuitManager:
             print(f"Fetching all positive plaquettes at vertex {vertex_address}.")
             has_only_one_positive_plaquette = lattice.dim == 1.5 or lattice.dim == 2
             if has_only_one_positive_plaquette:
-                plaquettes: List[Plaquette] = [lattice.get_plaquette_registers(vertex_address, 1, 2)]
+                plaquettes: List[Plaquette] = [lattice.get_plaquettes(vertex_address, 1, 2)]
             else:
-                plaquettes: List[Plaquette] = lattice.get_plaquette_registers(vertex_address)
+                plaquettes: List[Plaquette] = lattice.get_plaquettes(vertex_address)
             print(f"Found {len(plaquettes)} plaquette(s).")
 
             # For each plaquette, apply the the local Trotter step circuit.
@@ -208,10 +206,10 @@ class LatticeCircuitManager:
                 # Collect the local qubits for stitching purposes.
                 vertex_qubits = []
                 link_qubits = []
-                for register in plaquette.vertex_registers:
+                for register in plaquette.vertices:
                     for qubit in register:
                         vertex_qubits.append(qubit)
-                for register in plaquette.link_registers:
+                for register in plaquette.active_links:
                     for qubit in register:
                         link_qubits.append(qubit)
 
@@ -483,7 +481,7 @@ def _test_create_blank_full_lattice_circuit_has_promised_register_order():
 
         # Create circuit.
         lattice = LatticeRegisters(
-            dim=dims,
+            dimensions=dims,
             size=2,
             link_truncation_dict=link_bitmap,
             vertex_singlet_dict=vertex_bitmap

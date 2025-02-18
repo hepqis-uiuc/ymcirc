@@ -61,8 +61,8 @@ linear_size = 2  # To indirectly control the number of plaquettes
 coupling_g = 1.0
 mag_hamiltonian_matrix_element_threshold = 0.9 # Drop all matrix elements that have an abs value less than this.
 run_circuit_optimization = False
-n_trotter_steps_cases = [3] # Make this a list that iterates from 1 to 3
-sim_times = np.linspace(0, 3, num=20) # set num to 20 for comparison with trailhead
+n_trotter_steps_cases = [2] # Make this a list that iterates from 1 to 3
+sim_times = np.linspace(0.05, 2.5, num=20) # set num to 20 for comparison with trailhead
 #sim_times = [0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
 only_include_elems_connected_to_electric_vacuum = False
 use_2box_hack = False  # Halves circuit depth by taking box + box^dagger = 2box. Only true if all nonzero matrix elements have the same magnitude.
@@ -130,17 +130,15 @@ if __name__ == "__main__":
 
             # Create lattice, do sanity checks, and log some info.
             lattice = LatticeRegisters(
-                dim=dimensions,
+                dimensions=dimensions,
                 size=linear_size,
                 link_truncation_dict=link_bitmap,
                 vertex_singlet_dict=vertex_bitmap
             )
-            n_qubits_in_lattice = (lattice.n_qubits_per_vertex * len(lattice.vertex_register_keys)) \
-                + (lattice.n_qubits_per_link * len(lattice.link_register_keys))
-            current_vacuum_state = "0" * n_qubits_in_lattice
+            current_vacuum_state = "0" * lattice.n_total_qubits
             assert lattice.link_truncation_bitmap == lattice_encoder.link_bitmap
             assert lattice.vertex_singlet_bitmap == lattice_encoder.vertex_bitmap
-            print(f"Created dim {lattice.dim} lattice with vertices:\n{lattice.vertex_register_keys}.")
+            print(f"Created dim {lattice.dim} lattice with vertices:\n{lattice.vertex_addresses}.")
             print(f"It has {lattice.n_qubits_per_link} qubits per link and {lattice.n_qubits_per_vertex} per vertex.")
             print("It knows about the following encodings:")
             for irrep, encoding in lattice.link_truncation_bitmap.items():
@@ -218,8 +216,7 @@ if __name__ == "__main__":
                 avg_electric_energy = 0
                 for state, counts in counts_dict_big_endian.items():
                     print("Encoded state:", state)
-                    n_links_in_lattice = len(lattice.link_register_keys)
-                    avg_electric_energy += convert_bitstring_to_evalue(state, link_bitmap, vertex_bitmap) * (counts / n_shots) / n_links_in_lattice
+                    avg_electric_energy += convert_bitstring_to_evalue(state, link_bitmap, vertex_bitmap) * (counts / n_shots) / lattice.n_links
                 df_job_results.loc[current_sim_idx, "electric_energy"] = avg_electric_energy
 
             print("Updated df:\n", df_job_results)
