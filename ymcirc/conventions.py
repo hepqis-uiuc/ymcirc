@@ -124,6 +124,7 @@ import copy
 from pathlib import Path
 import numpy as np
 from typing import Tuple, Dict, Union, List
+from ymcirc._abstract import LatticeDef, Plaquette
 from ymcirc.utilities import LazyDict, json_loader
 
 # Filesystem stuff.
@@ -264,22 +265,21 @@ class LatticeStateEncoder:
     Provides mapping functionality between the physical states of links,
     vertices, and plaquettes into bit strings, and vice versa.
     """
-    _TOTAL_NUM_PLAQUETTE_C_LINKS_TO_DIMENSIONS_MAP_PBCS: dict[int, Union[int, float]] = {
-        4: 1.5,
-        8: 2,
-        16: 3
-    }
 
     def __init__(
             self,
             link_bitmap: IrrepBitmap,
-            physical_plaquette_states: List[PlaquetteState]):
+            physical_plaquette_states: List[PlaquetteState],
+            lattice: LatticeDef
+    ):
         """
-        Create a LatticeStateEncoder using link_bitmap and list of physical plaquette states.
+        Create a LatticeStateEncoder for states on lattice using link_bitmap and list of physical plaquette states.
 
         Inputs:
         - link_bitmap: a dictionary of link iWeights mapping to bit strings.
         - physical_plaquette_states: a list of physical plaquette states.
+        - lattice: a LatticeDef or child class. This provides information
+            about the size of the lattice, boundary conditions, dimensionality, etc.
 
         The link bitmap is assumed to have unique bit strings as values,
         and the desired link iWeight tuple as keys as keys. A multiplicity bitmap is
@@ -298,14 +298,20 @@ class LatticeStateEncoder:
         link_bitmap_has_unique_values = len(set(bit_string for bit_string in link_bitmap.values())) \
             == len([bit_string for bit_string in link_bitmap.values()])
         plaquette_states_are_unique = len(physical_plaquette_states) == len(set(physical_plaquette_states))
+        consistent_num_controls_in_plaquette_states = all([len(plaquette[2]) == len(physical_plaquette_states[0][2]) for plaquette in physical_plaquette_states])
         if link_bitmap_has_unique_values is False:
             raise ValueError("Argument link_bitmap must be a dict with unique values. "
                              f"Encountered: {link_bitmap}")
         if plaquette_states_are_unique is False:
             raise ValueError("Argument physical_plaquette_states must be a list"
                              f" with unique values. Encountered: {physical_plaquette_states}.")
+        if not isinstance(lattice, LatticeDef):
+            raise TypeError(f"The lattice argument must be an instance of {LatticeDef.__name__}. Received: {type(lattice)}.")
+        if not consistent_num_controls_in_plaquette_states is True:
+            raise ValueError("All physical plaquette states must have the same number of controls.")
+        
 
-        # Now construct the vertex multiplicit bitmap, and infer qubit counts per DoFs.
+        # Now construct the vertex multiplicity bitmap, and infer qubit counts per DoFs.
         max_zero_indexed_multiplicity = max([current_vertex for vertices, a_links, c_links in physical_plaquette_states for current_vertex in vertices])
         if max_zero_indexed_multiplicity == 0:
             # All multiplicities in the lattice are trivial. No need to track vertex DoFs.
@@ -319,15 +325,14 @@ class LatticeStateEncoder:
                 for multiplicity_index in range(max_zero_indexed_multiplicity + 1)
             }
         self._expected_link_bit_string_length = len(list(link_bitmap.values())[0])
-        # TODO update plaquette bit string length to depend on number of phys states
         n_total_control_links = len(physical_plaquette_states[0][2])
-        self._inferred_pbc_lattice_dim = \
-            LatticeStateEncoder._TOTAL_NUM_PLAQUETTE_C_LINKS_TO_DIMENSIONS_MAP_PBCS[n_total_control_links]
+        if not n_total_control_links == lattice.n_control_links_per_plaquette:
+            raise ValueError(f"Expected {lattice.n_control_links_per_plaquette} total plaquette controls from lattice. Encountered a plaquette states with {n_total_control_links} total controls.")
         self._expected_plaquette_bit_string_length = \
             (4 * (self._expected_vertex_bit_string_length + self._expected_link_bit_string_length)) \
             + (n_total_control_links * self._expected_link_bit_string_length)
 
-        
+
         # Check all bitmaps for consistency of length of bit string encodings.
         if any(len(bit_string) != self._expected_vertex_bit_string_length for bit_string in vertex_bitmap.values()):
             raise ValueError(f"Expecting length {self._expected_vertex_bit_string_length} vertex bit strings. Encountered: {list(vertex_bitmap.values())}.")
@@ -339,6 +344,7 @@ class LatticeStateEncoder:
         self._vertex_bitmap = vertex_bitmap
         self._bit_string_to_vertex_map = {bit_string: vertex for vertex, bit_string in vertex_bitmap.items()}
         self._bit_string_to_link_map = {bit_string: link for link, bit_string in link_bitmap.items()}
+        self._lattice = lattice # Should NOT mutate this ever!
 
     @property
     def vertex_bitmap(self) -> VertexMultiplicityBitmap:
@@ -386,8 +392,7 @@ class LatticeStateEncoder:
             return None
 
     def encode_vertex_state_as_bit_string(self, vertex: MultiplicityIndex) -> str:
-        """Encode a vertex 1-indexed multiplicity integer as a bit string."""
-        #  TODO raise error if input is nonpositive
+        """Encode a vertex multiplicity integer as a bit string."""
         return self._vertex_bitmap[vertex]
 
     def decode_bit_string_to_vertex_state(self, encoded_vertex: str) -> Union[VertexBag, None]:
@@ -406,18 +411,23 @@ class LatticeStateEncoder:
         except KeyError:
             return None
 
-    # TODO need to include controls in this.
     def encode_plaquette_state_as_bit_string(
             self,
             plaquette: PlaquetteState) -> str:
         """
         Convert plaquette to a bit string encoding.
 
-        Assumes len(plaquette) = 8, where the first four elements are vertex
-        bag states and the last four elements are the link states. Assumes the
-        ordering convention:
+        Plaquette states take the form of a length-3 tuple. The first element of
+        this tuple is a length-4 tuple of integers representing multiplicity indices
+        associated to each vertex. The second element is a length-4 tuple of
+        i-weights which label irreps on the "active" links of the plaquette.
+        The third element is a tuple of i-weights labelling the irreps on "control"
+        links to the plaquettes, where the number of controls depends on the lattice
+        geometry and boundary conditions.
 
-        |v1 v2 v3 v4 l1 l2 l3 l4>
+        Assumes the ordering convention:
+
+        |v1 v2 v3 v4 l1 l2 l3 l4 c1 c2 c3 c4>
 
         according to the layout:
 
@@ -429,37 +439,49 @@ class LatticeStateEncoder:
         |            |
         v1 ----l1--- v2
 
+        where cj is shorthand for the list of controls connected to vertex vj.
+
         If self.vertex_bitmap is empty, it is assumed that vertex degrees of freedom
         are redundant, and they are treated as the "empty" string.
         Operationally, this translates to encoding
 
-        |l1 l2 l3 l4>
+        |l1 l2 l3 l4 controls>
 
         in a bit string instead.
         """
-        if len(plaquette) != 8:
+        if len(plaquette) != 3:
             raise ValueError(
-                "Plaquette states should be a tuple of four vertices and four"
-                f" links. Encountered:\nlen(plaquette) = {len(plaquette)}.")
+                "Plaquette states should be a tuple of three tuples corresponding to vertices, active links, and control links."
+                f" Encountered a plaquette with len(plaquette) = {len(plaquette)}.")
 
-        vertices = [item for item in plaquette[:4]]
-        links = [item for item in plaquette[4:]]
+        vertices = plaquette[0]
+        a_links = plaquette[1]
+        c_links = plaquette[2]
+        if len(vertices) != 4:
+            raise ValueError(f"Encountered {len(vertices)} vertex multiplicities instead of 4.")
+        if len(a_links) != 4:
+            raise ValueError(f"Encountered {len(a_links)} active links instead of 4.")
+        if len(c_links) != self._lattice.n_control_links_per_plaquette:
+            raise ValueError(f"Encountered {len(c_links)} control links instead of {self._lattice.n_control_links_per_plaquette}.")
         bit_string_encoding = ""
 
         if not len(self._vertex_bitmap) == 0:
-            for vertex in vertices:
-                if not (len(vertex) == 2 and all(isinstance(irrep, tuple) and len(irrep) == 3 for irrep in vertex[0]) and isinstance(vertex[1], int)):
-                    raise ValueError("Vertex data must take the form of a length-2 tuple. "
-                                     "The first element should be a tuple of irreps, "
-                                     "and the second element should be an int indicating "
-                                     f"multiplicity.\nEncountered: {vertex}.")
-                bit_string_encoding += self._vertex_bitmap[vertex]
-        for link in links:
-            if not (len(link) == 3 and all(isinstance(elem, int) for elem in link)):
+            for multiplicity in vertices:
+                if not (isinstance(multiplicity, int) and multiplicity >= 0):
+                    raise ValueError(f"Encountered multiplicity index '{multiplicity}' Should be a nonnegative integer")
+                bit_string_encoding += self._vertex_bitmap[multiplicity]
+        for a_link in a_links:
+            if not (len(a_link) == 3 and all(isinstance(elem, int) for elem in a_link)):
                 raise ValueError("Link data must take the form of an SU(3) i-Weight. "
                                  "They should be length-3 tuples of ints. "
-                                 f"Encountered:\n{link}.")
-            bit_string_encoding += self._link_bitmap[link]
+                                 f"Encountered:\n{a_link}.")
+            bit_string_encoding += self._link_bitmap[a_link]
+        for c_link in c_links:
+            if not (len(c_link) == 3 and all(isinstance(elem, int) for elem in c_link)):
+                raise ValueError("Link data must take the form of an SU(3) i-Weight. "
+                                 "They should be length-3 tuples of ints. "
+                                 f"Encountered:\n{c_link}.")
+            bit_string_encoding += self._link_bitmap[c_link]
 
         return bit_string_encoding
 
@@ -568,11 +590,11 @@ def _test_physical_plaquette_state_data_are_valid():
             vertices = state[0]
             a_links = state[1]
             c_links = state[2]
-            
+
             vertices_are_valid = len(vertices) == expected_num_vertices \
                 and all(isinstance(vertex, int) for vertex in vertices)
             assert vertices_are_valid is True, f"Encountered state with invalid vertices: {vertices}."
-            
+
             a_links_are_valid = len(a_links) == expected_num_a_links \
                 and all(isinstance(a_link, tuple) and len(a_link) == expected_iweight_length for a_link in a_links) \
                 and all(isinstance(iweight_elem, int) for a_link in a_links for iweight_elem in a_link)
@@ -583,7 +605,7 @@ def _test_physical_plaquette_state_data_are_valid():
             assert c_links_are_valid is True, f"Encountered state with invalid control links: {c_links}."
 
         print("Test passed.")
-    
+
 
 def _test_matrix_element_data_are_valid():
     print("Checking that matrix element data are valid. WARNING: this can be slow.")
@@ -608,15 +630,91 @@ def _test_matrix_element_data_are_valid():
 
         if dim_trunc_case != "d=3/2, T2" and dim_trunc_case != "d=2, T1":
             print("\nTest passed.")
-        
+
+
+def _test_lattice_encoder_type_error_for_bad_lattice_arg():
+    print("Check that LatticeStateEncoder raises a TypeError if lattice isn't a LatticeDef.")
+    link_bitmap: IrrepBitmap = {
+        ONE: "00",
+        THREE: "10",
+        THREE_BAR: "01"
+    }
+    physical_states: List[PlaquetteState] = [
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, THREE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE_BAR, THREE, THREE_BAR),
+            (THREE, ONE, ONE, ONE)
+        )
+    ]
+    bad_lattice_arg = None
+    try:
+        LatticeStateEncoder(
+            link_bitmap=link_bitmap,
+            physical_plaquette_states=physical_states,
+            lattice=bad_lattice_arg)
+    except TypeError as e:
+        print(f"Test passed. Raised TypeError: {e}")
+        pass
+    else:
+        raise AssertionError("Failed to raise TypeError.")
+
+
+def _test_lattice_encoder_fails_if_plaquette_states_have_wrong_number_of_controls():
+    print(
+        "Raise a ValueError if the number of controls in the plaquette state data"
+        " is inconsistent with the lattice geometry."
+    )
+    link_bitmap: IrrepBitmap = {
+        ONE: "00",
+        THREE: "10",
+        THREE_BAR: "01"
+    }
+    physical_states: List[PlaquetteState] = [
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, THREE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE_BAR, THREE, THREE_BAR),
+            (THREE, ONE, ONE, ONE)
+        )
+    ]
+    lattice_d_2 = LatticeDef(2, 3)
+    assert lattice_d_2.n_control_links_per_plaquette == 8
+    try:
+        LatticeStateEncoder(link_bitmap, physical_states, lattice_d_2)
+    except ValueError as e:
+        print(f"Test passed. Raised ValueError: {e}")
+        pass
+    else:
+        raise AssertionError("Failed to raise ValueError")
+
 
 def _test_lattice_encoder_infers_correct_vertex_bitmaps():
     print(
-        "Check that LatticeStateEncoder correctly infers (1)"
+        "Check that LatticeStateEncoder correctly infers (1) "
         "the number of bits needed to encode vertices and (2) the right bitmaps."
     )
 
-    # Case 1, d=3/2 implicity
+    # Case 1, d=3/2
+    lattice_d_3_2 = LatticeDef(1.5, 3)
     good_link_bitmap: IrrepBitmap = {
         ONE: "00",
         THREE: "10",
@@ -652,13 +750,16 @@ def _test_lattice_encoder_infers_correct_vertex_bitmaps():
           f"expected vertex bitmap = {expected_vertex_bitmap}\n")
     lattice_encoder = LatticeStateEncoder(
         link_bitmap=good_link_bitmap,
-        physical_plaquette_states=good_physical_states)
+        physical_plaquette_states=good_physical_states,
+        lattice=lattice_d_3_2
+    )
 
     assert lattice_encoder.expected_vertex_bit_string_length == expected_num_vertex_bits, f"Actual num vertex bits = {lattice_encoder.expected_vertex_bit_string_length}"
     assert lattice_encoder.vertex_bitmap == expected_vertex_bitmap, f"Actual vertex bitmap = {lattice_encoder.vertex_bitmap}"
     print("Test passed.")
 
-    # Case 2, d=2 implicit
+    # Case 2, d=2
+    lattice_d_2 = LatticeDef(2, 2)
     good_link_bitmap: IrrepBitmap = {
         ONE: "00",
         THREE: "10",
@@ -700,13 +801,15 @@ def _test_lattice_encoder_infers_correct_vertex_bitmaps():
           f"expected vertex bitmap = {expected_vertex_bitmap}\n")
     lattice_encoder = LatticeStateEncoder(
         link_bitmap=good_link_bitmap,
-        physical_plaquette_states=good_physical_states)
+        physical_plaquette_states=good_physical_states,
+        lattice=lattice_d_2
+    )
 
     assert lattice_encoder.expected_vertex_bit_string_length == expected_num_vertex_bits, f"Actual num vertex bits = {lattice_encoder.expected_vertex_bit_string_length}"
     assert lattice_encoder.vertex_bitmap == expected_vertex_bitmap, f"Actual vertex bitmap = {lattice_encoder.vertex_bitmap}"
     print("Test passed.")
 
-    # Case 3, d=2 still implicit
+    # Case 3, d=2
     good_link_bitmap: IrrepBitmap = {
         ONE: "00",
         THREE: "10",
@@ -779,13 +882,15 @@ def _test_lattice_encoder_infers_correct_vertex_bitmaps():
           f"expected vertex bitmap = {expected_vertex_bitmap}\n")
     lattice_encoder = LatticeStateEncoder(
         link_bitmap=good_link_bitmap,
-        physical_plaquette_states=good_physical_states)
+        physical_plaquette_states=good_physical_states,
+        lattice=lattice_d_2
+    )
 
     assert lattice_encoder.expected_vertex_bit_string_length == expected_num_vertex_bits, f"Actual num vertex bits = {lattice_encoder.expected_vertex_bit_string_length}"
     assert lattice_encoder.vertex_bitmap == expected_vertex_bitmap, f"Actual vertex bitmap = {lattice_encoder.vertex_bitmap}"
     print("Test passed.")
 
-    # Case 4, d=3/2 implicity, should have empty vertex bitmap
+    # Case 4, d=3/2,
     # since all vertex singlets are trivial.
     good_link_bitmap: IrrepBitmap = {
         ONE: "00",
@@ -819,15 +924,15 @@ def _test_lattice_encoder_infers_correct_vertex_bitmaps():
           f"expected vertex bitmap = {expected_vertex_bitmap}\n")
     lattice_encoder = LatticeStateEncoder(
         link_bitmap=good_link_bitmap,
-        physical_plaquette_states=good_physical_states)
+        physical_plaquette_states=good_physical_states,
+        lattice=lattice_d_3_2
+    )
 
     assert lattice_encoder.expected_vertex_bit_string_length == expected_num_vertex_bits, f"Actual num vertex bits = {lattice_encoder.expected_vertex_bit_string_length}"
     assert lattice_encoder.vertex_bitmap == expected_vertex_bitmap, f"Actual vertex bitmap = {lattice_encoder.vertex_bitmap}"
     print("Test passed.")
 
 
-
-# TODO test lattice encoder infers correct plaquette length.
 def _test_lattice_encoder_infers_correct_plaquette_length():
     print(
         "Check that LatticeStateEncoder correctly infers the number of qubits per plaquette."
@@ -835,7 +940,7 @@ def _test_lattice_encoder_infers_correct_plaquette_length():
     expected_num_controls_dict = {
         "d=3/2": 1*4,
         "d=2": 2*4,
-        "d=3": 4*4 
+        "d=3": 4*4
     }
     # Case: d=3/2, no trivial multiplicites
     link_bitmap: IrrepBitmap = {
@@ -860,6 +965,7 @@ def _test_lattice_encoder_infers_correct_plaquette_length():
             (THREE, ONE, ONE, ONE)
         )
     ]
+    lattice_d_3_2 = LatticeDef(1.5, 3)
     # N_qubits_per_link * (N_control links + N active links) + 4*N_qubits_per_vertex
     expected_qubits_per_plaquette = (2 * (4 + 4)) + (4 * 0)
 
@@ -868,42 +974,201 @@ def _test_lattice_encoder_infers_correct_plaquette_length():
           f"link bitmap = {link_bitmap}\n"
           f"plaquette states =\n\t{plaquette_states_str_rep}\n"
           f"expected num plaquette qubits = {expected_qubits_per_plaquette}\n")
-    lattice_encoder = LatticeStateEncoder(link_bitmap, physical_states)
+    lattice_encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_d_3_2)
     assert lattice_encoder.expected_plaquette_bit_string_length == expected_qubits_per_plaquette, \
         f"Wrong actual plaquette qubit count inferred: {lattice_encoder.expected_plaquette_bit_string_length}"
     print("Test passed.")
 
     # Case: d=3/2, nontrivial multiplicities
+    physical_states = [
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 1),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, THREE, ONE, ONE)
+        ),
+        (
+            (0, 1, 0, 0),
+            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, THREE, ONE, ONE)
+        ),
+        (
+            (0, 2, 0, 0),
+            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, THREE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE_BAR, THREE, THREE_BAR),
+            (THREE, ONE, ONE, ONE)
+        )
+    ]
+    # N_qubits_per_link * (N_control links + N active links) + 4*N_qubits_per_vertex
+    expected_qubits_per_plaquette = (2 * (4 + 4)) + (4 * 2)
+
+    plaquette_states_str_rep = "\n\t".join(f"{item}" for item in physical_states)
+    print("\nCase:\n"
+          f"link bitmap = {link_bitmap}\n"
+          f"plaquette states =\n\t{plaquette_states_str_rep}\n"
+          f"expected num plaquette qubits = {expected_qubits_per_plaquette}\n")
+    lattice_encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_d_3_2)
+    assert lattice_encoder.expected_plaquette_bit_string_length == expected_qubits_per_plaquette, \
+        f"Wrong actual plaquette qubit count inferred: {lattice_encoder.expected_plaquette_bit_string_length}"
+    print("Test passed.")
 
     # Case: d=2, nontrivial multiplicites
+    physical_states = [
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 1),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 2),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 3),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 4),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 1, 0, 0),
+            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, THREE, ONE, ONE, THREE_BAR, ONE, ONE, ONE)
+        ),
+        (
+            (0, 2, 0, 0),
+            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, THREE, ONE, ONE, THREE_BAR, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE_BAR, THREE, THREE_BAR),
+            (ONE, THREE, ONE, ONE, THREE_BAR, ONE, ONE, ONE)
+        )
+    ]
+    lattice_d_2 = LatticeDef(2, 3)
+    # N_qubits_per_link * (N_control links + N active links) + 4*N_qubits_per_vertex
+    expected_qubits_per_plaquette = (2 * (8 + 4)) + (4 * 3)
+
+    plaquette_states_str_rep = "\n\t".join(f"{item}" for item in physical_states)
+    print("\nCase:\n"
+          f"link bitmap = {link_bitmap}\n"
+          f"plaquette states =\n\t{plaquette_states_str_rep}\n"
+          f"expected num plaquette qubits = {expected_qubits_per_plaquette}\n")
+    lattice_encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_d_2)
+    assert lattice_encoder.expected_plaquette_bit_string_length == expected_qubits_per_plaquette, \
+        f"Wrong actual plaquette qubit count inferred: {lattice_encoder.expected_plaquette_bit_string_length}"
+    print("Test passed.")
 
     # Case: d=3, nontrivial multiplicities
-    raise NotImplementedError("Test not implemented.")
+    physical_states = [
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE,) * 16
+        ),
+        (
+            (0, 0, 0, 1),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE,) * 16
+        ),
+        (
+            (0, 0, 0, 2),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE,) * 16
+        ),
+        (
+            (0, 0, 0, 3),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE,) * 16
+        ),
+        (
+            (0, 0, 0, 4),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE,) * 16
+        ),
+        (
+            (0, 1, 0, 0),
+            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE,) * 16
+        ),
+        (
+            (0, 2, 0, 0),
+            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE,) * 16
+        ),
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE_BAR, THREE, THREE_BAR),
+            (ONE,) * 16
+        )
+    ]
+    lattice_d_3 = LatticeDef(3, 3)
+    # N_qubits_per_link * (N_control links + N active links) + 4*N_qubits_per_vertex
+    expected_qubits_per_plaquette = (2 * (16 + 4)) + (4 * 3)
 
-def _test_lattice_encoder_infers_correct_lattice_dimensionality():
-    raise NotImplementedError("Test not implemented. Should be available via a property, inferred from physical plaquette states.")
-
-# TODO test lattice encoder fails for impossible plaquette length.
-def _test_lattice_encoder_fails_for_wrong_number_of_controls():
-    # TODO d=3/2, 2 tests
-    # TODO d=3 test?
-    raise NotImplementedError("Test not implemented.")
+    plaquette_states_str_rep = "\n\t".join(f"{item}" for item in physical_states)
+    print("\nCase:\n"
+          f"link bitmap = {link_bitmap}\n"
+          f"plaquette states =\n\t{plaquette_states_str_rep}\n"
+          f"expected num plaquette qubits = {expected_qubits_per_plaquette}\n")
+    lattice_encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_d_3)
+    assert lattice_encoder.expected_plaquette_bit_string_length == expected_qubits_per_plaquette, \
+        f"Wrong actual plaquette qubit count inferred: {lattice_encoder.expected_plaquette_bit_string_length}"
+    print("Test passed.")
 
 
 def _test_lattice_encoder_fails_on_bad_creation_args():
-    # TODO need to check that inconsistent control link lengths in plaquette states causes failure, and dimension match expectations.
-    print("Checking that a vertex bitmap with non-unique bit string values causes ValueError.")
+    print("Checking that plaquette states list with differing lengths of controls causes ValueError.")
     good_link_bitmap: IrrepBitmap = {
         ONE: "00",
         THREE: "10",
         THREE_BAR: "01"
     }
-    # TODO non-unique physical states instead
-    # non_unique_vertex_bitmap = {
-    #     ((ONE, THREE, THREE), 1): "00",
-    #     ((ONE, THREE, THREE_BAR), 1): "00",
-    #     ((ONE, ONE, ONE), 1): "01"
-    # }
+    physical_states_inconsistent_control_lengths =  [
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, THREE)
+        ),
+        (
+            (0, 0, 0, 1),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, THREE, THREE, THREE, ONE, THREE_BAR)
+        )
+    ]
+    lattice_d_3_2 = LatticeDef(1.5, 2)
+    try:
+        LatticeStateEncoder(good_link_bitmap, physical_states_inconsistent_control_lengths, lattice_d_3_2)
+    except ValueError as e:
+        print(f"Test passed. Raised ValueError: {e}")
+    else:
+        raise AssertionError("No ValueError raised.")
+
+    
+    print("Checking that repeated physical plaquette states cause a ValueError.")
     non_unique_physical_states: List[PlaquetteState] = [
         (
             (1, 1, 1, 1),
@@ -922,7 +1187,11 @@ def _test_lattice_encoder_fails_on_bad_creation_args():
         )
     ]
     try:
-        LatticeStateEncoder(link_bitmap=good_link_bitmap, physical_plaquette_states=non_unique_physical_states)
+        LatticeStateEncoder(
+            link_bitmap=good_link_bitmap,
+            physical_plaquette_states=non_unique_physical_states,
+            lattice=lattice_d_3_2
+        )
     except ValueError as e:
         print(f"Test passed. Raised ValueError: {e}")
     else:
@@ -934,12 +1203,6 @@ def _test_lattice_encoder_fails_on_bad_creation_args():
         THREE: "10",
         THREE_BAR: "10"
     }
-    # TODO valid physical states instead
-    # good_vertex_bitmap = {
-    #     ((ONE, THREE, THREE), 1): "00",
-    #     ((ONE, THREE, THREE_BAR), 1): "01",
-    #     ((ONE, ONE, ONE), 1): "10"
-    # }
     good_physical_states: List[PlaquetteState] = [
         (
             (1, 1, 1, 1),
@@ -958,27 +1221,12 @@ def _test_lattice_encoder_fails_on_bad_creation_args():
         )
     ]
     try:
-        LatticeStateEncoder(non_unique_link_bitmap, good_vertex_bitmap)
+        LatticeStateEncoder(non_unique_link_bitmap, good_physical_states, lattice_d_3_2)
     except ValueError as e:
         print(f"Test passed. Raised ValueError: {e}")
     else:
         raise AssertionError("No ValueError raised.")
 
-    # TODO physical states with different numbers of controls causes ValueError
-    print("Checking that a vertex bitmap with bit strings of different lengths causes ValueError.")
-    vertex_bitmap_different_string_lengths = {
-        ((ONE, THREE, THREE), 1): "00",
-        ((ONE, THREE, THREE_BAR), 1): "001",
-        ((ONE, ONE, ONE), 1): "10"
-    }
-    try:
-        LatticeStateEncoder(good_link_bitmap, vertex_bitmap_different_string_lengths)
-    except ValueError as e:
-        print(f"Test passed. Raised ValueError: {e}")
-    else:
-        raise AssertionError("No ValueError raised.")
-
-    # Swap in a good value of physical states
     print("Checking that a link bitmap with bit strings of different lengths causes ValueError.")
     link_bitmap_different_string_lengths = {
         ONE: "00",
@@ -986,26 +1234,34 @@ def _test_lattice_encoder_fails_on_bad_creation_args():
         THREE_BAR: "010"
     }
     try:
-        LatticeStateEncoder(link_bitmap_different_string_lengths, good_vertex_bitmap)
+        LatticeStateEncoder(link_bitmap_different_string_lengths, good_physical_states, lattice_d_3_2)
     except ValueError as e:
         print(f"Test passed. Raised ValueError: {e}")
     else:
         raise AssertionError("No ValueError raised.")
 
-# TODO: fix test data to use physical states
+
 def _test_encode_decode_various_links():
+    lattice_d_3_2 = LatticeDef("3/2", 3)
     link_bitmap = {
         ONE: "00",
         THREE: "10",
         EIGHT: "11"
     }
     # Test data, not physically meaningful but has right format for creating creating an encoder.
-    vertex_bitmap = {
-        ((ONE, ONE, ONE), 1): "00",
-        ((THREE, THREE, THREE), 1): "01",
-        ((THREE, THREE, THREE), 2): "10"
-    }
-    lattice_encoder = LatticeStateEncoder(link_bitmap, vertex_bitmap)
+    physical_plaquette_states = [
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, THREE, ONE, ONE)
+        )
+    ]
+    lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_d_3_2)
 
     print("Checking that the following link_bitmap is used to correctly encode/decode links:")
     print(link_bitmap)
@@ -1022,51 +1278,71 @@ def _test_encode_decode_various_links():
 
 
 def _test_encode_decode_various_vertices():
-    # TODO check to make sure that vertex bitmaps are inferred correctly from the physical plaquette states argument
-
+    lattice_d_3_2 = LatticeDef("3/2", 3)
     link_bitmap = {
         ONE: "00",
         THREE: "10",
         EIGHT: "11"
     }
-    # Test data, not physically meaningful but has right format for creating creating an encoder.
-    vertex_bitmap = {
-        ((ONE, ONE, ONE), 1): "00",
-        ((THREE, THREE, THREE), 1): "01",
-        ((THREE, THREE, THREE), 2): "10"
+    # Should generate a bitmap to length-2 bitstrings for vertices.
+    physical_plaquette_states = [
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 1, 0),
+            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 2, 0),
+            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, THREE, ONE, ONE)
+        )
+    ]
+    lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_d_3_2)
+    expected_vertex_bitmap = {
+        0: "00",
+        1: "01",
+        2: "10"
     }
-    lattice_encoder = LatticeStateEncoder(link_bitmap, vertex_bitmap)
 
-    print("Checking that the following vertex_bitmap is used to correctly encode/decode vertices:")
-    print(vertex_bitmap)
-    for vertex_state, bit_string_encoding in vertex_bitmap.items():
-        result_encoding = lattice_encoder.encode_vertex_state_as_bit_string(vertex_state)
+    print(f"Checking that the following vertex_bitmap is generated for encoding/decoding vertices:\n{expected_vertex_bitmap}")
+    
+    for multiplicity_index, bit_string_encoding in expected_vertex_bitmap.items():
+        result_encoding = lattice_encoder.encode_vertex_state_as_bit_string(multiplicity_index)
         result_decoding = lattice_encoder.decode_bit_string_to_vertex_state(bit_string_encoding)
         assert result_encoding == bit_string_encoding, f"(result != expected): {result_encoding} != {bit_string_encoding}"
-        assert result_decoding == vertex_state, f"(result != expected): {result_decoding} != {vertex_state}"
-        print(f"Test passed. Validated {bit_string_encoding} <-> {vertex_state}")
+        assert result_decoding == multiplicity_index, f"(result != expected): {result_decoding} != {multiplicity_index}"
+        print(f"Test passed. Validated {bit_string_encoding} <-> {multiplicity_index}")
 
     print("Verifying that unknown bit string is decoded to None.")
     assert lattice_encoder.decode_bit_string_to_vertex_state("11") is None
     print("Test passed.")
     
-# TODO: this one requires updating the input data
+
 def _test_encoding_malformed_plaquette_fails():
-    v1: VertexBag = ((ONE, THREE, THREE_BAR), 1)
-    v2: VertexBag = ((ONE, THREE, THREE_BAR), 1)
-    v3: VertexBag = ((ONE, THREE, THREE_BAR), 1)
-    v4: VertexBag = ((ONE, ONE, ONE), 1)
-    l1: IrrepWeight = THREE
-    l2: IrrepWeight = THREE_BAR
-    l3: IrrepWeight = ONE
-    l4: IrrepWeight = ONE
-
+    lattice_d_3_2 = LatticeDef(1.5, 4)
     lattice_encoder = LatticeStateEncoder(
-        link_bitmap=IRREP_TRUNCATION_DICT_1_3_3BAR,
-        vertex_bitmap=VERTEX_SINGLET_BITMAPS["d=3/2, T1"])
+        link_bitmap=IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8,
+        physical_plaquette_states=PHYSICAL_PLAQUETTE_STATES["d=3/2, T2"],
+        lattice=lattice_d_3_2
+    )
 
-    print("Checking that a wrong-length plaquette input fails to be encoded.")
-    plaquette_wrong_length: PlaquetteState = (v1, v2, v3, l1, l2, l3)
+    print("Checking that encoding a wrong-length plaquette fails.")
+    plaquette_wrong_length: PlaquetteState = (
+        (0, 0, 0, 0),
+        (ONE, ONE, ONE, ONE),
+        (ONE, ONE, ONE, ONE),
+        (ONE, ONE, ONE, SIX)
+    )
     try:
         lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_wrong_length)
     except ValueError as e:
@@ -1074,26 +1350,110 @@ def _test_encoding_malformed_plaquette_fails():
     else:
         raise AssertionError("Test failed. No ValueError raised.")
 
-    print("Checking that a plaquette which isn't ordered with vertices first "
-          "followed by links fails.")
-    plaquette_wrong_ordering = (l1, l2, l3, l4, v1, v2, v3, v4)
-    try:
-        lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_wrong_ordering)
-    except ValueError as e:
-        print(f"Test passed. Raised ValueError:\n{e}")
-    else:
-        raise AssertionError("Test failed. No ValueError raised.")
+    print("Checking that encoding a plaquette with the wrong data types for vertices, active links, or control links fails.")
+    plaquette_bad_vertex_data: PlaquetteState = (
+        (0, 0, "zero", 0),
+        (ONE, ONE, ONE, ONE),
+        (ONE, ONE, ONE, ONE),
+    )
+    plaquette_bad_a_link_data: PlaquetteState = (
+        (0, 0, 0, 0),
+        (ONE, ONE, (0, 0), ONE),
+        (ONE, ONE, ONE, ONE),
+    )
+    plaquette_bad_c_link_data: PlaquetteState = (
+        (0, 0, 0, 0),
+        (ONE, ONE, ONE, ONE),
+        (ONE, ONE, (0, 0), ONE),
+    )
+    cases = {
+        "Vertex test": plaquette_bad_vertex_data,
+        "Active link test": plaquette_bad_a_link_data,
+        "Control link test": plaquette_bad_c_link_data
+    }
+    for test_name, test_data in cases.items():
+        try:
+            lattice_encoder.encode_plaquette_state_as_bit_string(test_data)
+        except ValueError as e:
+            print(f"{test_name} passed. Raised ValueError:\n{e}")
+        else:
+            raise AssertionError("Test failed. No ValueError raised.")
 
-    print("Checking that a plaquette which has too many vertices fails.")
-    plaquette_too_many_vertices = (v1, v2, v3, v4, v4, l1, l2, l3)
-    try:
-        lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_too_many_vertices)
-    except ValueError as e:
-        print(f"Test passed. Raise ValueError:\n{e}")
-    else:
-        raise AssertionError("Test failed. No ValueError raised.")
+    print("Checking that encoding a plaquette which has too many vertices, active links, or control links fails.")
+    plaquette_too_many_vertices: PlaquetteState = (
+        (0, 0, 0, 0, 1),
+        (ONE, ONE, ONE, ONE),
+        (SIX, SIX, SIX, SIX_BAR)
+    )
+    plaquette_too_many_a_links: PlaquetteState = (
+        (0, 0, 0, 1),
+        (ONE, ONE, ONE, ONE, THREE),
+        (SIX, SIX, SIX, SIX_BAR)
+    )
+    plaquette_too_many_c_links: PlaquetteState = (
+        (0, 0, 1, 0),
+        (ONE, ONE, ONE, ONE),
+        (SIX, SIX_BAR, EIGHT)
+    )
+    cases = {
+        "Vertex test": plaquette_too_many_vertices,
+        "Active link test": plaquette_too_many_a_links,
+        "Control link test": plaquette_too_many_c_links
+    }
+    for test_name, test_data in cases.items():
+        try:
+            lattice_encoder.encode_plaquette_state_as_bit_string(test_data)
+        except ValueError as e:
+            print(f"{test_name} passed. Raised ValueError:\n{e}")
+        else:
+            raise AssertionError("Test failed. No ValueError raised.")
 
-# TODO fix
+
+def _test_encoding_good_plaquette():
+    print("Check that the encoding some known plaquette yields the expected results.")
+
+    # Set up needed encoders. TODO implement d=3 test.
+    # d=3/2 T2 and d=2 T1 should have a single bit for multiplicity encoding.
+    lattice_d_3_2 = LatticeDef(1.5, 3)
+    lattice_d_2 = LatticeDef(2, 2)
+    l_encoder_d_3_2_T1 = LatticeStateEncoder(IRREP_TRUNCATION_DICT_1_3_3BAR, PHYSICAL_PLAQUETTE_STATES["d=3/2, T1"], lattice_d_3_2)
+    l_encoder_d_3_2_T2 = LatticeStateEncoder(IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8, PHYSICAL_PLAQUETTE_STATES["d=3/2, T2"], lattice_d_3_2)
+    l_encoder_d_2_T1 = LatticeStateEncoder(IRREP_TRUNCATION_DICT_1_3_3BAR, PHYSICAL_PLAQUETTE_STATES["d=2, T1"], lattice_d_2)
+
+    # Construct test data.
+    plaquette_d_3_2_T1 = (
+        (0, 0, 0, 0),
+        (ONE, THREE, THREE_BAR, ONE),
+        (ONE, ONE, ONE, THREE_BAR)
+    )
+    expected_plaquette_d_3_2_T1_bit_string = "00100100" + "00000001" # a links + c links
+    plaquette_d_3_2_T2 = (
+        (0, 1, 0, 0),
+        (SIX, EIGHT, THREE_BAR, ONE),
+        (ONE, ONE, SIX_BAR, THREE_BAR)
+    )
+    expected_plaquette_d_3_2_T2_bit_string = "0100" + "110111001000" + "000000011001" # v + a links + c links
+    plaquette_d_2_T1 = (
+        (0, 0, 1, 0), # TODO this should raise a key error or something
+        (THREE, THREE, THREE_BAR, THREE_BAR),
+        (ONE, ONE, THREE_BAR, THREE_BAR, THREE, THREE, THREE, ONE)
+    )
+    expected_plaquette_d_2_T1_bit_string = "0010" + "10100101" + "0000010110101000" # v + a links + c links
+    cases = [
+        (l_encoder_d_3_2_T1, plaquette_d_3_2_T1, expected_plaquette_d_3_2_T1_bit_string),
+        (l_encoder_d_3_2_T2, plaquette_d_3_2_T2, expected_plaquette_d_3_2_T2_bit_string),
+        (l_encoder_d_2_T1, plaquette_d_2_T1, expected_plaquette_d_2_T1_bit_string)
+    ]
+    for lattice_encoder, input_plaquette_state, expected_bit_string_encoding in cases:
+        print(f"Encoding state {input_plaquette_state}.")
+        actual_bit_string_encoding = lattice_encoder.encode_plaquette_state_as_bit_string(input_plaquette_state)
+        assert actual_bit_string_encoding == expected_bit_string_encoding, "Encoding error. " \
+            f"The state {input_plaquette_state} should encode as {expected_bit_string_encoding}. " \
+            f"Instead obtained: {actual_bit_string_encoding}."
+        print("Test passed.")
+    
+
+# TODO fix this test
 def _test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding():
     """
     Check that all plaquette states appearing in the magnetic
@@ -1149,38 +1509,8 @@ def _test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding()
 
         print("Test passed.")
 
-# TODO fix
-def _test_encoding_good_plaquette():
-    # Check that the encoding is as expected.
-    assert VERTEX_SINGLET_BITMAPS["d=3/2, T1"] == {
-        ((ONE, ONE, ONE), 1): "00",
-        ((ONE, THREE, THREE_BAR), 1): "01",
-        ((THREE, THREE, THREE), 1): "10",
-        ((THREE_BAR, THREE_BAR, THREE_BAR), 1): "11"
-    }
 
-    # Create test data and a LatticeEncoder.
-    v1: VertexBag = ((ONE, THREE, THREE_BAR), 1)
-    v2: VertexBag = ((ONE, THREE, THREE_BAR), 1)
-    v3: VertexBag = ((ONE, THREE, THREE_BAR), 1)
-    v4: VertexBag = ((ONE, ONE, ONE), 1)
-    l1: IrrepWeight = THREE
-    l2: IrrepWeight = THREE_BAR
-    l3: IrrepWeight = ONE
-    l4: IrrepWeight = ONE
-    plaquette: PlaquetteState = (v1, v2, v3, v4, l1, l2, l3, l4)
-    expected_bit_string = "01010100" + "10010000"  # vertices encoding + link encoding
-    lattice_encoder = LatticeStateEncoder(IRREP_TRUNCATION_DICT_1_3_3BAR, VERTEX_SINGLET_BITMAPS["d=3/2, T1"])
-    print(
-        "Checking that that the following plaquette is encoded in the bit "
-        f"string {expected_bit_string}:\n"
-        f"{plaquette}"
-    )
-    resulting_bit_string = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette)
-    assert expected_bit_string == resulting_bit_string, f"Test failed, resulting_bit_string == {resulting_bit_string}."
-    print("Test passed.")
-
-# TODO fix
+# TODO fix this test
 def _test_bit_string_decoding_to_plaquette():
     # Check that decoding of bit strings is as expected.
     # Case data tuple format:
@@ -1235,7 +1565,7 @@ def _test_bit_string_decoding_to_plaquette():
         assert resulting_decoded_plaquette == expected_decoded_plaquette, f"Expected: {expected_decoded_plaquette}\nEncountered: {resulting_decoded_plaquette}"
         print(f"Test passed.\n{encoded_plaquette} successfully decoded to {resulting_decoded_plaquette}.")
 
-# TODO fix
+# TODO fix this test
 def _test_decoding_non_gauge_invariant_bit_string():
     print("Checking decoding of a bit string corresponding to a non-gauge-invariant plaquette state.")
     # Configure test data and encoder.
@@ -1258,7 +1588,7 @@ def _test_decoding_non_gauge_invariant_bit_string():
     assert decoded_plaquette == expected_plaquette_broken_gauge_invariance, f"Expected: {expected_plaquette_broken_gauge_invariance}\nEncountered: {decoded_plaquette}"
     print(f"Test passed.\n{encoded_plaquette} successfully decoded to {expected_plaquette_broken_gauge_invariance}.")
 
-# TODO fix
+# TODO fix this test
 def _test_decoding_garbage_bit_strings_result_in_none():
     # This should map to something since it's possible for noise to result in such states.
     link_bitmap = {
@@ -1301,7 +1631,7 @@ def _test_decoding_garbage_bit_strings_result_in_none():
     assert decoded_plaquette  == expected_decoded_plaquette_some_links_and_vertices_good_others_bad, f"(decoded != expected): {decoded_plaquette}\n!=\n{expected_decoded_plaquette_some_links_and_vertices_good_others_bad}"
     print("Test passed.")
 
-# TODO fix
+# TODO fix this test
 def _test_decoding_fails_when_len_bit_string_doesnt_match_bitmaps():
     # This should map to something since it's possible for noise to result in such states.
     link_bitmap = {
@@ -1370,13 +1700,13 @@ def _run_tests():
     # print()
     # _test_matrix_element_data_are_valid()
     # print()
-    # _test_lattice_encoder_infers_correct_vertex_bitmaps()
-    # print()
+    _test_lattice_encoder_type_error_for_bad_lattice_arg()
+    print()
+    _test_lattice_encoder_fails_if_plaquette_states_have_wrong_number_of_controls()
+    print()
+    _test_lattice_encoder_infers_correct_vertex_bitmaps()
+    print()
     _test_lattice_encoder_infers_correct_plaquette_length()
-    print()
-    _test_lattice_encoder_infers_correct_lattice_dimensionality()
-    print()
-    _test_lattice_encoder_fails_for_wrong_number_of_controls
     print()
     _test_lattice_encoder_fails_on_bad_creation_args()
     print()
