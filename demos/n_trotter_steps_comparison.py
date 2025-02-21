@@ -55,7 +55,6 @@ do_electric_evolution = True
 do_magnetic_evolution = True
 #dimensionality_and_truncation_string = "d=2, T1"
 dimensionality_and_truncation_string = "d=3/2, T1"
-trunc_string = dimensionality_and_truncation_string[-2:]
 dimensions = 1.5
 linear_size = 2  # To indirectly control the number of plaquettes
 coupling_g = 1.0
@@ -83,11 +82,19 @@ if __name__ == "__main__":
     sim_index = pd.MultiIndex.from_product([n_trotter_steps_cases, sim_times], names=["num_trotter_steps", "time"])
     df_job_results = pd.DataFrame(columns = ["vacuum_persistence_probability", "electric_energy"], index=sim_index)
 
-    # Set the right vertex and link bitmaps based on
+    # Set the right link bitmap based on
     # dimensionality_and_truncation_string.
     # OK to not use vertex DOFs for d=3/2, T1.
-    vertex_bitmap = {} if dimensionality_and_truncation_string == "d=3/2, T1" else VERTEX_SINGLET_BITMAPS[dimensionality_and_truncation_string]  # Ok to not use vertex DoFs in this case.
-    link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR if dimensionality_and_truncation_string[-2:] == "T1" else IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
+    dim_string, trunc_string = dimensionality_and_truncation_string.split(",")
+    dim_string = dim_string.strip()
+    trunc_string = trunc_string.strip()
+    match trunc_string:
+        case "T1":
+            link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR
+        case "T2":
+            link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
+        case _:
+            raise NotImplementedError(f"Unknown irrep truncation: '{trunc_string}'.")
 
     # Create an encoder for converting between physical states and bit strings.
     lattice_encoder = LatticeStateEncoder(link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap)
