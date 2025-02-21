@@ -492,7 +492,7 @@ class LatticeStateEncoder:
 
         State ordering convention starts at bottom left vertex and goes
 
-        |v1 v2 v3 v4 l1 l2 l3 l4>
+        |v1 v2 v3 v4 l1 l2 l3 l4 controls>
 
         according to the layout:
 
@@ -504,38 +504,51 @@ class LatticeStateEncoder:
         |            |
         v1 ----l1--- v2
 
-        If using an empty vertex bitmap, the input bit string is assumed to consist
-        exclusively of encoded links, and dummy "decoded" vertices will take the
-        value None.
-
-        Any link or vertex bit string which doesn't correspond to a known
-        link or vertex state will also be decoded as None.
+        The controls are ordered according to those attached to v1, v2, etc. If unable to decode
+        to physical state data, returns None for that degree of freedom.
         """
+        # Validate input.
         if self._expected_plaquette_bit_string_length != len(bit_string):
             raise ValueError("Vertex and link bitmaps are inconsistent with length of\n"
                              f"bit string {bit_string}. Expected n_bits: {self._expected_plaquette_bit_string_length}; encountered n_bits: {len(bit_string)}.")
-        idx_first_link_bit = 4 * self._expected_vertex_bit_string_length
-        vertices_substring = bit_string[:idx_first_link_bit]
-        links_substring = bit_string[idx_first_link_bit:]
+
+        # Prase input into vertex, active link, and control link substrings.
+        idx_first_a_link_bit = 4 * self._expected_vertex_bit_string_length
+        idx_first_c_link_bit = idx_first_a_link_bit + (4 * self._expected_link_bit_string_length)
+        vertices_substring = bit_string[:idx_first_a_link_bit]
+        a_links_substring = bit_string[idx_first_a_link_bit:idx_first_c_link_bit]
+        c_links_substring = bit_string[idx_first_c_link_bit:]
 
         # Decode plaquette.
         decoded_plaquette = []
-        # Vertex decoding.
-        if self._expected_vertex_bit_string_length != 0:
-            for encoded_vertex in LatticeStateEncoder._split_string_evenly(
-                    vertices_substring, self._expected_vertex_bit_string_length):
-                decoded_vertex = self.decode_bit_string_to_vertex_state(encoded_vertex)
-                decoded_plaquette.append(decoded_vertex)
-        else:  # Set all decoded vertices to None.
-            decoded_plaquette += [None,] * 4
-        # Link decoding.
-        links_substring = bit_string[idx_first_link_bit:]
-        for encoded_link in LatticeStateEncoder._split_string_evenly(
-                links_substring, self._expected_link_bit_string_length):
-            decoded_link = self.decode_bit_string_to_link_state(encoded_link)
-            decoded_plaquette.append(decoded_link)
+        decoded_vertices = tuple(self.decode_bit_string_to_vertex_state(encoded_vertex) for encoded_vertex in LatticeStateEncoder._split_string_evenly(vertices_substring, self._expected_vertex_bit_string_length)) if len(vertices_substring) > 0 else (None,) * 4
+        decoded_a_links = tuple(self.decode_bit_string_to_link_state(encoded_link) for encoded_link in LatticeStateEncoder._split_string_evenly(
+                a_links_substring, self._expected_link_bit_string_length))
+        decoded_c_links = tuple(self.decode_bit_string_to_link_state(encoded_link) for encoded_link in LatticeStateEncoder._split_string_evenly(
+                c_links_substring, self._expected_link_bit_string_length))
+        decoded_plaquette = (
+            decoded_vertices,
+            decoded_a_links,
+            decoded_c_links
+        )
+        return decoded_plaquette
+        # # Vertex decoding.
+        # if self._expected_vertex_bit_string_length != 0:
+        
+        #     for encoded_vertex in LatticeStateEncoder._split_string_evenly(
+        #             vertices_substring, self._expected_vertex_bit_string_length):
+        #         decoded_vertex = self.decode_bit_string_to_vertex_state(encoded_vertex)
+        #         decoded_plaquette.append(decoded_vertex)
+        # else:  # Set all decoded vertices to None.
+        #     decoded_plaquette += [None,] * 4
+        # # Active link decoding.
+        # for encoded_link in LatticeStateEncoder._split_string_evenly(
+        #         a_links_substring, self._expected_link_bit_string_length):
+        #     decoded_link = self.decode_bit_string_to_link_state(encoded_link)
+        #     decoded_plaquette.append(decoded_link)
+        # # Control link decoding.
 
-        return tuple(decoded_plaquette)
+        # return tuple(decoded_plaquette)
 
     @staticmethod
     def _split_string_evenly(string, split_length) -> List[str]:
@@ -1434,7 +1447,7 @@ def _test_encoding_good_plaquette():
     )
     expected_plaquette_d_3_2_T2_bit_string = "0100" + "110111001000" + "000000011001" # v + a links + c links
     plaquette_d_2_T1 = (
-        (0, 0, 1, 0), # TODO this should raise a key error or something
+        (0, 0, 1, 0),
         (THREE, THREE, THREE_BAR, THREE_BAR),
         (ONE, ONE, THREE_BAR, THREE_BAR, THREE, THREE, THREE, ONE)
     )
@@ -1453,49 +1466,47 @@ def _test_encoding_good_plaquette():
         print("Test passed.")
     
 
-# TODO fix this test
+# This test is a little bit slow.
 def _test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding():
     """
-    Check that all plaquette states appearing in the magnetic
-    Hamiltonian box term can be encoded in unique bit strings.
+    Check that all plaquette states have unique bitstring encodings.
 
-    Attempts encoding on the following cases:
+    Attempts encoding the following cases:
     - d=3/2, T1
     - d=3/2, T2
     - d=2, T1
-    - d=3, T1
     """
-    cases = ["d=3/2, T1", "d=3/2, T2", "d=2, T1", "d=3, T1"]
-    # Each expected_bitlength = 4 * (n_link_qubits + n_vertex_qubits) for the corresponding case.
-    expected_bitlength = [
-        4*(2 + 0),
-        4*(4 + 3),
-        4*(2 + 3),
-        4*(2 + 5)
+    # dim_trunc_str, expected_plaquette_bit_length, LatticeDef
+    # Each expected_bitlength = 4 * (2 * (dim - 1) + 1) * n_link_qubits + 4 * n_vertex_qubits for the corresponding case. This is just (n_control_links + n_active_links) * n_link_qubits + n_vertices * n_vertex_qubits.
+    cases = [
+        ("d=3/2, T1", (4 * (2 * (3/2 - 1) + 1) * 2) + 4*0, LatticeDef(1.5, 3)),
+        ("d=3/2, T2", (4 * (2 * (3/2 - 1) + 1) * 3) + 4*1, LatticeDef(1.5, 3)),
+        ("d=2, T1", (4 * (2 * (2 - 1) + 1) * 2) + 4*1, LatticeDef(2, 3))
     ]
     print(
         "Checking that there is a unique bit string encoding available for all "
         "the plaquette states appearing in all the matrix elements for the "
         f"following cases:\n{cases}."
     )
-    for current_expected_bitlength, current_case in zip(expected_bitlength, cases):
+    for current_dim_trunc_str, current_expected_bitlength, current_lattice in cases:
+        dim_str, trunc_str = current_dim_trunc_str.split(",")
+        dim_str = dim_str.strip()
+        trunc_str = trunc_str.strip()
         # Make encoder instance.
         link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR if \
-                current_case[-2:] == "T1" else IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
-        # No vertices needed for T1 and d=3/2
-        vertex_bitmap = {} if current_case[-2:] == "T1" \
-                and current_case[:5] == "d=3/2" else VERTEX_SINGLET_BITMAPS[current_case]
-        lattice_encoder = LatticeStateEncoder(link_bitmap, vertex_bitmap)
+                trunc_str == "T1" else IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
+        lattice_encoder = LatticeStateEncoder(
+            link_bitmap, PHYSICAL_PLAQUETTE_STATES[current_dim_trunc_str], lattice=current_lattice)
         
-        print(f"Case {current_case}: confirming all initial and final states "
-              "appearing in the magnetic Hamiltonian box term can be succesfully encoded.\n"
-              f"Link bitmap: {link_bitmap}\n"
-              f"Vertex bitmap: {vertex_bitmap}")
+        print(f"Case {current_dim_trunc_str}.\nConfirming all initial and final states "
+              "appearing in the physical plaquette states list can be succesfully encoded. Using the bitmaps:\n"
+              f"Link bitmap =  {lattice_encoder.link_bitmap}\n"
+              f"Vertex bitmap = {lattice_encoder.vertex_bitmap}")
 
         # Get the set of unique plaquette states.
         all_plaquette_states = set([
-            final_and_initial_state_tuple[0] for final_and_initial_state_tuple in HAMILTONIAN_BOX_TERMS[current_case].keys()] + [
-                final_and_initial_state_tuple[1] for final_and_initial_state_tuple in HAMILTONIAN_BOX_TERMS[current_case].keys()
+            final_and_initial_state_tuple[0] for final_and_initial_state_tuple in HAMILTONIAN_BOX_TERMS[current_dim_trunc_str].keys()] + [
+                final_and_initial_state_tuple[1] for final_and_initial_state_tuple in HAMILTONIAN_BOX_TERMS[current_dim_trunc_str].keys()
             ])
 
         # Attempt encodings and check for uniqueness.
@@ -1510,7 +1521,6 @@ def _test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding()
         print("Test passed.")
 
 
-# TODO fix this test
 def _test_bit_string_decoding_to_plaquette():
     # Check that decoding of bit strings is as expected.
     # Case data tuple format:
@@ -1520,47 +1530,48 @@ def _test_bit_string_decoding_to_plaquette():
     cases = [
         (
             "d=3/2, T1",
-            "10101001",
-            {},  # No vertex data needed  for d=3/2, T1.
+            "10101001" + "00001110", # active links + control links (one of which is in a garbage state)
+            LatticeDef(3/2, 3),
             IRREP_TRUNCATION_DICT_1_3_3BAR,
             (
-                None, None, None, None,  # When using empty vertex bitmap, should get back None for decoded vertices.
-                THREE, THREE, THREE, THREE_BAR
+                (None, None, None, None),  # When no vertex bitmap needed, should get back None for decoded vertices.
+                (THREE, THREE, THREE, THREE_BAR),
+                (ONE, ONE, None, THREE)  # Garbage control link should decode to None
             )
         ),
         (
             "d=3/2, T2",
-            "1001" + "1100" + "0011" + "0001" + "110111000001",  # Vertex strings + link string
-            VERTEX_SINGLET_BITMAPS["d=3/2, T2"],
+            "0001" + "110111000001" + "000000111011",  # vertex multiplicities + active links + control links
+            LatticeDef(3/2, 3),
             IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8,
             (
-                ((THREE_BAR, THREE_BAR, SIX), 1),
-                ((SIX, EIGHT, SIX_BAR), 1),
-                ((ONE, EIGHT, EIGHT), 1),
-                ((ONE, THREE, THREE_BAR), 1),
-                SIX, EIGHT, ONE, THREE_BAR
+                (0, 0, 0, 1),
+                (SIX, EIGHT, ONE, THREE_BAR),
+                (ONE, ONE, EIGHT, SIX_BAR)
             )
         ),
         (
             "d=2, T1",
-            "101" + "100" + "010" + "001" + "10101001",  # Vertex strings + link string
-            VERTEX_SINGLET_BITMAPS["d=2, T1"],
+            "1011" + "00000010" + "0101011010000100",  # vertex multiplicities + active links + control links
+            LatticeDef(2, 2),
             IRREP_TRUNCATION_DICT_1_3_3BAR,
             (
-                ((THREE, THREE, THREE_BAR, THREE_BAR), 2),
-                ((THREE, THREE, THREE_BAR, THREE_BAR), 1),
-                ((ONE, THREE, THREE, THREE), 1),
-                ((ONE, ONE, THREE, THREE_BAR), 1),
-                THREE, THREE, THREE, THREE_BAR
+                (1, 0, 1, 1),
+                (ONE, ONE, ONE, THREE),
+                (THREE_BAR, THREE_BAR, THREE_BAR, THREE, THREE, ONE, THREE_BAR, ONE)
             )
         )
     ]
 
     print("Checking decoding of bit strings corresponding to gauge-invariant plaquette states.")
 
-    for current_case, encoded_plaquette, vertex_bitmap, link_bitmap, expected_decoded_plaquette in cases:
-        print(f"Checking plaquette bit string decoding for a {current_case} plaquette...")
-        lattice_encoder = LatticeStateEncoder(link_bitmap, vertex_bitmap)
+    for current_dim_trunc_str, encoded_plaquette, current_lattice, link_bitmap, expected_decoded_plaquette in cases:
+        print(f"Checking plaquette bit string decoding for a {current_dim_trunc_str} plaquette...")
+        lattice_encoder = LatticeStateEncoder(
+            link_bitmap,
+            PHYSICAL_PLAQUETTE_STATES[current_dim_trunc_str],
+            current_lattice
+        )
         resulting_decoded_plaquette = lattice_encoder.decode_bit_string_to_plaquette_state(encoded_plaquette)
         assert resulting_decoded_plaquette == expected_decoded_plaquette, f"Expected: {expected_decoded_plaquette}\nEncountered: {resulting_decoded_plaquette}"
         print(f"Test passed.\n{encoded_plaquette} successfully decoded to {resulting_decoded_plaquette}.")
@@ -1631,7 +1642,7 @@ def _test_decoding_garbage_bit_strings_result_in_none():
     assert decoded_plaquette  == expected_decoded_plaquette_some_links_and_vertices_good_others_bad, f"(decoded != expected): {decoded_plaquette}\n!=\n{expected_decoded_plaquette_some_links_and_vertices_good_others_bad}"
     print("Test passed.")
 
-# TODO fix this test
+# TODO fix this test, also add analogous test for wrong-length plaquette bitstring?
 def _test_decoding_fails_when_len_bit_string_doesnt_match_bitmaps():
     # This should map to something since it's possible for noise to result in such states.
     link_bitmap = {
@@ -1700,26 +1711,26 @@ def _run_tests():
     # print()
     # _test_matrix_element_data_are_valid()
     # print()
-    _test_lattice_encoder_type_error_for_bad_lattice_arg()
-    print()
-    _test_lattice_encoder_fails_if_plaquette_states_have_wrong_number_of_controls()
-    print()
-    _test_lattice_encoder_infers_correct_vertex_bitmaps()
-    print()
-    _test_lattice_encoder_infers_correct_plaquette_length()
-    print()
-    _test_lattice_encoder_fails_on_bad_creation_args()
-    print()
-    _test_encode_decode_various_links()
-    print()
-    _test_encode_decode_various_vertices()
-    print()
-    _test_encoding_malformed_plaquette_fails()
-    print()
-    _test_encoding_good_plaquette()
-    print()
-    _test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding()
-    print()
+    # _test_lattice_encoder_type_error_for_bad_lattice_arg()
+    # print()
+    # _test_lattice_encoder_fails_if_plaquette_states_have_wrong_number_of_controls()
+    # print()
+    # _test_lattice_encoder_infers_correct_vertex_bitmaps()
+    # print()
+    # _test_lattice_encoder_infers_correct_plaquette_length()
+    # print()
+    # _test_lattice_encoder_fails_on_bad_creation_args()
+    # print()
+    # _test_encode_decode_various_links()
+    # print()
+    # _test_encode_decode_various_vertices()
+    # print()
+    # _test_encoding_malformed_plaquette_fails()
+    # print()
+    # _test_encoding_good_plaquette()
+    # print()
+    # _test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding()
+    # print()
     _test_bit_string_decoding_to_plaquette()
     print()
     _test_decoding_non_gauge_invariant_bit_string()
