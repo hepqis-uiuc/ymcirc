@@ -6,7 +6,7 @@ This module is a canonical source for project conventions, including:
 
 This module loads data for both of these from package-local json files.
 The module also provides the class LatticeStateEncoder for converting
-link, vertex, and plaquette states to and from bit string encodings.
+link, vertex multiplicity, and plaquette states to and from bit string encodings.
 See the documentation on the class itself for more information.
 
 ########## Irrep link state bit string encodings ##########
@@ -41,59 +41,83 @@ multiple ways to create singlets from link assignments in arbitrary dimension,
 and for arbitrary irrep truncations, there will be complete link assignments
 which yield various "multiplicites" of singlets.
 
-########## Vertex singlet bit string encodings ##########
+########## Physical plaquette states, and singlet multiplicities ##########
 
-The (lazy-loaded) dict VERTEX_SINGLET_BITMAPS can be indexed with strings to obtain bitmaps
-for the following cases:
+The (lazy-loaded) dict PHYSICAL_PLAQUETTE_STATES consists of all the single-plaquette
+gauge-invariant states in a particular lattice geometry and truncation. The dict
+contains data for the following cases
 
 - "d=3/2, T1"
 - "d=3/2, T2"
 - "d=2, T1"
-- "d=2, T2"
-- "d=3, T1"
-- "d=3, T2"
 
 T1 refers to the ONE, THREE, THREE_BAR truncation, while T2 includes the
-additional states SIX, SIX_BAR, and EIGHT. To get the bitmap for a particular
+additional states SIX, SIX_BAR, and EIGHT. To get the physical states for a particular
 case, use the following syntax:
 
-VERTEX_SINGLET_BITMAPS["d=2, T2"]
+PHYSICAL_PLAQUETTE_STATES["d=2, T2"]
 
 Since the key in this dict is a string, spacing and capitalization is
-necessary. Once a particular bitmap has been accessed, that will
-yield a dict containing keys which are tuples of iweights with a
-multiplicity index, and a bit string. For example:
+necessary. The entries in the physical states dict consist of lists of all the
+single-plaquete gauge-invariant states in that particular dimensionality and truncation.
+The plaquette data takes the form a tuple of tuples:
 
-VERTEX_SINGLET_BITMAPS["d=3/2, T1"] = {
-    (((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1): '00',
-    (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1): '01',
-    (((1, 0, 0), (1, 0, 0), (1, 0, 0)), 1): '10',
-    (((1, 1, 0), (1, 1, 0), (1, 1, 0)), 1): '11'
-}
+plaquette = (
+    vertex_multiplicities,
+    a_links,
+    c_links
+)
 
-The integer after the tuple of i-Weights tells us that a vertex with these
-three irreps on one of the links will have only one singlet. Compare this
-with the following case:
+The first two elements of plaquette are length-4 tuples consisting of multiplicity integers
+(zero-indexed) and the four "active" link i-Weights for the plaquette state. For example:
 
-VERTEX_SINGLET_BITMAPS["d=2, T1"] = {
-    (((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0)), 1): '000',
-    (((0, 0, 0), (0, 0, 0), (1, 0, 0), (1, 1, 0)), 1): '001',
-    (((0, 0, 0), (1, 0, 0), (1, 0, 0), (1, 0, 0)), 1): '010',
-    (((0, 0, 0), (1, 1, 0), (1, 1, 0), (1, 1, 0)), 1): '011',
-    (((1, 0, 0), (1, 0, 0), (1, 1, 0), (1, 1, 0)), 1): '100',
-    (((1, 0, 0), (1, 0, 0), (1, 1, 0), (1, 1, 0)), 2): '101'
-}
+vertex_multiplicities = (0, 0, 0, 2)
+a_links = (ONE, ONE, THREE, THREE)
 
-Observe that there are two multiplicities of the
-((1, 0, 0), (1, 0, 0), (1, 1, 0), (1, 1, 0)) set of irreps coming into a
-particular vertex; these get assigned to distinct bit strings.
+The final element of a plaquette is a tuple of i-Weights whose length depends on the
+dimensionality of the lattice. These i-Weights give the states of the "control" links
+to the plaquette, which are defined as all links connected to a vertex which aren't an
+active link. The number of controls per-vertex is 2*(d - 1). We use a convention where
+control links are ordered counter-clockwise according to vertex.
 
-Finally, it is a special quirk of d=3/2, T1 that it is possible to fully deduce
-the singlet state with knowledge of only two links. Therefore, the following
-bitmap is provided since vertex degrees of freedom are unnecessary in that
-case:
+In d=3/2:
 
-VERTEX_SINGLET_DICT_D_3HALVES_133BAR_NO_VERTEX_DATA = {}
+c_links = (c1, c2, c3, c4)
+
+ c4 ---- v4 ----l3--- v3 ---- c3
+         |            |
+         |            |
+         l4           l2
+         |            |
+         |            |
+ c1 ---- v1 ----l1--- v2 ---- c2
+
+In d=2:
+
+c_links = (c1, c2, c3, c4, c5, c6, c7, c8)
+
+         c7           c6
+         |            |
+         |            |
+         |            |
+ c8 ---- v4 ----l3--- v3 ---- c5
+         |            |
+         |            |
+         l4           l2
+         |            |
+         |            |
+ c1 ---- v1 ----l1--- v2 ---- c4
+         |            |
+         |            |
+         |            |
+         c2           c3
+
+In d=3, c1 through c8 match d=2. c9 through c12 are the four links "above" the plaquette as
+determined by the right-hand rule, ordered counter-clockwise starting from v1. c13 through c16
+are similarly the four links "below" the plaquette.
+
+Finally, it is a special quirk of d=3/2, T1 that there are no nontrivial singlet multiplicities,
+and those data can be ignored.
 
 ########## Magnetic Hamiltonian box term data ##########
 
@@ -111,13 +135,13 @@ and whose values are floats. The plaquette state data consists of nested tuples 
 vertex bag states and link states. As an example,
 
 HAMILTONIAN_BOX_TERMS["d=3/2, T1"] = {
-    (((((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (1, 0, 0), (1, 0, 0), (1, 1, 0), (1, 1, 0)), ((((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1), (((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1), (((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1), (((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1), (0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0))): 0.9999999999999994,
-    (((((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (1, 0, 0), (1, 0, 0), (0, 0, 0), (1, 1, 0)), ((((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1), (((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1), (0, 0, 0), (0, 0, 0), (1, 0, 0), (0, 0, 0))): 0.33333333333333304,
+    (plaq_1, plaq_2): 0.9999999999999994,
+    (plaq_3, plaq_4): 0.33333333333333304,
     ...
-
+}
+with plaq_1 through plaq_4 taking the form described above for plaquette states.
 See the definition of HAMILTONIAN_BOX_TERMS below for a complete listing of all available
 combinations of dimension and truncation data.
-}
 """
 from __future__ import annotations
 import copy
@@ -485,7 +509,6 @@ class LatticeStateEncoder:
 
         return bit_string_encoding
 
-    # TODO: Need to include controls in this.
     def decode_bit_string_to_plaquette_state(self, bit_string: str) -> PlaquetteState:
         """
         Decode bit string to a plaquette state in terms of iWeights.
@@ -521,34 +544,27 @@ class LatticeStateEncoder:
 
         # Decode plaquette.
         decoded_plaquette = []
-        decoded_vertices = tuple(self.decode_bit_string_to_vertex_state(encoded_vertex) for encoded_vertex in LatticeStateEncoder._split_string_evenly(vertices_substring, self._expected_vertex_bit_string_length)) if len(vertices_substring) > 0 else (None,) * 4
-        decoded_a_links = tuple(self.decode_bit_string_to_link_state(encoded_link) for encoded_link in LatticeStateEncoder._split_string_evenly(
-                a_links_substring, self._expected_link_bit_string_length))
-        decoded_c_links = tuple(self.decode_bit_string_to_link_state(encoded_link) for encoded_link in LatticeStateEncoder._split_string_evenly(
-                c_links_substring, self._expected_link_bit_string_length))
+        decoded_vertices = tuple(
+            self.decode_bit_string_to_vertex_state(encoded_vertex) for encoded_vertex in
+            LatticeStateEncoder._split_string_evenly(
+                vertices_substring, self._expected_vertex_bit_string_length)
+        ) if len(vertices_substring) > 0 else (None,) * 4
+        decoded_a_links = tuple(
+            self.decode_bit_string_to_link_state(encoded_link) for encoded_link in
+            LatticeStateEncoder._split_string_evenly(
+                a_links_substring, self._expected_link_bit_string_length)
+        )
+        decoded_c_links = tuple(
+            self.decode_bit_string_to_link_state(encoded_link) for encoded_link in
+            LatticeStateEncoder._split_string_evenly(
+                c_links_substring, self._expected_link_bit_string_length)
+        )
         decoded_plaquette = (
             decoded_vertices,
             decoded_a_links,
             decoded_c_links
         )
         return decoded_plaquette
-        # # Vertex decoding.
-        # if self._expected_vertex_bit_string_length != 0:
-        
-        #     for encoded_vertex in LatticeStateEncoder._split_string_evenly(
-        #             vertices_substring, self._expected_vertex_bit_string_length):
-        #         decoded_vertex = self.decode_bit_string_to_vertex_state(encoded_vertex)
-        #         decoded_plaquette.append(decoded_vertex)
-        # else:  # Set all decoded vertices to None.
-        #     decoded_plaquette += [None,] * 4
-        # # Active link decoding.
-        # for encoded_link in LatticeStateEncoder._split_string_evenly(
-        #         a_links_substring, self._expected_link_bit_string_length):
-        #     decoded_link = self.decode_bit_string_to_link_state(encoded_link)
-        #     decoded_plaquette.append(decoded_link)
-        # # Control link decoding.
-
-        # return tuple(decoded_plaquette)
 
     @staticmethod
     def _split_string_evenly(string, split_length) -> List[str]:
@@ -1328,7 +1344,7 @@ def _test_encode_decode_various_vertices():
     }
 
     print(f"Checking that the following vertex_bitmap is generated for encoding/decoding vertices:\n{expected_vertex_bitmap}")
-    
+
     for multiplicity_index, bit_string_encoding in expected_vertex_bitmap.items():
         result_encoding = lattice_encoder.encode_vertex_state_as_bit_string(multiplicity_index)
         result_decoding = lattice_encoder.decode_bit_string_to_vertex_state(bit_string_encoding)
@@ -1339,7 +1355,7 @@ def _test_encode_decode_various_vertices():
     print("Verifying that unknown bit string is decoded to None.")
     assert lattice_encoder.decode_bit_string_to_vertex_state("11") is None
     print("Test passed.")
-    
+
 
 def _test_encoding_malformed_plaquette_fails():
     lattice_d_3_2 = LatticeDef(1.5, 4)
@@ -1464,7 +1480,7 @@ def _test_encoding_good_plaquette():
             f"The state {input_plaquette_state} should encode as {expected_bit_string_encoding}. " \
             f"Instead obtained: {actual_bit_string_encoding}."
         print("Test passed.")
-    
+
 
 # This test is a little bit slow.
 def _test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding():
@@ -1576,31 +1592,9 @@ def _test_bit_string_decoding_to_plaquette():
         assert resulting_decoded_plaquette == expected_decoded_plaquette, f"Expected: {expected_decoded_plaquette}\nEncountered: {resulting_decoded_plaquette}"
         print(f"Test passed.\n{encoded_plaquette} successfully decoded to {resulting_decoded_plaquette}.")
 
-# TODO fix this test
-def _test_decoding_non_gauge_invariant_bit_string():
-    print("Checking decoding of a bit string corresponding to a non-gauge-invariant plaquette state.")
-    # Configure test data and encoder.
-    lattice_encoder = LatticeStateEncoder(
-        IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8,
-        VERTEX_SINGLET_BITMAPS["d=3/2, T2"])
-    # This should still succeed since it's possible for noise to result in such states.
-    # In d=3/2, T2, it is unphysical to have all ONE link states with vertex bags all
-    # in EIGHTs. But physical qubit errors could causes such a measurement outcome.
-    expected_plaquette_broken_gauge_invariance = (
-        ((EIGHT, EIGHT, EIGHT), 1),
-        ((EIGHT, EIGHT, EIGHT), 1),
-        ((EIGHT, EIGHT, EIGHT), 1),
-        ((EIGHT, EIGHT, EIGHT), 1),
-        ONE, ONE, ONE, ONE
-    )
-    encoded_plaquette = "1101" + "1101" + "1101" + "1101" + "000000000000" # Vertex strings + link string
-    decoded_plaquette = lattice_encoder.decode_bit_string_to_plaquette_state(encoded_plaquette)
 
-    assert decoded_plaquette == expected_plaquette_broken_gauge_invariance, f"Expected: {expected_plaquette_broken_gauge_invariance}\nEncountered: {decoded_plaquette}"
-    print(f"Test passed.\n{encoded_plaquette} successfully decoded to {expected_plaquette_broken_gauge_invariance}.")
-
-# TODO fix this test
 def _test_decoding_garbage_bit_strings_result_in_none():
+    print("Checking that various garbage bit string correctly decode to 'None'.")
     # This should map to something since it's possible for noise to result in such states.
     link_bitmap = {
         ONE: "000",
@@ -1609,32 +1603,51 @@ def _test_decoding_garbage_bit_strings_result_in_none():
         SIX: "111",
         SIX_BAR: "010"
     }
-    # Test data, not physically meaningful but has right format for creating creating an encoder.
-    vertex_bitmap = {
-        ((ONE, ONE, ONE, ONE), 1): "000",
-        ((ONE, ONE, ONE, THREE), 1): "001",
-        ((THREE, THREE, THREE, EIGHT), 1): "010",
-        ((THREE, THREE, THREE, EIGHT), 2): "100",
-        ((SIX, EIGHT, EIGHT, SIX_BAR), 1): "110"
-    }
-    lattice_encoder = LatticeStateEncoder(link_bitmap, vertex_bitmap)
+    physical_states = [
+        (
+            (0, 0, 0, 0),
+            (ONE, ONE, ONE, ONE),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 1, 0),
+            (ONE, ONE, ONE, ONE),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 2, 0),
+            (ONE, ONE, ONE, ONE),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (THREE, ONE, EIGHT, ONE),
+            (ONE, SIX_BAR, ONE, ONE)
+        )
+    ]
+    lattice = LatticeDef(1.5, 4)
+    lattice_encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice)
 
     # Link, vertex, and plaquette test data.
     bad_encoded_link = "001"
-    bad_encoded_vertex = "111"
+    bad_encoded_vertex = "11"   # Max multiplicity in test data is 2 -> 10 in binary.
+    vertex_bitstring = "00" + "00" + bad_encoded_vertex + "10"
+    a_link_bitstring = "000" + "000" + bad_encoded_link + "100"
+    c_link_bitstring = bad_encoded_link + "000" + "000" + "010"
     encoded_plaquette_some_links_and_vertices_good_others_bad = \
-        "000" + "000" + bad_encoded_vertex + "110" + "000" + "000" + bad_encoded_link + "100"
+        vertex_bitstring + a_link_bitstring + c_link_bitstring
     expected_decoded_plaquette_some_links_and_vertices_good_others_bad = (
-         ((ONE, ONE, ONE, ONE), 1),  ((ONE, ONE, ONE, ONE), 1), None, ((SIX, EIGHT, EIGHT, SIX_BAR), 1),
-        ONE, ONE, None, THREE
+        (0, 0, None, 2),
+        (ONE, ONE, None, THREE),
+        (None, ONE, ONE, SIX_BAR)
     )
 
     print(f"Checking {bad_encoded_link} decodes to None using the link bitmap: {link_bitmap}")
-    assert lattice_encoder.decode_bit_string_to_link_state("001") is None
+    assert lattice_encoder.decode_bit_string_to_link_state(bad_encoded_link) is None
     print("Test passed.")
 
-    print(f"Checking {bad_encoded_vertex} decodes to None using the link bitmap: {vertex_bitmap}")
-    assert lattice_encoder.decode_bit_string_to_vertex_state("111") is None
+    print(f"Checking {bad_encoded_vertex} decodes to None using the vertex bitmap: {lattice_encoder.vertex_bitmap}")
+    assert lattice_encoder.decode_bit_string_to_vertex_state(bad_encoded_vertex) is None
     print("Test passed.")
 
     print(f"Checking {encoded_plaquette_some_links_and_vertices_good_others_bad} decodes to the plaquette:\n {expected_decoded_plaquette_some_links_and_vertices_good_others_bad}")
@@ -1642,7 +1655,7 @@ def _test_decoding_garbage_bit_strings_result_in_none():
     assert decoded_plaquette  == expected_decoded_plaquette_some_links_and_vertices_good_others_bad, f"(decoded != expected): {decoded_plaquette}\n!=\n{expected_decoded_plaquette_some_links_and_vertices_good_others_bad}"
     print("Test passed.")
 
-# TODO fix this test, also add analogous test for wrong-length plaquette bitstring?
+
 def _test_decoding_fails_when_len_bit_string_doesnt_match_bitmaps():
     # This should map to something since it's possible for noise to result in such states.
     link_bitmap = {
@@ -1653,26 +1666,42 @@ def _test_decoding_fails_when_len_bit_string_doesnt_match_bitmaps():
         SIX_BAR: "010"
     }
     # Test data, not physically meaningful but has right format for creating creating an encoder.
-    vertex_bitmap = {
-        ((ONE, ONE, ONE, ONE), 1): "0000",
-        ((ONE, ONE, ONE, THREE), 1): "0001",
-        ((THREE, THREE, THREE, EIGHT), 1): "0010",
-        ((THREE, THREE, THREE, EIGHT), 2): "1000",
-        ((SIX, EIGHT, EIGHT, SIX_BAR), 1): "1100"
-    }
-    lattice_encoder = LatticeStateEncoder(link_bitmap, vertex_bitmap)
+    physical_states = [
+        (
+            (0, 0, 0, 0),
+            (ONE, ONE, ONE, ONE),
+            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 1, 0),
+            (ONE, ONE, ONE, ONE),
+            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 2, 0),
+            (ONE, ONE, ONE, ONE),
+            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (THREE, ONE, EIGHT, ONE),
+            (ONE, SIX_BAR, ONE, ONE, ONE, ONE, ONE, ONE)
+        )
+    ]
+    lattice = LatticeDef(2, 2)
+    lattice_encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice)
 
     print("Testing that decoding links/vertices/plaquettes fails with wrong length bit string.")
     print(f"Using link bitmap: {link_bitmap}")
-    print(f"Using vertex bitmap: {vertex_bitmap}")
+    print(f"Using vertex bitmap: {lattice_encoder.vertex_bitmap}")
 
     # Set up test data.
-    expected_link_bit_string_length = len(list(link_bitmap.keys())[0])
-    expected_vertex_bit_string_length = len(list(vertex_bitmap.keys())[0])
-    expected_plaquette_bit_string_length = 4 * (expected_link_bit_string_length + expected_vertex_bit_string_length)
+    expected_link_bit_string_length = 3  # Based on test data.
+    expected_vertex_bit_string_length = 2  # Based on test data.
+    expected_plaquette_bit_string_length = 4 * expected_vertex_bit_string_length + 12 * expected_link_bit_string_length  # Should equal 44 in d = 2 with the above link encoding and physical states.
     bad_length_link_bit_string = "10"
     bad_length_vertex_bit_string = "101"
-    bad_length_plaquette_bit_string = "00000000000000010000100011101"
+    bad_length_plaquette_bit_string = "000000010000100011101"
     assert len(bad_length_link_bit_string) != expected_link_bit_string_length
     assert len(bad_length_vertex_bit_string) != expected_vertex_bit_string_length
     assert len(bad_length_plaquette_bit_string) != expected_plaquette_bit_string_length
@@ -1703,37 +1732,35 @@ def _test_decoding_fails_when_len_bit_string_doesnt_match_bitmaps():
 
 
 def _run_tests():
-    # _test_no_duplicate_physical_plaquette_states()
-    # print()
-    # _test_no_duplicate_matrix_elements()
-    # print()
-    # _test_physical_plaquette_state_data_are_valid()
-    # print()
-    # _test_matrix_element_data_are_valid()
-    # print()
-    # _test_lattice_encoder_type_error_for_bad_lattice_arg()
-    # print()
-    # _test_lattice_encoder_fails_if_plaquette_states_have_wrong_number_of_controls()
-    # print()
-    # _test_lattice_encoder_infers_correct_vertex_bitmaps()
-    # print()
-    # _test_lattice_encoder_infers_correct_plaquette_length()
-    # print()
-    # _test_lattice_encoder_fails_on_bad_creation_args()
-    # print()
-    # _test_encode_decode_various_links()
-    # print()
-    # _test_encode_decode_various_vertices()
-    # print()
-    # _test_encoding_malformed_plaquette_fails()
-    # print()
-    # _test_encoding_good_plaquette()
-    # print()
-    # _test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding()
-    # print()
-    _test_bit_string_decoding_to_plaquette()
+    _test_no_duplicate_physical_plaquette_states()
     print()
-    _test_decoding_non_gauge_invariant_bit_string()
+    _test_no_duplicate_matrix_elements()
+    print()
+    _test_physical_plaquette_state_data_are_valid()
+    print()
+    _test_matrix_element_data_are_valid()
+    print()
+    _test_lattice_encoder_type_error_for_bad_lattice_arg()
+    print()
+    _test_lattice_encoder_fails_if_plaquette_states_have_wrong_number_of_controls()
+    print()
+    _test_lattice_encoder_infers_correct_vertex_bitmaps()
+    print()
+    _test_lattice_encoder_infers_correct_plaquette_length()
+    print()
+    _test_lattice_encoder_fails_on_bad_creation_args()
+    print()
+    _test_encode_decode_various_links()
+    print()
+    _test_encode_decode_various_vertices()
+    print()
+    _test_encoding_malformed_plaquette_fails()
+    print()
+    _test_encoding_good_plaquette()
+    print()
+    _test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding()
+    print()
+    _test_bit_string_decoding_to_plaquette()
     print()
     _test_decoding_garbage_bit_strings_result_in_none()
     print()
