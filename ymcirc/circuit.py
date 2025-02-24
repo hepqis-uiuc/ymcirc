@@ -3,6 +3,7 @@ A collection of utilities for building circuits.
 """
 from __future__ import annotations
 import copy
+from ymcirc._abstract import LatticeDef
 from ymcirc.conventions import LatticeStateEncoder
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import givens
@@ -201,6 +202,9 @@ class LatticeCircuitManager:
                 plaquettes: List[Plaquette] = lattice.get_plaquettes(vertex_address)
             print(f"Found {len(plaquettes)} plaquette(s).")
 
+            # TODO gather active link regs, control link regs, and vertex regs
+            # TODO test stitching logic when the same control reg shows up on multiple vertices.
+            # TODO controls is a dict, need to handle logic for ordering them.
             # For each plaquette, apply the the local Trotter step circuit.
             for plaquette in plaquettes:
                 # Collect the local qubits for stitching purposes.
@@ -237,6 +241,7 @@ class LatticeCircuitManager:
                         plaquette_local_rotation_circuit = transpile(
                             plaquette_local_rotation_circuit, optimization_level=3)
 
+                    # TODO need to stitch contro links too.
                     # Stitch the Givens rotation into master circuit.
                     master_circuit.compose(
                         plaquette_local_rotation_circuit,
@@ -431,66 +436,157 @@ def _test_create_blank_full_lattice_circuit_has_promised_register_order():
     """Check in some cases that we get the ordering promised in the method docstring."""
     # Creating test data.
     # Not physically meaningful, but has the right format.
+    iweight_one = (0, 0, 0)
+    iweight_three = (1, 0, 0)
     irrep_bitmap = {
-        (0, 0, 0): "0",
-        (1, 0, 0): "1"
+        iweight_one: "0",
+        iweight_three: "1"
     }
-    singlet_bitmap_2d = {
-        (((0, 0, 0), (1, 0, 0), (1, 0, 0), (1, 0, 0)), 1): "00",
-        (((0, 0, 0), (1, 0, 0), (1, 0, 0), (1, 0, 0)), 2): "01",
-        (((1, 0, 0), (1, 0, 0), (1, 0, 0), (1, 0, 0)), 1): "10"
-    }
-    singlet_bitmap_3halves = {
-        (((0, 0, 0), (1, 0, 0), (1, 0, 0)), 1): "0",
-        (((0, 0, 0), (1, 0, 0), (1, 0, 0)), 2): "1",
-    }
-    singlet_bitmap_3halves_no_vertices = {
-    }
-    mag_hamiltonian_2d = [("000110000001", "000110000010", 1.0), ("010110000001", "100110000010", 1.0)]
-    mag_hamiltonian_3halves = [("00001111", "11110000", 1.0), ("10100101", "00000001", 1.0)]
-    mag_hamiltonian_3halves_no_vertices = [("1111", "000", 1.0), ("1001", "0001", 1.0), ("1101", "0101", 1.0)]
+    physical_plaquette_states_3halves_no_vertices_needed = [
+        (
+            (0, 0, 0, 0),
+            (iweight_one, iweight_one, iweight_three, iweight_one),
+            (iweight_one, iweight_one, iweight_one, iweight_one)
+        ),
+        (
+            (0, 0, 0, 0),
+            (iweight_one, iweight_three, iweight_three, iweight_three),
+            (iweight_three, iweight_one, iweight_one, iweight_one)
+        )
+    ]
+    physical_plaquette_states_3halves = [
+        (
+            (0, 0, 0, 0),
+            (iweight_one, iweight_one, iweight_three, iweight_one),
+            (iweight_one, iweight_one, iweight_one, iweight_one)
+        ),
+        (
+            (1, 1, 1, 1),
+            (iweight_one, iweight_one, iweight_three, iweight_one),
+            (iweight_one, iweight_one, iweight_one, iweight_one)
+        ),
+        (
+            (2, 2, 2, 2),
+            (iweight_one, iweight_one, iweight_three, iweight_one),
+            (iweight_one, iweight_one, iweight_one, iweight_one)
+        ),
+        (
+            (0, 0, 0, 0),
+            (iweight_one, iweight_three, iweight_three, iweight_three),
+            (iweight_three, iweight_one, iweight_one, iweight_one)
+        )
+    ]
+    physical_plaquette_states_2d = [
+        (
+            (0, 0, 0, 0),
+            (iweight_one, iweight_one, iweight_three, iweight_one),
+            (iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one)
+        ),
+        (
+            (1, 1, 1, 1),
+            (iweight_one, iweight_one, iweight_three, iweight_one),
+            (iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one)
+        ),
+        (
+            (0, 0, 0, 0),
+            (iweight_one, iweight_three, iweight_three, iweight_three),
+            (iweight_three, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one)
+        )
+    ]
+    # Hamiltonian bitstrings take the form vertex_bits + active link bits + c link bits.
+    # For the "no_vertices" data, vertex_bits is the empty string. The numbers of
+    # Vertex bits and link bits can be inferred from the test data (encode integer in bitstring, use link bitmap).
+    mag_hamiltonian_2d = [("1110111100000000", "0001000011111111", -0.33), ("0000111100000000", "1111000011111111", 1.0)]
+    mag_hamiltonian_3halves = [("1010010111110000", "0000000011110000", 1.0), ("0000000010100101", "1010101000000001", 1.0)]
+    mag_hamiltonian_3halves_no_vertices = [("10101111", "11110010", 1.0), ("10010000", "10000001", 1.0), ("11111101", "00000101", 1.0)]
+    # Registers for lattices with size 3
     expected_register_order_2d = [
         'v:(0, 0)', 'l:((0, 0), 1)', 'l:((0, 0), 2)',
         'v:(0, 1)', 'l:((0, 1), 1)', 'l:((0, 1), 2)',
+        'v:(0, 2)', 'l:((0, 2), 1)', 'l:((0, 2), 2)',
         'v:(1, 0)', 'l:((1, 0), 1)', 'l:((1, 0), 2)',
         'v:(1, 1)', 'l:((1, 1), 1)', 'l:((1, 1), 2)',
+        'v:(1, 2)', 'l:((1, 2), 1)', 'l:((1, 2), 2)',
+        'v:(2, 0)', 'l:((2, 0), 1)', 'l:((2, 0), 2)',
+        'v:(2, 1)', 'l:((2, 1), 1)', 'l:((2, 1), 2)',
+        'v:(2, 2)', 'l:((2, 2), 1)', 'l:((2, 2), 2)',
     ]
     expected_register_order_3halves = [
         'v:(0, 0)', 'l:((0, 0), 1)', 'l:((0, 0), 2)',
         'v:(0, 1)', 'l:((0, 1), 1)',
         'v:(1, 0)', 'l:((1, 0), 1)', 'l:((1, 0), 2)',
-        'v:(1, 1)', 'l:((1, 1), 1)'
+        'v:(1, 1)', 'l:((1, 1), 1)',
+        'v:(2, 0)', 'l:((2, 0), 1)', 'l:((2, 0), 2)',
+        'v:(2, 1)', 'l:((2, 1), 1)'
     ]
     expected_register_order_3halves_no_vertices = [
         'l:((0, 0), 1)', 'l:((0, 0), 2)',
         'l:((0, 1), 1)',
         'l:((1, 0), 1)', 'l:((1, 0), 2)',
         'l:((1, 1), 1)',
+        'l:((2, 0), 1)', 'l:((2, 0), 2)',
+        'l:((2, 1), 1)',
+    ]
+    # Registers for a lattice ith size 2 (small enough for the same link to control multiple vertices in a single plaquette).
+    expected_register_order_2d_small_lattice = [
+        'v:(0, 0)', 'l:((0, 0), 1)', 'l:((0, 0), 2)',
+        'v:(0, 1)', 'l:((0, 1), 1)', 'l:((0, 1), 2)',
+        'v:(1, 0)', 'l:((1, 0), 1)', 'l:((1, 0), 2)',
+        'v:(1, 1)', 'l:((1, 1), 1)', 'l:((1, 1), 2)',
     ]
     test_cases = [
-        (expected_register_order_2d, irrep_bitmap, singlet_bitmap_2d, 2, mag_hamiltonian_2d),
-        (expected_register_order_3halves, irrep_bitmap, singlet_bitmap_3halves, 1.5, mag_hamiltonian_3halves),
-        (expected_register_order_3halves_no_vertices, irrep_bitmap, singlet_bitmap_3halves_no_vertices, 1.5, mag_hamiltonian_3halves_no_vertices)
+        (
+            expected_register_order_2d,
+            irrep_bitmap,
+            physical_plaquette_states_2d,
+            2,
+            3,
+            mag_hamiltonian_2d
+        ),
+        (
+            expected_register_order_2d_small_lattice,
+            irrep_bitmap,
+            physical_plaquette_states_2d,
+            2,
+            2,
+            mag_hamiltonian_2d
+        ),
+        (
+            expected_register_order_3halves,
+            irrep_bitmap,
+            physical_plaquette_states_3halves,
+            1.5,
+            3,
+            mag_hamiltonian_3halves
+        ),
+        (
+            expected_register_order_3halves_no_vertices,
+            irrep_bitmap,
+            physical_plaquette_states_3halves_no_vertices_needed,
+            1.5,
+            3,
+            mag_hamiltonian_3halves_no_vertices
+        )
     ]
 
     # Iterate over all test cases.
-    for expected_register_names_ordered, link_bitmap, vertex_bitmap, dims, hamiltonian in test_cases:
-        print(f"Checking register order in a circuit constructed from a {dims}-dimensional lattice.")
-        print(f"Link bitmap: {link_bitmap}\nVertex bitmap: {vertex_bitmap}")
-        print(f"Expected register ordering: {expected_register_names_ordered}")
-
-        # Create circuit.
-        lattice = LatticeRegisters(
-            dimensions=dims,
-            size=2,
-            link_truncation_dict=link_bitmap,
-            vertex_singlet_dict=vertex_bitmap
-        )
+    for expected_register_names_ordered, link_bitmap, physical_plaquette_states, dims, size, hamiltonian in test_cases:
+        # Initialize registers and create circuit.
+        lattice_encoder = LatticeStateEncoder(
+            link_bitmap, physical_plaquette_states, LatticeDef(dims, size))
+        lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
         circ_mgr = LatticeCircuitManager(
-            lattice_encoder=LatticeStateEncoder(link_bitmap, vertex_bitmap),
+            lattice_encoder=lattice_encoder,
             mag_hamiltonian=hamiltonian
         )
-        master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
+        print(
+            f"Checking register order in a circuit constructed from a {dims}-dimensional lattice "
+            f"of linear size {size}."
+        )
+        print(f"Link bitmap: {link_bitmap}\nVertex bitmap: {lattice_encoder.vertex_bitmap}")
+        print(f"Expected register ordering: {expected_register_names_ordered}")
+
+        master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
         nonzero_regs = [reg for reg in master_circuit.qregs if len(reg) > 0]
         n_nonzero_regs = len(nonzero_regs)
 
@@ -503,6 +599,18 @@ def _test_create_blank_full_lattice_circuit_has_promised_register_order():
             print(f"Verified location of the register for {expected_name}.")
 
     print("Register order tests passed.")
+
+
+# TODO write test for case when lattice is small enough that the same register shows up at multiple controls
+def _test_apply_magnetic_trotter_step():
+    print("Checking that application of magnetic Trotter step works.")
+
+    # Case 1, large enough lattice that no controls are repeated among vertices.
+    # TODO test that we get the expected circuit for d=3/2 and d=2 subcases.
+
+    # Case 2, small lattice where controls are repeated within a plaquette.
+    # TODO test that we get the expected circuit for d=3/2 and d=2 subcases.
+    raise NotImplementedError("Test not yet implemented.")
 
 
 def _test_compute_LP_family():
@@ -757,6 +865,7 @@ def _test_eliminate_phys_states_that_differ_from_rep_at_Q_idx():
 
 def _run_tests():
     _test_create_blank_full_lattice_circuit_has_promised_register_order()
+    _test_apply_magnetic_trotter_step()
     _test_compute_LP_family()
     _test_compute_LP_family_fails_on_bad_input()
     _test_compute_LP_family_fails_for_non_bitstrings()

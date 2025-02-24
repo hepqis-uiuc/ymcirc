@@ -185,7 +185,7 @@ class LatticeDef:
             raise NotImplementedError("Tuples for boundary conditions not yet supported.")
 
         if not isinstance(size, int) and (dim == "3/2" or isclose(float(dim), 1.5)):
-            raise ValueError("The size of a d=3/2 lattice must be specified by an int.")
+            raise ValueError(f"The size of a d=3/2 lattice must be specified by an int. Encountered: {size}.")
 
         if isinstance(size, int) and size < 2:
             raise ValueError("Lattice must have at least two vertices in each "
