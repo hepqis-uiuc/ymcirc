@@ -21,7 +21,6 @@ sys.path.append(parent_dir)
 
 from pathlib import Path
 from ymcirc.conventions import (
-    load_magnetic_hamiltonian,
     VERTEX_SINGLET_BITMAPS,
     IRREP_TRUNCATION_DICT_1_3_3BAR,
     IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8)
