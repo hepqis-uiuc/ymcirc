@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 from ymcirc.conventions import LatticeStateEncoder
 from ymcirc.lattice_registers import LatticeRegisters
-from ymcirc.givens import (givens,_build_multiRX)
+from ymcirc.givens import givens
 from ymcirc._abstract.lattice_data import Plaquette
 from math import ceil
 from qiskit import transpile
