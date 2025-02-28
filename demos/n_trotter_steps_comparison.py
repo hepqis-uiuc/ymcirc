@@ -21,16 +21,16 @@ sys.path.append(parent_dir)
 
 from pathlib import Path
 from ymcirc.conventions import (
+    load_magnetic_hamiltonian,
     VERTEX_SINGLET_BITMAPS,
     IRREP_TRUNCATION_DICT_1_3_3BAR,
     IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8)
 from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.lattice_registers import LatticeRegisters
-from ymcirc.conventions import HAMILTONIAN_BOX_TERMS, LatticeStateEncoder
+from ymcirc.conventions import LatticeStateEncoder
 from qiskit import transpile
 from qiskit_aer.primitives import SamplerV2
-from qiskit_aer import AerSimulator
-from typing import List, Tuple
+from typing import Set
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -53,22 +53,25 @@ SIM_RESULTS_DIR.mkdir(exist_ok=True)
 # Configure simulation parameters and data.
 do_electric_evolution = True
 do_magnetic_evolution = True
-#dimensionality_and_truncation_string = "d=2, T1"
-dimensionality_and_truncation_string = "d=2, T1p"
-trunc_string = dimensionality_and_truncation_string[-2:]
-dimensions = 2
+dimensionality_and_truncation_string = "d=3/2, T1"
+#dimensionality_and_truncation_string = "d=2, T1p"
+dim_string, trunc_string = dimensionality_and_truncation_string.split(",")
+dim_string = dim_string.strip()
+trunc_string = trunc_string.strip()
+dimensions = 1.5
 linear_size = 2  # To indirectly control the number of plaquettes
 coupling_g = 1.0
-mag_hamiltonian_matrix_element_threshold = 0.6 # Drop all matrix elements that have an abs value less than this.
+mag_hamiltonian_matrix_element_threshold = 0.9 # Drop all matrix elements that have an abs value less than this.
 run_circuit_optimization = False
-n_trotter_steps_cases = [2, 3] # Make this a list that iterates from 1 to 3
-sim_times = np.linspace(0.05, 2.5, num=40) # set num to 20 for comparison with trailhead
+n_trotter_steps_cases = [2] # Make this a list that iterates from 1 to 3
+sim_times = np.linspace(0.05, 2.5, num=20) # set num to 20 for comparison with trailhead
 #sim_times = [0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
 only_include_elems_connected_to_electric_vacuum = False
 use_2box_hack = False  # Halves circuit depth by taking box + box^dagger = 2box. Only true if all nonzero matrix elements have the same magnitude.
-note_unphysical_states = True # Note on finding an unphysical state. Assign 0.0 electric energy 
-stop_on_unphysical_states = False # Raise an error on finding an unphysical state. Terminate simulation
-
+note_unphysical_states = True  # Emit warning when decoding unphysical plaquette states. Assign 0.0 electric energy.
+stop_on_unphysical_states = False  # Raise an error when decoding unphysical unphysical states. Terminate simulation.
+prune_controls = True
+n_shots = 10000
 
 # Specify plotting options if desired, and whether to save plots/circuits/data to disk
 plot_vacuum_persistence = True
@@ -86,9 +89,14 @@ if __name__ == "__main__":
 
     # Set the right vertex and link bitmaps based on
     # dimensionality_and_truncation_string.
-    # OK to not use vertex DOFs for d=3/2, T1.
-    vertex_bitmap = {} if (dimensionality_and_truncation_string == "d=3/2, T1" or dimensionality_and_truncation_string == "d=3/2, T1p") else VERTEX_SINGLET_BITMAPS[dimensionality_and_truncation_string]  # Ok to not use vertex DoFs in this case.
-    link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR if (dimensionality_and_truncation_string[-2:] == "T1" or dimensionality_and_truncation_string[-3:] == "T1p") else IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
+    # OK to not use vertex DOFs for d=3/2, T1/T1p
+    vertex_bitmap = {} if dimensionality_and_truncation_string in ["d=3/2, T1", "d=3/2, T1p"] else VERTEX_SINGLET_BITMAPS[dimensionality_and_truncation_string]
+    if trunc_string in ["T1", "T1p"]:
+        link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR
+    elif trunc_string in ["T2"]:
+        link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
+    else:
+        raise ValueError(f"Unknown irrep truncation: '{trunc_string}'.")
 
     # Create an encoder for converting between physical states and bit strings.
     lattice_encoder = LatticeStateEncoder(link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap)
@@ -97,27 +105,25 @@ if __name__ == "__main__":
     # This will be used to determine rotation angles in the simulation circuit.
     # Because of the givens rotation sim strategy, we can let
     # H_mag = \box + \box^\dagger = 2\box, which is why we multiply by 2.
-    mag_hamiltonian: List[Tuple[str, str, float]] = []
-    if use_2box_hack is False:
-        box_term: List[Tuple[str, str, float]] = []
-        box_dagger_term: List[Tuple[str, str, float]] = []
-    for (final_plaquette_state, initial_plaquette_state), matrix_element_value in HAMILTONIAN_BOX_TERMS[dimensionality_and_truncation_string].items():
-        if abs(matrix_element_value) < mag_hamiltonian_matrix_element_threshold:
-            continue
-        final_state_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(final_plaquette_state)
-        initial_state_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(initial_plaquette_state)
-        if only_include_elems_connected_to_electric_vacuum and ('1' in final_state_bitstring) and ('1' in initial_state_bitstring):
-            continue
-        if use_2box_hack is False:
-            box_term.append((final_state_bitstring, initial_state_bitstring, matrix_element_value))
-            box_dagger_term.append((initial_state_bitstring, final_state_bitstring, matrix_element_value))
-        else:
-            mag_hamiltonian.append((final_state_bitstring, initial_state_bitstring, 2*matrix_element_value))
-
-    if use_2box_hack is False:
-        mag_hamiltonian = box_term + box_dagger_term
-    print(mag_hamiltonian)
+    # To see how this works, go to the documentation in ymcirc.conventions.
+    mag_hamiltonian = load_magnetic_hamiltonian(
+        dimensionality_and_truncation_string,
+        lattice_encoder,
+        mag_hamiltonian_matrix_element_threshold=mag_hamiltonian_matrix_element_threshold,
+        only_include_elems_connected_to_electric_vacuum=only_include_elems_connected_to_electric_vacuum,
+        use_2box_hack=use_2box_hack
+    )
     print("Num matrix elements:", len(mag_hamiltonian))
+    # We need the set of physical plaquette states to do control pruning.
+    # If we aren't doing control pruning, we set this variable to a flag value of None.
+    if prune_controls is True:
+        physical_plaquette_states: Set[str] = set(
+            init_state_final_state_mat_elem_tuple[0] for init_state_final_state_mat_elem_tuple in load_magnetic_hamiltonian(dimensionality_and_truncation_string, lattice_encoder)).union(
+                [init_state_final_state_mat_elem_tuple[1] for init_state_final_state_mat_elem_tuple in load_magnetic_hamiltonian(dimensionality_and_truncation_string, lattice_encoder)])
+        print("Performing control pruning. Num phys plaquette states:", len(physical_plaquette_states))
+    else:
+        physical_plaquette_states = None
+        print("Skipping control pruning.")
     breakpoint()
 
     # TODO generate all parameterized givens rotation circuits here?
@@ -133,17 +139,15 @@ if __name__ == "__main__":
 
             # Create lattice, do sanity checks, and log some info.
             lattice = LatticeRegisters(
-                dim=dimensions,
+                dimensions=dimensions,
                 size=linear_size,
                 link_truncation_dict=link_bitmap,
                 vertex_singlet_dict=vertex_bitmap
             )
-            n_qubits_in_lattice = (lattice.n_qubits_per_vertex * len(lattice.vertex_register_keys)) \
-                + (lattice.n_qubits_per_link * len(lattice.link_register_keys))
-            current_vacuum_state = "0" * n_qubits_in_lattice
+            current_vacuum_state = "0" * lattice.n_total_qubits
             assert lattice.link_truncation_bitmap == lattice_encoder.link_bitmap
             assert lattice.vertex_singlet_bitmap == lattice_encoder.vertex_bitmap
-            print(f"Created dim {lattice.dim} lattice with vertices:\n{lattice.vertex_register_keys}.")
+            print(f"Created dim {lattice.dim} lattice with vertices:\n{lattice.vertex_addresses}.")
             print(f"It has {lattice.n_qubits_per_link} qubits per link and {lattice.n_qubits_per_vertex} per vertex.")
             print("It knows about the following encodings:")
             for irrep, encoding in lattice.link_truncation_bitmap.items():
@@ -152,7 +156,6 @@ if __name__ == "__main__":
                 print(f"Vertex singlet bag encoding: {vertex_bag} -> {encoding}")
             print(f"It has the vacuum state: {current_vacuum_state}")
 
-            # TODO Compute this elsewhere, not efficient.
             # Needed to format file paths.
             n_plaquettes = lattice.n_plaquettes
 
@@ -170,7 +173,8 @@ if __name__ == "__main__":
                         lattice,
                         coupling_g=coupling_g,
                         dt=dt,
-                        optimize_circuits=run_circuit_optimization
+                        optimize_circuits=run_circuit_optimization,
+                        physical_states_for_control_pruning=physical_plaquette_states
                     )
 
                 if do_electric_evolution is True:
@@ -181,45 +185,48 @@ if __name__ == "__main__":
             if save_circuits_diagrams is True:
                 master_circuit.draw(
                     output="mpl",
-                    filename=f"{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}-n_trotter={n_trotter_steps}-t={sim_time}.pdf", fold=False)
+                    filename=f"{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}-vac_connected_only={only_include_elems_connected_to_electric_vacuum}-n_trotter={n_trotter_steps}-t={sim_time}.pdf", fold=False)
 
             master_circuit.measure_all()
+            print("Transpiling circuit...")
             master_circuit = transpile(master_circuit, optimization_level=3)
             print("Gate counts:\n", master_circuit.count_ops())
 
+            # breakpoint()
+
             if save_circuits_qasm is True:
-                qasm_file_path = SERIALIZED_CIRCUITS_DIR / Path(f"qasm-{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}/n_trotter={n_trotter_steps}-t={sim_time}.qasm")
+                qasm_file_path = SERIALIZED_CIRCUITS_DIR / Path(f"qasm-{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}-vac_connected_only={only_include_elems_connected_to_electric_vacuum}/n_trotter={n_trotter_steps}-t={sim_time}.qasm")
                 qasm_file_path.parent.mkdir(parents=True, exist_ok=True)
                 with qasm_file_path.open('w') as qasm_file:
                     qasm_file.write(dumps(master_circuit))
 
             # Set up simulation for current circuit.
-            sim = AerSimulator()
             sampler = SamplerV2()
-            n_shots = 1024
 
             print("Running simulation...")
             job = sampler.run([master_circuit], shots = n_shots)
             job_result = job.result()
+            counts_dict_big_endian = {little_endian_state[::-1]: count for little_endian_state, count in job_result[0].data.meas.get_counts().items()}
             print("Finished.")
 
             # Aggregate data.
             current_sim_idx = (n_trotter_steps, sim_time)
             print(f"Setting data for {current_sim_idx}.")
-            for state, counts in job_result[0].data.meas.get_counts().items():
-                df_job_results.loc[current_sim_idx, state] = counts
+            for little_endian_state, counts in counts_dict_big_endian.items():
+                big_endian_state = little_endian_state[::-1]
+                df_job_results.loc[current_sim_idx, big_endian_state] = counts
             # Make sure vacuum state data exists.
-            if current_vacuum_state not in job_result[0].data.meas.get_counts().keys():
+            if current_vacuum_state not in counts_dict_big_endian.keys():
                 df_job_results.loc[current_sim_idx, current_vacuum_state] = 0
                 df_job_results.loc[current_sim_idx, "vacuum_persistence_probability"] = 0
                 df_job_results.loc[current_sim_idx, "electric_energy"] = 0
             else:
                 df_job_results.loc[current_sim_idx, "vacuum_persistence_probability"] = df_job_results.loc[current_sim_idx, current_vacuum_state] / n_shots
-                value = 0
-                for state, counts in job_result[0].data.meas.get_counts().items():
-                    value += convert_bitstring_to_evalue(state[::-1], lattice_encoder, note_unphysical_states, 
-                        stop_on_unphysical_states)*(counts / n_shots)*(1.0 / len(lattice.link_register_keys))
-                df_job_results.loc[current_sim_idx, "electric_energy"] = value
+                avg_electric_energy = 0
+                for state, counts in counts_dict_big_endian.items():
+                    print("Encoded state:", state)
+                    avg_electric_energy += convert_bitstring_to_evalue(state, lattice_encoder, note_unphysical_states, stop_on_unphysical_states) * (counts / n_shots) / lattice.n_links
+                df_job_results.loc[current_sim_idx, "electric_energy"] = avg_electric_energy
 
             print("Updated df:\n", df_job_results)
 
@@ -229,7 +236,7 @@ if __name__ == "__main__":
     # Plot simulation results.
     if plot_vacuum_persistence is True:
         print("Plotting vacuum persistence amplitude...")
-        VPP_PLOT_PATH_TO_SAVE = f"{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}_vpp.pdf"
+        VPP_PLOT_PATH_TO_SAVE = f"{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}-vac_connected_only={only_include_elems_connected_to_electric_vacuum}_vpp.pdf"
         fig_vpp, ax_vpp = plt.subplots()
         title = f'$\\left|\\left<vac.|U(t)|vac.\\right>\\right|^2$ ({n_plaquettes} plaquettes, mat. trunc = {mag_hamiltonian_matrix_element_threshold})'
         for n_steps in n_trotter_steps_cases:
@@ -244,7 +251,7 @@ if __name__ == "__main__":
         if save_plots is True:
             fig_vpp.savefig(PLOTS_DIR / Path(VPP_PLOT_PATH_TO_SAVE))
     if plot_electric_energy is True:
-        EE_PLOT_PATH_TO_SAVE = f"{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}_ee.pdf"
+        EE_PLOT_PATH_TO_SAVE = f"{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}-vac_connected_only={only_include_elems_connected_to_electric_vacuum}_ee.pdf"
         fig_ee, ax_ee = plt.subplots()
         title = f'Electric energy $\\left|E\\right|^2$ ({n_plaquettes} plaquettes, mat. trunc = {mag_hamiltonian_matrix_element_threshold})'
         for n_steps in n_trotter_steps_cases:
@@ -262,5 +269,5 @@ if __name__ == "__main__":
     # Save data to disk.
     if save_data is True:
         print("Saving data to disk...")
-        df_job_results.to_csv(SIM_RESULTS_DIR / Path(f"{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}.csv"))
+        df_job_results.to_csv(SIM_RESULTS_DIR / Path(f"{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}-vac_connected_only={only_include_elems_connected_to_electric_vacuum}.csv"))
         print("Done. Goodbye!")

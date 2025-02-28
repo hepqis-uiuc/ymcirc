@@ -215,6 +215,58 @@ HAMILTONIAN_BOX_TERMS: LazyDict = LazyDict({
 })
 
 
+def load_magnetic_hamiltonian(
+        dimensionality_and_truncation_string: str,
+        lattice_encoder: LatticeStateEncoder,
+        mag_hamiltonian_matrix_element_threshold: float = 0,
+        only_include_elems_connected_to_electric_vacuum: bool = False,
+        use_2box_hack: bool = False
+) -> List[Tuple[str, str, float]]:
+    """
+    Compute box + box^dagger as a list.
+
+    This is a convenince method to obtain the magnetic Hamiltonian terms in a format
+    which facilitates the construction of rotation cicuits.
+    The return list consists of tuples whose first two elements
+    are encoded plaquette states representing a matrix element of
+    box + box dagger. The third element of each tuple is the numerical
+    value of the matrix element.
+
+    Necessary arguments:
+      - dimensionality_and_truncation_string: a string of the form "d=3/2, T2" which specifies
+        the particular matrix elements for a given dimensionality and irrep truncation. See
+        the module docstring on ymcirc.conventions for more information.
+      - lattice_encoder: A LatticeStateEncoder instance that allows en/decoding lattices states
+        as bit strings.
+
+    Optional arguments:
+      - mag_hamiltonian_matrix_element_threshold: Only include matrix elements greater than this value.
+      - only_include_elems_connected_to_electric_vacuum: Drop any matrix elements which aren't connected to the electric vacuum state.
+      - use_2box_hack: Don't include box^dagger, and double the values of each matrix element to compensate.
+    """
+    mag_hamiltonian: List[Tuple[str, str, float]] = []
+    if use_2box_hack is False:
+        box_term: List[Tuple[str, str, float]] = []
+        box_dagger_term: List[Tuple[str, str, float]] = []
+    for (final_plaquette_state, initial_plaquette_state), matrix_element_value in HAMILTONIAN_BOX_TERMS[dimensionality_and_truncation_string].items():
+        if abs(matrix_element_value) < mag_hamiltonian_matrix_element_threshold:
+            continue
+        final_state_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(final_plaquette_state)
+        initial_state_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(initial_plaquette_state)
+        if only_include_elems_connected_to_electric_vacuum and ('1' in final_state_bitstring) and ('1' in initial_state_bitstring):
+            continue
+        if use_2box_hack is False:
+            box_term.append((final_state_bitstring, initial_state_bitstring, matrix_element_value))
+            box_dagger_term.append((initial_state_bitstring, final_state_bitstring, matrix_element_value))
+        else:
+            mag_hamiltonian.append((final_state_bitstring, initial_state_bitstring, 2*matrix_element_value))
+
+    if use_2box_hack is False:
+        mag_hamiltonian = box_term + box_dagger_term
+
+    return mag_hamiltonian
+
+
 class LatticeStateEncoder:
     """
     Class for encoding/decode lattice state data.
@@ -453,10 +505,10 @@ class LatticeStateEncoder:
 
 def _test_singlet_bitmaps():
     print("Testing singlet bitmaps...")
-    # Check that there are 6 vertex singlet bitmaps (3 dimensionalities * 2 irrep truncations).
-    there_are_six_singlet_bitmaps = len(VERTEX_SINGLET_BITMAPS) == 6
-    print(f"\nlen(VERTEX_SINGLET_BITMAPS) == 6? {there_are_six_singlet_bitmaps}.")
-    assert there_are_six_singlet_bitmaps
+    # Check that there are 8 vertex singlet bitmaps (3 dimensionalities * 2 irrep truncations + T1p in two dimensions).
+    there_are_six_singlet_bitmaps = len(VERTEX_SINGLET_BITMAPS) == 8
+    print(f"\nlen(VERTEX_SINGLET_BITMAPS) == 8? {there_are_six_singlet_bitmaps}.")
+    assert there_are_six_singlet_bitmaps, f"Encountered {len(VERTEX_SINGLET_BITMAPS)} bitmaps."
 
 
 def _test_vertex_bitmaps_have_right_amount_of_singlets():
@@ -652,16 +704,20 @@ def _test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding()
 
     Attempts encoding on the following cases:
     - d=3/2, T1
+    - d=3/2, T1p
     - d=3/2, T2
     - d=2, T1
+    - d=2, T1p
     - d=3, T1
     """
-    cases = ["d=3/2, T1", "d=3/2, T2", "d=2, T1", "d=3, T1"]
+    cases = ["d=3/2, T1", "d=3/2, T1p", "d=3/2, T2", "d=2, T1", "d=2, T1p", "d=3, T1"]
     # Each expected_bitlength = 4 * (n_link_qubits + n_vertex_qubits) for the corresponding case.
     expected_bitlength = [
         4*(2 + 0),
+        4*(2 + 0),
         4*(4 + 3),
         4*(2 + 3),
+        4*(2 + 1),
         4*(2 + 5)
     ]
     print(
@@ -670,14 +726,20 @@ def _test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding()
         f"following cases:\n{cases}."
     )
     for current_expected_bitlength, current_case in zip(expected_bitlength, cases):
+        dim_string, trunc_string = current_case.split(",")
+        dim_string = dim_string.strip()
+        trunc_string = trunc_string.strip()
         # Make encoder instance.
-        link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR if \
-                current_case[-2:] == "T1" else IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
+        if trunc_string in ["T1", "T1p"]:
+            link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR
+        elif trunc_string in ["T2"]:
+            link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
+        else:
+            raise ValueError(f"Unknown irrep truncation: '{trunc_string}'.")
         # No vertices needed for T1 and d=3/2
-        vertex_bitmap = {} if current_case[-2:] == "T1" \
-                and current_case[:5] == "d=3/2" else VERTEX_SINGLET_BITMAPS[current_case]
+        vertex_bitmap = {} if current_case in ["d=3/2, T1", "d=3/2, T1p"] else VERTEX_SINGLET_BITMAPS[current_case]
         lattice_encoder = LatticeStateEncoder(link_bitmap, vertex_bitmap)
-        
+
         print(f"Case {current_case}: confirming all initial and final states "
               "appearing in the magnetic Hamiltonian box term can be succesfully encoded.\n"
               f"Link bitmap: {link_bitmap}\n"
