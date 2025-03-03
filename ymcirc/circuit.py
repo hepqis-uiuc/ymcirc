@@ -11,7 +11,7 @@ from ymcirc._abstract.lattice_data import Plaquette
 from math import ceil
 from qiskit import transpile
 from qiskit.circuit import QuantumCircuit, QuantumRegister
-from typing import List, Tuple, Set
+from typing import List, Tuple, Set, Union
 import numpy as np
 
 # A list of tuples: (state bitstring1, state bitstring2, matrix element)
