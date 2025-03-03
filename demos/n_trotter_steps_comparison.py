@@ -212,8 +212,7 @@ if __name__ == "__main__":
             # Aggregate data.
             current_sim_idx = (n_trotter_steps, sim_time)
             print(f"Setting data for {current_sim_idx}.")
-            for little_endian_state, counts in counts_dict_big_endian.items():
-                big_endian_state = little_endian_state[::-1]
+            for big_endian_state, counts in counts_dict_big_endian.items():
                 df_job_results.loc[current_sim_idx, big_endian_state] = counts
             # Make sure vacuum state data exists.
             if current_vacuum_state not in counts_dict_big_endian.keys():

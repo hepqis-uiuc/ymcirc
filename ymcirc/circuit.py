@@ -231,7 +231,7 @@ class LatticeCircuitManager:
                         bit_string_1,
                         bit_string_2,
                         angle,
-                        reverse=True,
+                        reverse=False,
                         physical_control_qubits=physical_control_qubits)
                     if optimize_circuits is True:
                         plaquette_local_rotation_circuit = transpile(
