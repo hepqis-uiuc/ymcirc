@@ -1,11 +1,12 @@
 """
 A collection of utilities for building circuits.
 """
+
 from __future__ import annotations
 import copy
 from ymcirc.conventions import LatticeStateEncoder
 from ymcirc.lattice_registers import LatticeRegisters
-from ymcirc.givens import givens
+from ymcirc.givens import givens, prune_controls
 from ymcirc._abstract.lattice_data import Plaquette
 from math import ceil
 from qiskit import transpile
@@ -20,7 +21,9 @@ HamiltonianData = List[Tuple[str, str, float]]
 class LatticeCircuitManager:
     """Class for creating quantum simulation circuits from LatticeRegister instances."""
 
-    def __init__(self, lattice_encoder: LatticeStateEncoder, mag_hamiltonian: HamiltonianData):
+    def __init__(
+        self, lattice_encoder: LatticeStateEncoder, mag_hamiltonian: HamiltonianData
+    ):
         """Create via a LatticeStateEncoder instance and magnetic Hamiltonian matrix elements."""
         # Copies to avoid inadvertently changing the behavior of the
         # LatticeCircuitManager instance.
@@ -28,7 +31,9 @@ class LatticeCircuitManager:
         self._mag_hamiltonian = copy.deepcopy(mag_hamiltonian)
 
     # TODO modularize the logic for walking through a lattice.
-    def create_blank_full_lattice_circuit(self, lattice: LatticeRegisters) -> QuantumCircuit:
+    def create_blank_full_lattice_circuit(
+        self, lattice: LatticeRegisters
+    ) -> QuantumCircuit:
         """
         Return a blank quantum circuit with all link and vertex registers in lattice.
 
@@ -78,23 +83,29 @@ class LatticeCircuitManager:
             current_vertex_reg = lattice.get_vertex(vertex_address)
             all_lattice_registers.append(current_vertex_reg)
             for positive_direction in range(1, ceil(lattice.dim) + 1):
-                has_no_vertical_periodic_link_three_halves_case = \
-                    lattice.dim == 1.5 and positive_direction > 1 and vertex_address[1] == 1
+                has_no_vertical_periodic_link_three_halves_case = (
+                    lattice.dim == 1.5
+                    and positive_direction > 1
+                    and vertex_address[1] == 1
+                )
                 if has_no_vertical_periodic_link_three_halves_case:
                     continue
 
-                current_link_reg = lattice.get_link((vertex_address, positive_direction))
+                current_link_reg = lattice.get_link(
+                    (vertex_address, positive_direction)
+                )
                 all_lattice_registers.append(current_link_reg)
 
         return QuantumCircuit(*all_lattice_registers)
 
     def apply_electric_trotter_step(
-            self,
-            master_circuit: QuantumCircuit,
-            lattice: LatticeRegisters,
-            hamiltonian: list[float],
-            coupling_g: float = 1.0,
-            dt: float = 1.0) -> None:
+        self,
+        master_circuit: QuantumCircuit,
+        lattice: LatticeRegisters,
+        hamiltonian: list[float],
+        coupling_g: float = 1.0,
+        dt: float = 1.0,
+    ) -> None:
         """
         Perform an electric Trotter step.
 
@@ -122,36 +133,38 @@ class LatticeCircuitManager:
         """
         N = int(np.log2(len(hamiltonian)))
         angle_mod = ((coupling_g**2) / 2) * dt
-        local_circuit = QuantumCircuit(N) 
+        local_circuit = QuantumCircuit(N)
 
         # The parity circuit primitive of CXs and Zs.
         for i in range(len(hamiltonian)):
-            locs = [loc for loc, bit in enumerate(str('{0:0' + str(N) + 'b}').format(i)) if bit=='1']
+            locs = [
+                loc
+                for loc, bit in enumerate(str("{0:0" + str(N) + "b}").format(i))
+                if bit == "1"
+            ]
             for j in locs[:-1]:
                 local_circuit.cx(j, locs[-1])
             if len(locs) != 0:
-                local_circuit.rz(2*angle_mod*hamiltonian[i], locs[-1])
+                local_circuit.rz(2 * angle_mod * hamiltonian[i], locs[-1])
             for j in locs[:-1]:
                 local_circuit.cx(j, locs[-1])
 
         # Loop over links for electric Hamiltonian
         for link_address in lattice.link_addresses:
-            link_qubits = [qubit for qubit in lattice.get_link((link_address[0], link_address[1]))]
-            master_circuit.compose(
-                        local_circuit,
-                        qubits=link_qubits,
-                        inplace=True
-                    )
+            link_qubits = [
+                qubit for qubit in lattice.get_link((link_address[0], link_address[1]))
+            ]
+            master_circuit.compose(local_circuit, qubits=link_qubits, inplace=True)
 
     # TODO Can we get the circuits in a parameterized way?
     def apply_magnetic_trotter_step(
-            self,
-            master_circuit: QuantumCircuit,
-            lattice: LatticeRegisters,
-            coupling_g: float = 1.0,
-            dt: float = 1.0,
-            optimize_circuits: bool = True,
-            physical_states_for_control_pruning: Union[None | Set[str]] = None
+        self,
+        master_circuit: QuantumCircuit,
+        lattice: LatticeRegisters,
+        coupling_g: float = 1.0,
+        dt: float = 1.0,
+        optimize_circuits: bool = True,
+        physical_states_for_control_pruning: Union[None | Set[str]] = None,
     ) -> None:
         """
         Add one magnetic Trotter step to the entire lattice circuit.
@@ -187,8 +200,9 @@ class LatticeCircuitManager:
         # Vertex iteration loop.
         for vertex_address in lattice.vertex_addresses:
             # Skip creating "top vertex" plaquettes for d=3/2.
-            has_no_vertical_periodic_link_three_halves_case = \
+            has_no_vertical_periodic_link_three_halves_case = (
                 lattice.dim == 1.5 and vertex_address[1] == 1
+            )
             if has_no_vertical_periodic_link_three_halves_case:
                 continue
 
@@ -196,7 +210,9 @@ class LatticeCircuitManager:
             print(f"Fetching all positive plaquettes at vertex {vertex_address}.")
             has_only_one_positive_plaquette = lattice.dim == 1.5 or lattice.dim == 2
             if has_only_one_positive_plaquette:
-                plaquettes: List[Plaquette] = [lattice.get_plaquettes(vertex_address, 1, 2)]
+                plaquettes: List[Plaquette] = [
+                    lattice.get_plaquettes(vertex_address, 1, 2)
+                ]
             else:
                 plaquettes: List[Plaquette] = lattice.get_plaquettes(vertex_address)
             print(f"Found {len(plaquettes)} plaquette(s).")
@@ -217,10 +233,10 @@ class LatticeCircuitManager:
                 # matrix element.
                 for bit_string_1, bit_string_2, matrix_elem in self._mag_hamiltonian:
                     if physical_states_for_control_pruning is not None:
-                        physical_control_qubits = LatticeCircuitManager.prune_controls(
+                        physical_control_qubits = prune_controls(
                             bit_string_1=bit_string_1,
                             bit_string_2=bit_string_2,
-                            encoded_physical_states=physical_states_for_control_pruning
+                            encoded_physical_states=physical_states_for_control_pruning,
                         )
                     else:
                         physical_control_qubits = None
@@ -232,70 +248,118 @@ class LatticeCircuitManager:
                         bit_string_2,
                         angle,
                         reverse=True,
-                        physical_control_qubits=physical_control_qubits)
+                        physical_control_qubits=physical_control_qubits,
+                    )
                     if optimize_circuits is True:
                         plaquette_local_rotation_circuit = transpile(
-                            plaquette_local_rotation_circuit, optimization_level=3)
+                            plaquette_local_rotation_circuit, optimization_level=3
+                        )
 
                     # Stitch the Givens rotation into master circuit.
                     master_circuit.compose(
                         plaquette_local_rotation_circuit,
-                        qubits=[
-                            *vertex_qubits,
-                            *link_qubits
-                        ],
-                        inplace=True
+                        qubits=[*vertex_qubits, *link_qubits],
+                        inplace=True,
                     )
+
 
 def _test_create_blank_full_lattice_circuit_has_promised_register_order():
     """Check in some cases that we get the ordering promised in the method docstring."""
     # Creating test data.
     # Not physically meaningful, but has the right format.
-    irrep_bitmap = {
-        (0, 0, 0): "0",
-        (1, 0, 0): "1"
-    }
+    irrep_bitmap = {(0, 0, 0): "0", (1, 0, 0): "1"}
     singlet_bitmap_2d = {
         (((0, 0, 0), (1, 0, 0), (1, 0, 0), (1, 0, 0)), 1): "00",
         (((0, 0, 0), (1, 0, 0), (1, 0, 0), (1, 0, 0)), 2): "01",
-        (((1, 0, 0), (1, 0, 0), (1, 0, 0), (1, 0, 0)), 1): "10"
+        (((1, 0, 0), (1, 0, 0), (1, 0, 0), (1, 0, 0)), 1): "10",
     }
     singlet_bitmap_3halves = {
         (((0, 0, 0), (1, 0, 0), (1, 0, 0)), 1): "0",
         (((0, 0, 0), (1, 0, 0), (1, 0, 0)), 2): "1",
     }
-    singlet_bitmap_3halves_no_vertices = {
-    }
-    mag_hamiltonian_2d = [("000110000001", "000110000010", 1.0), ("010110000001", "100110000010", 1.0)]
-    mag_hamiltonian_3halves = [("00001111", "11110000", 1.0), ("10100101", "00000001", 1.0)]
-    mag_hamiltonian_3halves_no_vertices = [("1111", "000", 1.0), ("1001", "0001", 1.0), ("1101", "0101", 1.0)]
+    singlet_bitmap_3halves_no_vertices = {}
+    mag_hamiltonian_2d = [
+        ("000110000001", "000110000010", 1.0),
+        ("010110000001", "100110000010", 1.0),
+    ]
+    mag_hamiltonian_3halves = [
+        ("00001111", "11110000", 1.0),
+        ("10100101", "00000001", 1.0),
+    ]
+    mag_hamiltonian_3halves_no_vertices = [
+        ("1111", "000", 1.0),
+        ("1001", "0001", 1.0),
+        ("1101", "0101", 1.0),
+    ]
     expected_register_order_2d = [
-        'v:(0, 0)', 'l:((0, 0), 1)', 'l:((0, 0), 2)',
-        'v:(0, 1)', 'l:((0, 1), 1)', 'l:((0, 1), 2)',
-        'v:(1, 0)', 'l:((1, 0), 1)', 'l:((1, 0), 2)',
-        'v:(1, 1)', 'l:((1, 1), 1)', 'l:((1, 1), 2)',
+        "v:(0, 0)",
+        "l:((0, 0), 1)",
+        "l:((0, 0), 2)",
+        "v:(0, 1)",
+        "l:((0, 1), 1)",
+        "l:((0, 1), 2)",
+        "v:(1, 0)",
+        "l:((1, 0), 1)",
+        "l:((1, 0), 2)",
+        "v:(1, 1)",
+        "l:((1, 1), 1)",
+        "l:((1, 1), 2)",
     ]
     expected_register_order_3halves = [
-        'v:(0, 0)', 'l:((0, 0), 1)', 'l:((0, 0), 2)',
-        'v:(0, 1)', 'l:((0, 1), 1)',
-        'v:(1, 0)', 'l:((1, 0), 1)', 'l:((1, 0), 2)',
-        'v:(1, 1)', 'l:((1, 1), 1)'
+        "v:(0, 0)",
+        "l:((0, 0), 1)",
+        "l:((0, 0), 2)",
+        "v:(0, 1)",
+        "l:((0, 1), 1)",
+        "v:(1, 0)",
+        "l:((1, 0), 1)",
+        "l:((1, 0), 2)",
+        "v:(1, 1)",
+        "l:((1, 1), 1)",
     ]
     expected_register_order_3halves_no_vertices = [
-        'l:((0, 0), 1)', 'l:((0, 0), 2)',
-        'l:((0, 1), 1)',
-        'l:((1, 0), 1)', 'l:((1, 0), 2)',
-        'l:((1, 1), 1)',
+        "l:((0, 0), 1)",
+        "l:((0, 0), 2)",
+        "l:((0, 1), 1)",
+        "l:((1, 0), 1)",
+        "l:((1, 0), 2)",
+        "l:((1, 1), 1)",
     ]
     test_cases = [
-        (expected_register_order_2d, irrep_bitmap, singlet_bitmap_2d, 2, mag_hamiltonian_2d),
-        (expected_register_order_3halves, irrep_bitmap, singlet_bitmap_3halves, 1.5, mag_hamiltonian_3halves),
-        (expected_register_order_3halves_no_vertices, irrep_bitmap, singlet_bitmap_3halves_no_vertices, 1.5, mag_hamiltonian_3halves_no_vertices)
+        (
+            expected_register_order_2d,
+            irrep_bitmap,
+            singlet_bitmap_2d,
+            2,
+            mag_hamiltonian_2d,
+        ),
+        (
+            expected_register_order_3halves,
+            irrep_bitmap,
+            singlet_bitmap_3halves,
+            1.5,
+            mag_hamiltonian_3halves,
+        ),
+        (
+            expected_register_order_3halves_no_vertices,
+            irrep_bitmap,
+            singlet_bitmap_3halves_no_vertices,
+            1.5,
+            mag_hamiltonian_3halves_no_vertices,
+        ),
     ]
 
     # Iterate over all test cases.
-    for expected_register_names_ordered, link_bitmap, vertex_bitmap, dims, hamiltonian in test_cases:
-        print(f"Checking register order in a circuit constructed from a {dims}-dimensional lattice.")
+    for (
+        expected_register_names_ordered,
+        link_bitmap,
+        vertex_bitmap,
+        dims,
+        hamiltonian,
+    ) in test_cases:
+        print(
+            f"Checking register order in a circuit constructed from a {dims}-dimensional lattice."
+        )
         print(f"Link bitmap: {link_bitmap}\nVertex bitmap: {vertex_bitmap}")
         print(f"Expected register ordering: {expected_register_names_ordered}")
 
@@ -304,22 +368,26 @@ def _test_create_blank_full_lattice_circuit_has_promised_register_order():
             dimensions=dims,
             size=2,
             link_truncation_dict=link_bitmap,
-            vertex_singlet_dict=vertex_bitmap
+            vertex_singlet_dict=vertex_bitmap,
         )
         circ_mgr = LatticeCircuitManager(
             lattice_encoder=LatticeStateEncoder(link_bitmap, vertex_bitmap),
-            mag_hamiltonian=hamiltonian
+            mag_hamiltonian=hamiltonian,
         )
         master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
         nonzero_regs = [reg for reg in master_circuit.qregs if len(reg) > 0]
         n_nonzero_regs = len(nonzero_regs)
 
         # Check that the circuit makes sense.
-        assert n_nonzero_regs == len(expected_register_names_ordered), f"Expected {len(expected_register_names_ordered)} registers. Encountered {n_nonzero_regs} registers."
+        assert n_nonzero_regs == len(
+            expected_register_names_ordered
+        ), f"Expected {len(expected_register_names_ordered)} registers. Encountered {n_nonzero_regs} registers."
         for expected_name, reg in zip(expected_register_names_ordered, nonzero_regs):
             if len(reg) == 0:
                 continue
-            assert expected_name == reg.name, f"Expected: {expected_name}, encountered: {reg.name}"
+            assert (
+                expected_name == reg.name
+            ), f"Expected: {expected_name}, encountered: {reg.name}"
             print(f"Verified location of the register for {expected_name}.")
 
     print("Register order tests passed.")
