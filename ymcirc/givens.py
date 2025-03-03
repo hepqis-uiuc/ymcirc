@@ -304,6 +304,7 @@ def givens2(
 
     return X_3_circ
 
+
 def prune_controls(
         bit_string_1: str,
         bit_string_2: str,
@@ -408,88 +409,110 @@ def prune_controls(
             representative_P_tilde, P_tilde, Q_set)
         should_continue_loop = not all([tilde_state in {bit_string_1_tilde, bit_string_2_tilde} for tilde_state in P_tilde])
 
-    return Q_set  
+    return Q_set
 
-def fuse_controls(bin_value,lp_bin_w_angle : List[(str,str,float)],pruned_controls: Union[dict| None] = None):
-        """
-        This function fuses the (pruned) controls of multiple multi-RX gates of the same LP family. It takes as input:
-        1. The bitstring value of the LP family of the multi-RX gates.
-        2. The bitstrings that are to be givens-rotated. The form of this argument is (bitstring1, bitstring2, angle)
-        3. A dictionary which specifies which controls are to be pruned for a particular givens rotation. The entries in this 
-            dictionary should be of the form pruned_controls[(bitstring1,bitstring2)] = list[int]. 
 
-        The function returns a dictionary in which the entries are fused controls binned according to angles. The entry for
-        a particular angle is a list of tuples. Each tuple in this list is of the form (controls,control_state). The "controls"
-        is a list of controls for the multi-RX gate, and the "control_state" is the bitstring state of the controls.
-        """
+def fuse_controls(bin_value,
+                  lp_bin_w_angle: List[(str, str, float)],
+                  pruned_controls: Union[dict | None] = None):
+    """
+    This function fuses the (pruned) controls of multiple multi-RX gates of the same LP family. It takes as input:
+    1. The bitstring value of the LP family of the multi-RX gates.
+    2. The bitstrings that are to be givens-rotated. The form of this argument is (bitstring1, bitstring2, angle)
+    3. A dictionary which specifies which controls are to be pruned for a particular givens rotation. The entries in this 
+        dictionary should be of the form pruned_controls[(bitstring1,bitstring2)] = list[int]. 
 
-        angle_bin = {}
-        target = _determine_target_of_lp_bitstring(bin_value)
-        # If a target couldn't be found, it means that the givens rotation is the identity rotation.
-        if target == None:
-            return angle_bin
+    The function returns a dictionary in which the entries are fused controls binned according to angles. The entry for
+    a particular angle is a list of tuples. Each tuple in this list is of the form (controls,control_state). The "controls"
+    is a list of controls for the multi-RX gate, and the "control_state" is the bitstring state of the controls.
+    """
 
-        # Check if the bitstrings are indeed in the LP family specified by the LP bin value.
-        for bitstring1, bitstring2, angle in lp_bin_w_angle:
-            lp_fam = compute_LP_family(bitstring1,bitstring2)
-            lp_fam_bs_value = _bitstring_value_of_LP_family(lp_fam)
-            assert bin_value == lp_fam_bs_value, "The LP family of the bin doesn't match with the LP family of the bitstrings"
-        
-        # Step 1: build multiRX gates out of bitstrings, and bin them according to angles.
-        for bitstring1, bitstring2, angle in lp_bin_w_angle:
-            if pruned_controls != None and (bitstring1,bitstring2) in pruned_controls.keys():
-                ctrls, ctrl_state, multiRX = _build_multiRX(bitstring1,bitstring2,angle,target,pruned_controls[(bitstring1,bitstring2)])
-            else:
-                ctrls, ctrl_state, multiRX = _build_multiRX(bitstring1,bitstring2,angle,target)
-            if angle in angle_bin:
-                angle_bin[angle].append((ctrls,ctrl_state))
-            else:
-                angle_bin[angle] = []
-                angle_bin[angle].append((ctrls,ctrl_state))
+    angle_bin = {}
+    target = _determine_target_of_lp_bitstring(bin_value)
+    # If a target couldn't be found, it means that the givens rotation is the identity rotation.
+    if target is None:
+        return angle_bin
 
-        # Step 2: compare control qubits between all multiRX's. If there are some control qubits that differ, 
-        # perform of decomposition on the controls that differ.
-        for angle, ctrls_list in angle_bin.items():
-            max_ctrl_qubits = set()
-            min_ctrl_state_length = len(ctrls_list[0][0])
-            # Obtain the maximum number of controls
+    # Check if the bitstrings are indeed in the LP family specified by the LP bin value.
+    for bitstring1, bitstring2, angle in lp_bin_w_angle:
+        lp_fam = compute_LP_family(bitstring1, bitstring2)
+        lp_fam_bs_value = _bitstring_value_of_LP_family(lp_fam)
+        assert bin_value == lp_fam_bs_value, "The LP family of the bin doesn't match with the LP family of the bitstrings"
+
+    # Step 1: build multiRX gates out of bitstrings, and bin them according to angles.
+    for bitstring1, bitstring2, angle in lp_bin_w_angle:
+        if pruned_controls is not None and (
+                bitstring1, bitstring2) in pruned_controls.keys():
+            ctrls, ctrl_state, multiRX = _build_multiRX(
+                bitstring1, bitstring2, angle, target,
+                pruned_controls[(bitstring1, bitstring2)])
+        else:
+            ctrls, ctrl_state, multiRX = _build_multiRX(
+                bitstring1, bitstring2, angle, target)
+        if angle in angle_bin:
+            angle_bin[angle].append((ctrls, ctrl_state))
+        else:
+            angle_bin[angle] = []
+            angle_bin[angle].append((ctrls, ctrl_state))
+
+    # Step 2: compare control qubits between all multiRX's. If there are some control qubits that differ,
+    # perform of decomposition on the controls that differ.
+    for angle, ctrls_list in angle_bin.items():
+        max_ctrl_qubits = set()
+        min_ctrl_state_length = len(ctrls_list[0][0])
+        # Obtain the maximum number of controls
+        for ctrls, ctrl_state in ctrls_list:
+            for ctrl in ctrls:
+                if ctrl not in max_ctrl_qubits:
+                    max_ctrl_qubits.add(ctrl)
+            if len(ctrls) < min_ctrl_state_length:
+                min_ctrl_state_length = len(ctrls)
+        if min_ctrl_state_length == len(max_ctrl_qubits):
+            new_ctrls_list = ctrls_list
+        else:
+            new_ctrls_list = copy.deepcopy(ctrls_list)
             for ctrls, ctrl_state in ctrls_list:
-                for ctrl in ctrls:
-                    if ctrl not in max_ctrl_qubits:
-                        max_ctrl_qubits.add(ctrl)
-                if len(ctrls) < min_ctrl_state_length:
-                    min_ctrl_state_length = len(ctrls)
-            if  min_ctrl_state_length == len(max_ctrl_qubits):
-                new_ctrls_list = ctrls_list
-            else:
-                new_ctrls_list = copy.deepcopy(ctrls_list)
-                for ctrls,ctrl_state in ctrls_list:
-                    new_ctrls, new_ctrl_states = _decompose_pruned_controls(ctrls,ctrl_state,max_ctrl_qubits)
-                    new_ctrls_list.remove((ctrls,ctrl_state))
-                    for new_ctrl_state_to_be_added in new_ctrl_states:
-                        new_ctrls_list.append((new_ctrls,new_ctrl_state_to_be_added))
-            angle_bin[angle] = new_ctrls_list
+                new_ctrls, new_ctrl_states = _decompose_pruned_controls(
+                    ctrls, ctrl_state, max_ctrl_qubits)
+                new_ctrls_list.remove((ctrls, ctrl_state))
+                for new_ctrl_state_to_be_added in new_ctrl_states:
+                    new_ctrls_list.append(
+                        (new_ctrls, new_ctrl_state_to_be_added))
+        angle_bin[angle] = new_ctrls_list
 
-        # Step 3: Control fusion
-        for angle, ctrls_list in angle_bin.items():
-            # sort the controls so that they are in the right positions.
-            sorted_ctrls_list = [_sort_controls_list(ctrls, ctrl_state) for ctrls, ctrl_state in ctrls_list]
-            # sort the controls according to a gray-order
-            sorted_ctrls_list = sorted(sorted_ctrls_list, key=lambda x: binary_to_gray(x[1]))
-            # control fuse
-            ctrl_state_length = len(sorted_ctrls_list[0][1])
-            for i in range(ctrl_state_length-1,-1,-1):
-                comparison_idx = 0
-                while comparison_idx < len(sorted_ctrls_list)-1:
-                    if _bitstrings_differ_in_one_bit(sorted_ctrls_list[comparison_idx][1],sorted_ctrls_list[comparison_idx+1][1]) == (True,i):
-                        ctrls = sorted_ctrls_list[comparison_idx][0]
-                        new_ctrl_state = sorted_ctrls_list[comparison_idx][1][:i] + "x" + sorted_ctrls_list[comparison_idx][1][i+1:]
-                        del sorted_ctrls_list[comparison_idx:comparison_idx+2]
-                        sorted_ctrls_list.insert(comparison_idx,(ctrls,new_ctrl_state))
-                    comparison_idx += 1
-            sorted_ctrls_list = [_remove_redundant_controls(ctrls,ctrl_state) for ctrls,ctrl_state in sorted_ctrls_list]
-            angle_bin[angle] = sorted_ctrls_list 
-        return angle_bin   
+    # Step 3: Control fusion
+    for angle, ctrls_list in angle_bin.items():
+        # sort the controls so that they are in the right positions.
+        sorted_ctrls_list = [
+            _sort_controls_list(ctrls, ctrl_state)
+            for ctrls, ctrl_state in ctrls_list
+        ]
+        # sort the controls according to a gray-order
+        sorted_ctrls_list = sorted(sorted_ctrls_list,
+                                   key=lambda x: binary_to_gray(x[1]))
+        # control fuse
+        ctrl_state_length = len(sorted_ctrls_list[0][1])
+        for i in range(ctrl_state_length - 1, -1, -1):
+            comparison_idx = 0
+            while comparison_idx < len(sorted_ctrls_list) - 1:
+                if _bitstrings_differ_in_one_bit(
+                        sorted_ctrls_list[comparison_idx][1],
+                        sorted_ctrls_list[comparison_idx + 1][1]) == (True, i):
+                    ctrls = sorted_ctrls_list[comparison_idx][0]
+                    new_ctrl_state = sorted_ctrls_list[comparison_idx][
+                        1][:i] + "x" + sorted_ctrls_list[comparison_idx][1][i +
+                                                                            1:]
+                    del sorted_ctrls_list[comparison_idx:comparison_idx + 2]
+                    sorted_ctrls_list.insert(comparison_idx,
+                                             (ctrls, new_ctrl_state))
+                comparison_idx += 1
+        sorted_ctrls_list = [
+            _remove_redundant_controls(ctrls, ctrl_state)
+            for ctrls, ctrl_state in sorted_ctrls_list
+        ]
+        angle_bin[angle] = sorted_ctrls_list
+    return angle_bin
+
 
 def compute_LP_family(bit_string_1: str, bit_string_2: str) -> List[str]:
     """
@@ -524,6 +547,7 @@ def compute_LP_family(bit_string_1: str, bit_string_2: str) -> List[str]:
 
     return LP_family
 
+
 def _apply_LP_family_to_bit_string(LP_family: List[str], q_prime_idx: int, bit_string: str) -> str:
     """
     Use LP_family to figure out how bit_string will transform under the CX
@@ -547,20 +571,24 @@ def _apply_LP_family_to_bit_string(LP_family: List[str], q_prime_idx: int, bit_s
 
     return "".join(result_string_list)
 
+
 def _eliminate_phys_states_that_differ_from_rep_at_Q_idx(
-        representative: str,
-        phys_states_set: Set[str],
+        representative: str, phys_states_set: Set[str],
         Q_set: Set[int]) -> Set[str]:
     """
     Return a version of phys_states_set that only contains strings which match representative
     at the indices specified by Q_set.
     """
-    return set(filter(lambda phys_states_set: not any([
-        rep_char != phys_char and idx in Q_set for idx, (rep_char, phys_char) in enumerate(zip(
-            representative, phys_states_set))]),
-                        phys_states_set))
+    return set(
+        filter(
+            lambda phys_states_set: not any([
+                rep_char != phys_char and idx in Q_set for idx,
+                (rep_char, phys_char) in enumerate(
+                    zip(representative, phys_states_set))
+            ]), phys_states_set))
 
-def _bitstring_value_of_LP_family(lp_fam:str):
+
+def _bitstring_value_of_LP_family(lp_fam: str):
     # Assigns a bitstring value to the LP family. This will help in binning LP families and
     # later in the gray code ordering.
     LP_bitstring = ""
@@ -571,13 +599,14 @@ def _bitstring_value_of_LP_family(lp_fam:str):
             LP_bitstring += "1"
     return LP_bitstring
 
-def _binned_LP_families(tuple_bitstring_list: List[(str,str)]):
+
+def _binned_LP_families(tuple_bitstring_list: List[(str, str)]):
     # Takes as input a list of a tuple of two bitstrings and bins the operators according to LP families.
-    bin_dictionary ={}
+    bin_dictionary = {}
     for tuple_bitstring in tuple_bitstring_list:
         bitstring1 = tuple_bitstring[0]
         bitstring2 = tuple_bitstring[1]
-        lp_fam = compute_LP_family(bitstring1,bitstring2)
+        lp_fam = compute_LP_family(bitstring1, bitstring2)
         bitstring_of_lp_fam = _bitstring_value_of_LP_family(lp_fam)
         if bitstring_of_lp_fam in bin_dictionary:
             bin_dictionary[bitstring_of_lp_fam].append(tuple_bitstring)
@@ -585,6 +614,7 @@ def _binned_LP_families(tuple_bitstring_list: List[(str,str)]):
             bin_dictionary[bitstring_of_lp_fam] = []
             bin_dictionary.append(tuple_bitstring)
     return bin_dictionary
+
 
 def binary_to_gray(binary_str):
     """Convert a binary string to its Gray code representation."""
@@ -596,7 +626,8 @@ def binary_to_gray(binary_str):
         gray.append(gray_bit)
     return ''.join(gray)
 
-def _bitstrings_differ_in_one_bit(bitstring1: str,bitstring2: str):
+
+def _bitstrings_differ_in_one_bit(bitstring1: str, bitstring2: str):
     """ Checks if two bitstrings differ just in one bit. """
     if len(bitstring1) != len(bitstring2):
         raise AttributeError("The length of the two bitstrings must be equal")
@@ -606,23 +637,27 @@ def _bitstrings_differ_in_one_bit(bitstring1: str,bitstring2: str):
             if bitstring1[i] != bitstring2[i]:
                 diff_bit_count += 1
                 first_bit_of_diff = i
-        if diff_bit_count ==1 :
-            return True,first_bit_of_diff
+        if diff_bit_count == 1:
+            return True, first_bit_of_diff
         else:
-            return False,None 
-        
+            return False, None
+
+
 def _determine_target_of_lp_bitstring(lp_bitstring: str):
     """ Given a bitstring corresponding to a LP family, this function returns the target qubit"""
     target = None
     for i in range(len(lp_bitstring)):
-            if lp_bitstring[i] != "0":
-                continue
-            elif lp_bitstring[i] == "0":
-                target = i
-                break
+        if lp_bitstring[i] != "0":
+            continue
+        elif lp_bitstring[i] == "0":
+            target = i
+            break
     return target
 
-def _decompose_pruned_controls(pruned_ctrls: list[int],ctrl_state: str,max_ctrls_needed: Set[int]):
+
+def _decompose_pruned_controls(pruned_ctrls: list[int],
+                               ctrl_state: str,
+                               max_ctrls_needed: Set[int]):
     """ Decomposes pruned controls in a way appropriate for control fusion"""
     decomp_register = 0
     new_ctrls = copy.deepcopy(pruned_ctrls)
@@ -636,36 +671,40 @@ def _decompose_pruned_controls(pruned_ctrls: list[int],ctrl_state: str,max_ctrls
         new_ctrls_to_be_added = [new_ctrl_state]
     if decomp_register != 0:
         new_ctrls_to_be_added = [new_ctrl_state]
-        for i in range(-decomp_register,0):
+        for i in range(-decomp_register, 0):
             old_ctrls_to_be_added = copy.deepcopy(new_ctrls_to_be_added)
             for already_decomposed_ctrl_states in old_ctrls_to_be_added:
                 if i != -1:
-                    new_ctrl_decomposed1 = already_decomposed_ctrl_states[:i]+"1"+already_decomposed_ctrl_states[i+1:]
+                    new_ctrl_decomposed1 = already_decomposed_ctrl_states[:i] + "1" + already_decomposed_ctrl_states[
+                        i + 1:]
                 elif i == -1:
-                    new_ctrl_decomposed1 = already_decomposed_ctrl_states[:i]+"1"
+                    new_ctrl_decomposed1 = already_decomposed_ctrl_states[:i] + "1"
                 new_ctrls_to_be_added.append(new_ctrl_decomposed1)
-    return new_ctrls,new_ctrls_to_be_added
+    return new_ctrls, new_ctrls_to_be_added
+
 
 def _sort_controls_list(ctrls: List[int], ctrl_state: str):
     """ Sorts the controls in the order they appear in the quantum circuit."""
     ctrl_state_list = list(ctrl_state)
-    ctrls_and_state_zipped = zip(ctrls,ctrl_state_list)
-    sorted_ctrls_zipped = sorted(ctrls_and_state_zipped,key= lambda x: x[0])
-    ctrls,ctrl_state_list = zip(*sorted_ctrls_zipped)
+    ctrls_and_state_zipped = zip(ctrls, ctrl_state_list)
+    sorted_ctrls_zipped = sorted(ctrls_and_state_zipped, key=lambda x: x[0])
+    ctrls, ctrl_state_list = zip(*sorted_ctrls_zipped)
     ctrls = list(ctrls)
     ctrl_state = "".join(ctrl_state_list)
     return ctrls, ctrl_state
 
-def _remove_redundant_controls(ctrls : List[int],ctrl_state: str):
-    assert len(ctrls) == len(ctrl_state), "The length of the controls and control state must be equal"
+
+def _remove_redundant_controls(ctrls: List[int], ctrl_state: str):
+    assert len(ctrls) == len(
+        ctrl_state
+    ), "The length of the controls and control state must be equal"
     new_ctrls = []
     new_ctrl_state = ""
     for i in range(len(ctrls)):
         if ctrl_state[i] != "x":
             new_ctrls.append(ctrls[i])
             new_ctrl_state += ctrl_state[i]
-    return new_ctrls,new_ctrl_state
-
+    return new_ctrls, new_ctrl_state
 
 
 def _make_bitstring(length):
@@ -829,6 +868,7 @@ def _test_multiRX():
 
     print(f"Test passed. Obtained circuit:\n{actual_circ.draw()}\n")
 
+
 def _test_compute_LP_family():
     """Check computation of LP family works."""
     bs1 = "11000"
@@ -964,6 +1004,7 @@ def _test_prune_controls_fails_for_non_bitstrings():
     else:
         assert False, "ValueError not raised."
 
+
 def _test_prune_controls_acts_as_expected():
     """Check the output of prune_controls for good input."""
     # Case 1, one control needed.
@@ -998,7 +1039,7 @@ def _test_prune_controls_acts_as_expected():
 
     # Check the return value from the algorithm.
     result_Q_set = prune_controls(bs1, bs2, phys_states)
-    assert result_Q_set  == expected_Q_set, f"result Q set = {result_Q_set}"
+    assert result_Q_set == expected_Q_set, f"result Q set = {result_Q_set}"
     print("Test passed.")
 
     # Case 2, two controls needed.
@@ -1035,30 +1076,38 @@ def _test_prune_controls_acts_as_expected():
 
     # Check the return value from the algorithm.
     result_Q_set = prune_controls(bs1, bs2, phys_states)
-    assert result_Q_set  == expected_Q_set, f"result Q set = {result_Q_set}"
+    assert result_Q_set == expected_Q_set, f"result Q set = {result_Q_set}"
     print("Test passed.")
 
 
 def _test_apply_LP_family():
     lp_family = ["L-", "L-", "L+", "P0", "L+", "P1"]
     q_prime_idx = 0  # The first 'L' in the LP family list.
-    print(f"Checking that application of LP family diagonalizing 'circuit' defined by {lp_family} to bit strings works.")
+    print(
+        f"Checking that application of LP family diagonalizing 'circuit' defined by {lp_family} to bit strings works."
+    )
 
     # Case 1
     bs_with_active_control = '110001'
     expected_result_bs_with_active_control = "101011"
-    print(f"Checking that bit string {bs_with_active_control} becomes {expected_result_bs_with_active_control} when applying LP family.")
+    print(
+        f"Checking that bit string {bs_with_active_control} becomes {expected_result_bs_with_active_control} when applying LP family."
+    )
 
-    actual_result_active_control = _apply_LP_family_to_bit_string(lp_family, q_prime_idx, bs_with_active_control)
+    actual_result_active_control = _apply_LP_family_to_bit_string(
+        lp_family, q_prime_idx, bs_with_active_control)
     assert actual_result_active_control == expected_result_bs_with_active_control, f"Unexpected result: {actual_result_active_control}."
     print("Test passed.")
 
     # Case 2
     bs_with_inactive_control = '011101'
     expected_result_bs_with_inactive_control = bs_with_inactive_control
-    print(f"Checking that bit string {bs_with_inactive_control} becomes {expected_result_bs_with_inactive_control} when applying LP family.")
+    print(
+        f"Checking that bit string {bs_with_inactive_control} becomes {expected_result_bs_with_inactive_control} when applying LP family."
+    )
 
-    actual_result_inactive_control = _apply_LP_family_to_bit_string(lp_family, q_prime_idx, bs_with_inactive_control)
+    actual_result_inactive_control = _apply_LP_family_to_bit_string(
+        lp_family, q_prime_idx, bs_with_inactive_control)
     assert actual_result_inactive_control == expected_result_bs_with_inactive_control, f"Unexpected result: {actual_result_inactive_control}."
     print("Test passed.")
 
@@ -1078,29 +1127,38 @@ def _test_eliminate_phys_states_that_differ_from_rep_at_Q_idx():
 
     print("Test passed.")
 
+
 def _test_control_fusion():
-    bitstring_list = [("00000000","01001010",1.0),("10001000","11000010",1.0),("01100000","00101010",1.0),("00001000","01000010",1.0)]
+    bitstring_list = [("00000000", "01001010", 1.0),
+                      ("10001000", "11000010", 1.0),
+                      ("01100000", "00101010", 1.0),
+                      ("00001000", "01000010", 1.0)]
     pruned_controls = {}
-    pruned_controls[("00000000","01001010")] = [0,2,5,6,7]
-    pruned_controls[("10001000","11000010")] = [0,2,3,4,5]
-    pruned_controls[("01100000","00101010")] = [0,2,3,4,5,6,7]
-    pruned_controls[("00001000","01000010")] = [0,2,3,4,5,6,7]
+    pruned_controls[("00000000", "01001010")] = [0, 2, 5, 6, 7]
+    pruned_controls[("10001000", "11000010")] = [0, 2, 3, 4, 5]
+    pruned_controls[("01100000", "00101010")] = [0, 2, 3, 4, 5, 6, 7]
+    pruned_controls[("00001000", "01000010")] = [0, 2, 3, 4, 5, 6, 7]
     bin_value = "10110101"
-    expected_control_fused_gates = [
-        ([0,2,3,5,6,7],"000000"),
-        ([0,2,3,4,5,6,7],"0001000"),
-        ([0,2,3,5,6,7],"001000"),
-        ([0,2,3,4,5],"01001"),
-        ([0,2,3,4,5,6,7],"0101010")
-    ]
-    code_generated_fusion = fuse_controls(bin_value,bitstring_list,pruned_controls)
+    expected_control_fused_gates = [([0, 2, 3, 5, 6, 7], "000000"),
+                                    ([0, 2, 3, 4, 5, 6, 7], "0001000"),
+                                    ([0, 2, 3, 5, 6, 7], "001000"),
+                                    ([0, 2, 3, 4, 5], "01001"),
+                                    ([0, 2, 3, 4, 5, 6, 7], "0101010")]
+    code_generated_fusion = fuse_controls(bin_value, bitstring_list,
+                                          pruned_controls)
     assert code_generated_fusion[1.0] == expected_control_fused_gates
     print("Control fusion test passed.")
 
+
 def _test_binary_to_gray():
-    bitstring_to_be_gray_ordered = ["1000","0010","0100","0011","0000","0001","0101"]
-    expected_gray_code_order = ["0000","0001","0011","0010","0100","0101","1000"]
-    code_generated_gray_order = sorted(bitstring_to_be_gray_ordered, key= lambda x: binary_to_gray(x))
+    bitstring_to_be_gray_ordered = [
+        "1000", "0010", "0100", "0011", "0000", "0001", "0101"
+    ]
+    expected_gray_code_order = [
+        "0000", "0001", "0011", "0010", "0100", "0101", "1000"
+    ]
+    code_generated_gray_order = sorted(bitstring_to_be_gray_ordered,
+                                       key=lambda x: binary_to_gray(x))
     assert expected_gray_code_order == code_generated_gray_order
     print("Binary to Gray Order passed.")
 
