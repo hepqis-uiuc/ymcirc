@@ -225,13 +225,11 @@ class LatticeCircuitManager:
                     else:
                         physical_control_qubits = None
                     angle = -matrix_elem * (1 / (2 * (coupling_g**2))) * dt
-                    # We use the reverse argument to account for the little-endianness
-                    # of QuantumRegisters implemented by qiskit.
                     plaquette_local_rotation_circuit = givens(
                         bit_string_1,
                         bit_string_2,
                         angle,
-                        reverse=True,
+                        reverse=False,
                         physical_control_qubits=physical_control_qubits)
                     if optimize_circuits is True:
                         plaquette_local_rotation_circuit = transpile(
