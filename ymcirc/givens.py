@@ -74,12 +74,88 @@ def givens(
         )
 
         # Construct the pre- and post-MCRX circuits.
-        Xcirc = _build_Xcirc(bit_string_1, bit_string_2, control=target)
+        Xcirc = _build_Xcirc(
+            bitstring_value_of_LP_family(compute_LP_family), control=target
+        )
 
         # Add multiRX to the circuit, specifying
         # The proper control locations and target location
         # via a list of the qubit indices.
         circ.append(multiRX, ctrls + [target])
+
+        # Assemble the final circuit.
+        # Using inplace speeds up circuit composition.
+        circ.compose(Xcirc, inplace=True)
+        Xcirc.compose(circ, inplace=True)
+        if reverse is True:
+            Xcirc = Xcirc.reverse_bits()
+        return Xcirc
+
+
+def givens_fused_controls(
+    lp_bin_w_angle: List[(str, str, float)],
+    lp_bin_value: str,
+    reverse: bool = False,
+    physical_control_qubits: Dict[(str, str), Set[int | Qubit]] | None = None,
+) -> QuantumCircuit:
+    """
+    Implements givens rotation using the same logic as the givens function but for fused multiRX's.
+
+    Inputs:
+        - lp_bin_w_angle: list of bitstrings of the same LP family and the angle they have to be rotated by.
+        - lp_bin_value: bitstring value of LP bin
+        - reverse: optional argument to deal with endianess issues
+        - physical_control_qubits: dictionary which provides pruned controls for bitstrings.
+
+    Output:
+        QuantumCircuit object that has the necessary givens rotation.
+    """
+    # Input validation and sanity checks.
+
+    num_qubits = len(lp_bin_w_angle[0][0])
+
+    for bit_string_1, bit_string_2, angle in lp_bin_w_angle:
+        if len(bit_string_1) != len(bit_string_2):
+            raise ValueError("Bit strings must be the same length.")
+        lp_bin_matches = (
+            bitstring_value_of_LP_family(compute_LP_family(bit_string_1, bit_string_2))
+            == lp_bin_value
+        )
+        if lp_bin_matches is False:
+            return ValueError(
+                "The LP value of the bitstrings should match with the LP bin value"
+            )
+        no_rotation_is_needed = bit_string_1 == bit_string_2
+        if no_rotation_is_needed:
+            return QuantumCircuit(len(bit_string_1))  # The identity circuit.
+
+    circ = QuantumCircuit(num_qubits)
+
+    # Build the circuit.
+    if num_qubits == 1:
+        # No pre/post computation needed.
+        circ.rx(angle, 0)
+        return circ
+    else:
+        for idx in range(num_qubits):
+            current_idx_is_target_idx = lp_bin_value[idx] == "0"
+            if current_idx_is_target_idx is True:
+                target = idx
+                break
+        # Add multiRX to the circuit, specifying
+        # The proper control locations and target location
+        # via a list of the qubit indices.
+        angle_dict = fuse_controls(
+            lp_bin_value, lp_bin_w_angle, physical_control_qubits
+        )
+        for angle, ctrl_list in angle_dict.items():
+            for ctrls, ctrl_state in ctrl_list:
+                ctrl_state = ctrl_state[::-1]
+                multiRX = RXGate(angle).control(
+                    num_ctrl_qubits=len(ctrls), ctrl_state=ctrl_state
+                )
+                circ.append(multiRX, ctrls + [target])
+        Xcirc = _build_Xcirc(lp_bin_value, control=target)
 
         # Assemble the final circuit.
         # Using inplace speeds up circuit composition.
@@ -167,9 +243,7 @@ def _build_multiRX(
     )
 
 
-def _build_Xcirc(
-    bs1_little_endian: str, bs2_little_endian: str, control: int
-) -> QuantumCircuit:
+def _build_Xcirc(bs_of_lp_fam_little_endian: str, control: int) -> QuantumCircuit:
     """
     Build pre/post computation change-of-basis circuit in the Givens rotation.
 
@@ -177,10 +251,10 @@ def _build_Xcirc(
     Applies CX gates conditioned on control, and all other bits where there's a bit flip
     between bs1 and bs2 as targets.
     """
-    num_qubits = len(bs1_little_endian)
+    num_qubits = len(bs_of_lp_fam_little_endian)
     Xcirc = QuantumCircuit(num_qubits)
     for idx in range(control + 1, num_qubits):
-        bit_flip_happens_at_idx = bs1_little_endian[idx] != bs2_little_endian[idx]
+        bit_flip_happens_at_idx = bs_of_lp_fam_little_endian[idx] == "0"
         if bit_flip_happens_at_idx is True:
             Xcirc.cx(control_qubit=control, target_qubit=idx, ctrl_state="1")
 
@@ -478,7 +552,7 @@ def prune_controls(
 def fuse_controls(
     bin_value: str,
     lp_bin_w_angle: List[(str, str, float)],
-    pruned_controls: Union[Dict[List[(str, str)], List[int]] | None] = None,
+    pruned_controls: Union[Dict[List[(str, str)], Set[int]] | None] = None,
 ) -> Dict[float, tuple[List[int], str]]:
     """
     This function fuses the (pruned) controls of multiple multi-RX gates of the same LP family.
@@ -503,7 +577,7 @@ def fuse_controls(
     # Check if the bitstrings are indeed in the LP family specified by the LP bin value.
     for bitstring1, bitstring2, angle in lp_bin_w_angle:
         lp_fam = compute_LP_family(bitstring1, bitstring2)
-        lp_fam_bs_value = _bitstring_value_of_LP_family(lp_fam)
+        lp_fam_bs_value = bitstring_value_of_LP_family(lp_fam)
         if bin_value != lp_fam_bs_value:
             raise ValueError(
                 "The LP family of the bin doesn't match with the LP family of the bitstrings"
@@ -524,7 +598,7 @@ def fuse_controls(
             )
         else:
             ctrls, ctrl_state, multiRX = _build_multiRX(
-                bitstring1, bitstring2, angle, target
+                bitstring1, bitstring2, angle, target, physical_control_qubits=None
             )
         if angle in angle_bin:
             angle_bin[angle].append((ctrls, ctrl_state))
@@ -679,7 +753,7 @@ def _eliminate_phys_states_that_differ_from_rep_at_Q_idx(
     )
 
 
-def _bitstring_value_of_LP_family(lp_fam: str) -> str:
+def bitstring_value_of_LP_family(lp_fam: str) -> str:
     # Assigns a bitstring value to the LP family. This will help in binning LP families and
     # later in the gray code ordering.
     LP_bitstring = ""
@@ -689,24 +763,6 @@ def _bitstring_value_of_LP_family(lp_fam: str) -> str:
         elif operator == "P0" or operator == "P1":
             LP_bitstring += "1"
     return LP_bitstring
-
-
-def _binned_LP_families(
-    tuple_bitstring_list: List[(str, str)]
-) -> Dict[str, List[(str, str)]]:
-    # Takes as input a list of a tuple of two bitstrings and bins the operators according to LP families.
-    bin_dictionary = {}
-    for tuple_bitstring in tuple_bitstring_list:
-        bitstring1 = tuple_bitstring[0]
-        bitstring2 = tuple_bitstring[1]
-        lp_fam = compute_LP_family(bitstring1, bitstring2)
-        bitstring_of_lp_fam = _bitstring_value_of_LP_family(lp_fam)
-        if bitstring_of_lp_fam in bin_dictionary:
-            bin_dictionary[bitstring_of_lp_fam].append(tuple_bitstring)
-        else:
-            bin_dictionary[bitstring_of_lp_fam] = []
-            bin_dictionary.append(tuple_bitstring)
-    return bin_dictionary
 
 
 def binary_to_gray(binary_str: str) -> str:
@@ -889,7 +945,7 @@ def _test_Xcirc():
     Xcirc_expected = QuantumCircuit(7)
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=5)
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=6)
-    Xcirc = _build_Xcirc(bs1, bs2, control_qubit)
+    Xcirc = _build_Xcirc(bitstring_value_of_LP_family(compute_LP_family), control_qubit)
 
     assert Xcirc_expected == Xcirc, (
         "Encountered inequivalent circuits. Expected:\n"
@@ -908,7 +964,7 @@ def _test_Xcirc():
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=2)
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=4)
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=9)
-    Xcirc = _build_Xcirc(bs1, bs2, control_qubit)
+    Xcirc = _build_Xcirc(bitstring_value_of_LP_family(compute_LP_family), control_qubit)
 
     assert Xcirc_expected == Xcirc, (
         "Encountered inequivalent circuits. Expected:\n"
@@ -1323,6 +1379,50 @@ def _test_binary_to_gray():
     print("Binary to Gray Order passed.")
 
 
+def _test_givens_fused_controls():
+    bitstring_list = [
+        ("00000000", "01001010", 1.0),
+        ("10001000", "11000010", 1.0),
+        ("01100000", "00101010", 1.0),
+        ("00001000", "01000010", 1.0),
+    ]
+    pruned_controls = {}
+    pruned_controls[("00000000", "01001010")] = [0, 2, 5, 6, 7]
+    pruned_controls[("10001000", "11000010")] = [0, 2, 3, 4, 5]
+    pruned_controls[("01100000", "00101010")] = [0, 2, 3, 4, 5, 6, 7]
+    pruned_controls[("00001000", "01000010")] = [0, 2, 3, 4, 5, 6, 7]
+    bin_value = "10110101"
+    generated_circuit = givens_fused_controls(
+        bitstring_list, bin_value, physical_control_qubits=pruned_controls
+    )
+    expected_circuit = QuantumCircuit(8)
+    expected_circuit.cx(1, 4)
+    expected_circuit.cx(1, 6)
+    expected_circuit.append(
+        RXGate(1.0).control(num_ctrl_qubits=6, ctrl_state="000000"),
+        [0, 2, 3, 5, 6, 7, 1],
+    )
+    expected_circuit.append(
+        RXGate(1.0).control(num_ctrl_qubits=7, ctrl_state="0001000"),
+        [0, 2, 3, 4, 5, 6, 7, 1],
+    )
+    expected_circuit.append(
+        RXGate(1.0).control(num_ctrl_qubits=6, ctrl_state="000100"),
+        [0, 2, 3, 5, 6, 7, 1],
+    )
+    expected_circuit.append(
+        RXGate(1.0).control(num_ctrl_qubits=5, ctrl_state="10010"), [0, 2, 3, 4, 5, 1]
+    )
+    expected_circuit.append(
+        RXGate(1.0).control(num_ctrl_qubits=7, ctrl_state="0101010"),
+        [0, 2, 3, 4, 5, 6, 7, 1],
+    )
+    expected_circuit.cx(1, 4)
+    expected_circuit.cx(1, 6)
+    assert expected_circuit == generated_circuit
+    print("givens with fused controls test passed.")
+
+
 if __name__ == "__main__":
     _test_givens()
     # _test_givens2()  # TODO fix nondeterministic behavior of this test.
@@ -1338,4 +1438,6 @@ if __name__ == "__main__":
     _test_eliminate_phys_states_that_differ_from_rep_at_Q_idx()
     _test_control_fusion()
     _test_binary_to_gray()
+    _test_control_fusion_fails_for_inconsistent_lp_bin
+    _test_givens_fused_controls
     print("All tests passed.")
