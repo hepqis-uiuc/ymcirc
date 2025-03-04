@@ -6,7 +6,7 @@ from __future__ import annotations
 import copy
 from ymcirc.conventions import LatticeStateEncoder
 from ymcirc.lattice_registers import LatticeRegisters
-from ymcirc.givens import givens, prune_controls
+from ymcirc.givens import givens, prune_controls, bitstring_value_of_LP_family, givens_fused_controls, compute_LP_family
 from ymcirc._abstract.lattice_data import Plaquette
 from math import ceil
 from qiskit import transpile
@@ -165,6 +165,7 @@ class LatticeCircuitManager:
         dt: float = 1.0,
         optimize_circuits: bool = True,
         physical_states_for_control_pruning: Union[None | Set[str]] = None,
+        control_fusion: bool = False
     ) -> None:
         """
         Add one magnetic Trotter step to the entire lattice circuit.
@@ -231,36 +232,68 @@ class LatticeCircuitManager:
 
                 # Append a Givens rotation circuit for each magnetic Hamiltonian
                 # matrix element.
-                for bit_string_1, bit_string_2, matrix_elem in self._mag_hamiltonian:
-                    if physical_states_for_control_pruning is not None:
-                        physical_control_qubits = prune_controls(
+                if control_fusion == True:
+                    # sort into LP bins
+                    lp_bin = {}
+                    pruning_dict = {}
+                    for bit_string_1, bit_string_2, matrix_elem in self._mag_hamiltonian:
+                        angle = -matrix_elem * (1 / (2 * (coupling_g**2))) * dt
+                        lp_bs_value = bitstring_value_of_LP_family(compute_LP_family(bit_string_1,bit_string_2))
+                        if lp_bs_value not in lp_bin.keys():
+                            lp_bin[lp_bs_value] = []
+                        lp_bin[lp_bs_value].append((bit_string_1,bit_string_2,angle))
+                        if physical_states_for_control_pruning is not None:
+                            pruned_controls = prune_controls(
                             bit_string_1=bit_string_1,
                             bit_string_2=bit_string_2,
                             encoded_physical_states=physical_states_for_control_pruning,
                         )
-                    else:
-                        physical_control_qubits = None
-                    angle = -matrix_elem * (1 / (2 * (coupling_g**2))) * dt
-                    # We use the reverse argument to account for the little-endianness
-                    # of QuantumRegisters implemented by qiskit.
-                    plaquette_local_rotation_circuit = givens(
-                        bit_string_1,
-                        bit_string_2,
-                        angle,
-                        reverse=True,
-                        physical_control_qubits=physical_control_qubits,
-                    )
-                    if optimize_circuits is True:
-                        plaquette_local_rotation_circuit = transpile(
-                            plaquette_local_rotation_circuit, optimization_level=3
+                            pruning_dict[(bit_string_1,bit_string_2)] = pruned_controls
+                    # apply control fusion to each LP family
+                    for lp_fam_bs, lp_bin_w_angle in lp_bin.items():
+                        plaquette_local_rotation_circuit = givens_fused_controls(lp_bin_w_angle,lp_fam_bs,pruned_controls)
+                        if optimize_circuits is True:
+                            plaquette_local_rotation_circuit = transpile(
+                                plaquette_local_rotation_circuit, optimization_level=3
+                            )
+                        # Stitch the Givens rotation into master circuit.
+                        master_circuit.compose(
+                            plaquette_local_rotation_circuit,
+                            qubits=[*vertex_qubits, *link_qubits],
+                            inplace=True,
                         )
+                    
+                else:
+                    for bit_string_1, bit_string_2, matrix_elem in self._mag_hamiltonian:
+                        if physical_states_for_control_pruning is not None:
+                            physical_control_qubits = prune_controls(
+                                bit_string_1=bit_string_1,
+                                bit_string_2=bit_string_2,
+                                encoded_physical_states=physical_states_for_control_pruning,
+                            )
+                        else:
+                            physical_control_qubits = None
+                        angle = -matrix_elem * (1 / (2 * (coupling_g**2))) * dt
+                        # We use the reverse argument to account for the little-endianness
+                        # of QuantumRegisters implemented by qiskit.
+                        plaquette_local_rotation_circuit = givens(
+                            bit_string_1,
+                            bit_string_2,
+                            angle,
+                            reverse=True,
+                            physical_control_qubits=physical_control_qubits,
+                        )
+                        if optimize_circuits is True:
+                            plaquette_local_rotation_circuit = transpile(
+                                plaquette_local_rotation_circuit, optimization_level=3
+                            )
 
-                    # Stitch the Givens rotation into master circuit.
-                    master_circuit.compose(
-                        plaquette_local_rotation_circuit,
-                        qubits=[*vertex_qubits, *link_qubits],
-                        inplace=True,
-                    )
+                        # Stitch the Givens rotation into master circuit.
+                        master_circuit.compose(
+                            plaquette_local_rotation_circuit,
+                            qubits=[*vertex_qubits, *link_qubits],
+                            inplace=True,
+                        )
 
 
 def _test_create_blank_full_lattice_circuit_has_promised_register_order():
