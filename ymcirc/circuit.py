@@ -4,13 +4,14 @@ A collection of utilities for building circuits.
 from __future__ import annotations
 import copy
 from ymcirc._abstract import LatticeDef
-from ymcirc.conventions import LatticeStateEncoder
+from ymcirc.conventions import LatticeStateEncoder, IRREP_TRUNCATION_DICT_1_3_3BAR, ONE, THREE, THREE_BAR
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import givens
 from ymcirc._abstract.lattice_data import Plaquette
 from math import ceil
 from qiskit import transpile
-from qiskit.circuit import QuantumCircuit, QuantumRegister
+from qiskit.circuit import QuantumCircuit, QuantumRegister, ControlledGate
+from qiskit.circuit.library.standard_gates import RXGate
 from typing import List, Tuple, Set
 import numpy as np
 
@@ -123,7 +124,7 @@ class LatticeCircuitManager:
         """
         N = int(np.log2(len(hamiltonian)))
         angle_mod = ((coupling_g**2) / 2) * dt
-        local_circuit = QuantumCircuit(N) 
+        local_circuit = QuantumCircuit(N)
 
         # The parity circuit primitive of CXs and Zs.
         for i in range(len(hamiltonian)):
@@ -202,20 +203,22 @@ class LatticeCircuitManager:
                 plaquettes: List[Plaquette] = lattice.get_plaquettes(vertex_address)
             print(f"Found {len(plaquettes)} plaquette(s).")
 
-            # TODO gather active link regs, control link regs, and vertex regs
             # TODO test stitching logic when the same control reg shows up on multiple vertices.
-            # TODO controls is a dict, need to handle logic for ordering them.
             # For each plaquette, apply the the local Trotter step circuit.
             for plaquette in plaquettes:
                 # Collect the local qubits for stitching purposes.
-                vertex_qubits = []
-                link_qubits = []
+                vertex_multiplicity_qubits = []
+                a_link_qubits = []
+                c_link_qubits = []
                 for register in plaquette.vertices:
                     for qubit in register:
-                        vertex_qubits.append(qubit)
+                        vertex_multiplicity_qubits.append(qubit)
                 for register in plaquette.active_links:
                     for qubit in register:
-                        link_qubits.append(qubit)
+                        a_link_qubits.append(qubit)
+                for register in plaquette.control_links_ordered:
+                    for qubit in register:
+                        c_link_qubits.append(qubit)
 
                 # Append a Givens rotation circuit for each magnetic Hamiltonian
                 # matrix element.
@@ -235,19 +238,19 @@ class LatticeCircuitManager:
                         bit_string_1,
                         bit_string_2,
                         angle,
-                        reverse=True,
+                        reverse=False,
                         physical_control_qubits=physical_control_qubits)
                     if optimize_circuits is True:
                         plaquette_local_rotation_circuit = transpile(
                             plaquette_local_rotation_circuit, optimization_level=3)
 
-                    # TODO need to stitch contro links too.
                     # Stitch the Givens rotation into master circuit.
                     master_circuit.compose(
                         plaquette_local_rotation_circuit,
                         qubits=[
-                            *vertex_qubits,
-                            *link_qubits
+                            *vertex_multiplicity_qubits,
+                            *a_link_qubits,
+                            *c_link_qubits
                         ],
                         inplace=True
                     )
@@ -601,16 +604,210 @@ def _test_create_blank_full_lattice_circuit_has_promised_register_order():
     print("Register order tests passed.")
 
 
+# Helpers for checking circuit equivalence.
+# TODO find a way to not have to lean on strict option.
+def _check_circuits_logically_equivalent(circ1: QuantumCircuit, circ2: QuantumCircuit, strict: bool = False) -> bool:
+    """
+    Check two circuits for logical equivalence.
+
+    If strict is False, then for larger multi control unitaries, just checks for the right qubits and does some sanity checks.
+
+    Note this depends on gate order!
+    """
+    ops1 = circ1.data
+    ops2 = circ2.data
+
+    # Scan through ops and check equivalence.
+    for idx, (op1, op2) in enumerate(zip(ops1, ops2)):
+        print("Op #:", idx + 1)
+        if op1 != op2:
+            if strict is True:
+                return False
+            elif op1.is_controlled_gate() and op2.is_controlled_gate():
+                has_same_qubits = set(op1.qubits) == set(op2.qubits)
+                has_same_num_ctrls = op1.operation.num_ctrl_qubits == op2.operation.num_ctrl_qubits
+                op1_ctrls = op1.qubits[:-1]
+                op2_ctrls = op2.qubits[:-1]
+                op1_target = op1.qubits[-1]
+                op2_target = op2.qubits[-1]
+                has_same_target = op1_target == op2_target
+                op1_ctrl_state = f'{op1.operation.ctrl_state:0{op1.operation.num_ctrl_qubits}b}'
+                op2_ctrl_state = f'{op2.operation.ctrl_state:0{op2.operation.num_ctrl_qubits}b}'
+                #for op1_ctrl_qubit, op1_ctrl_value in zip(op1_ctrls, list(op1_ctrl_state)):
+                ctrl_val_comp_dict = {idx: {} for idx in range(op1.operation.num_ctrl_qubits)}
+                for qubit_idx in range(op1.operation.num_ctrl_qubits):
+                    print(op1_ctrls[qubit_idx]._index)
+                    breakpoint()
+                    # This is pretty hacky and could break in the future.
+                    ctrl_val_comp_dict[op1_ctrls[qubit_idx]._index]["op1_ctrl_val"] = op1_ctrl_state[qubit_idx]
+                    ctrl_val_comp_dict[op2_ctrls[qubit_idx]._index]["op2_ctrl_val"] = op2_ctrl_state[qubit_idx]
+                      
+                    # ctrl_val_comp_dict[op1_ctrls[idx]._index]
+                    # print("Op 1")
+                    # print(op1_ctrls[qubit_idx])
+                    # print(op1_ctrl_state[qubit_idx])
+                    # print("Op 2")
+                    # print(op2_ctrls[qubit_idx])
+                    # print(op2_ctrl_state[qubit_idx])
+                    # breakpoint()
+                print(ctrl_val_comp_dict)
+                breakpoint()
+            else:
+                breakpoint()
+                # Do some sanity checks to see if these operators might actually be logically equivalent multi-controls.
+                has_same_qubits = set(op1.qubits) == set(op2.qubits)
+                has_same_width = len(op1.qubits) == len(op2.qubits)
+                both_gates_controlled = op1.is_controlled_gate() and op2.is_controlled_gate() 
+                first_control_agrees = op1.qubits[-1] == op2.qubits[-1]
+                if not has_same_qubits or not has_same_width or (both_gates_controlled and not first_control_agrees):
+                    return False
+
+    return True
+
+
+def _flatten_circuit(original_circuit: QuantumCircuit) -> QuantumCircuit:
+    """Return a copy of a circuit which uses only one QuantumRegister."""
+    # Get the total number of qubits from all registers
+    total_qubits = sum(qr.size for qr in original_circuit.qregs)
+
+    # Create a new larger quantum register
+    flattened_qr = QuantumRegister(total_qubits, 'q')
+    flattened_circuit = QuantumCircuit(flattened_qr)
+
+    # Create a mapping from original qubits to the new flattened qubits
+    mapping = {}
+    current_index = 0
+    for qr in original_circuit.qregs:
+        for i in range(qr.size):
+            mapping[qr[i]] = flattened_qr[current_index]
+            current_index += 1
+
+    # Copy operations to the new circuit using the mapping
+    for instruction in original_circuit.data:
+        gate = instruction[0]
+        qubits = instruction[1]
+        # Create a new list of qubits based on the mapping
+        new_qubits = [mapping[q] for q in qubits]
+        # Append the operation to the new circuit
+        flattened_circuit.append(gate, new_qubits)
+
+    return flattened_circuit
+
+
 # TODO write test for case when lattice is small enough that the same register shows up at multiple controls
 def _test_apply_magnetic_trotter_step():
     print("Checking that application of magnetic Trotter step works.")
+    # DO NOT CHANGE THE "DUMMY" DATA UNLESS YOU ARE WILLING TO WORK OUT
+    # WHAT THE CORRECT "EXPECTED" CIRCUITS ARE. THERE IS
+    # STRONG DEPENDENCE BETWEEN THAT AND THESE DUMMY
+    # TEST DATA.
+    # If you need to make more test data, follow the following process:
+    #    1. Come up with a dummy hamiltonian matrix element of the form (plaquette bitstring, plaquette bitstring, mat elem value).
+    #    2. Come up with the corresponding physical states which get encoded to these bit strings.
+    #    3. For each matrix element * plaquette in the lattice, there will be ONE givens rotation circuit. For each such givens rotation:
+    #      3a. Determine which registers are involved in the circuit following conventional ordering of vertices, then active links, then control links.
+    #      3b. Determine what the "X" circuit prefix is by comparing the state bitstrings for the matrix element, determining the LP family, and then
+    #          mapping each substring in the plaquette encoding onto actual registers in the lattice.
+    #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or project operator involved determines the control states.
+    # Ask yourself if you REALLY feel like doing all that before mucking about with this test data.
+    dummy_mag_hamiltonian_d_3_2_T1 = [
+        ("00100000" + "00000000", "01010100" + "10011010", 0.33)  # One matrix element, plaquette only has a_link and c_link substrings.
+    ]
+    dummy_phys_states_d_3_2_T1 = [
+        (  # Matches the first encoded state in the dummy magnetic hamiltonian.
+            (0, 0, 0, 0),
+            (ONE, THREE, ONE, ONE), 
+            (ONE, ONE, ONE, ONE)
+        ),
+        (  # Matches the second encoded state in the dummy magnetic haimiltonian.
+            (0, 0, 0, 0),
+            (THREE_BAR, THREE_BAR, THREE_BAR, ONE),
+            (THREE, THREE_BAR, THREE, THREE)
+        )
+    ]
+    expected_master_circuit_d_3_2_T1 = QuantumCircuit(18)
+    expected_rotation_gates = {  # Data for constructing the expected circuit.
+        "angle": -0.165,
+        "MCU ctrl state": "000000000000001",  # Little endian per qiskit convention.
+        "givens rotations": [
+            {
+                "pivot": 1,
+                "CX targets": [8, 9, 5, 12, 7, 10, 16],
+                "MCU ctrls": [8, 0, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 16, 17]
+            },
+            {
+                "pivot": 7,
+                "CX targets": [14, 15, 11, 0, 13, 16, 4],
+                "MCU ctrls": [14, 0, 1, 4, 5, 6, 8, 9, 10, 11, 12, 13, 15, 16, 17]
+            },
+            {
+                "pivot": 13,
+                "CX targets": [2, 3, 17, 6, 1, 4, 10],
+                "MCU ctrls": [2, 0, 1, 3, 4, 5, 6, 7, 10, 11, 12, 14, 15, 16, 17]
+            }
+        ]
+    }
+    for rotation_data in expected_rotation_gates["givens rotations"]:
+        # Build subcircuits.
+        Xcirc = QuantumCircuit(18)
+        for target in rotation_data["CX targets"]:
+            Xcirc.cx(
+                control_qubit=rotation_data["pivot"],
+                target_qubit=target
+            )
+        MCU = RXGate(expected_rotation_gates["angle"]).control(num_ctrl_qubits=len(rotation_data["MCU ctrls"]), ctrl_state=expected_rotation_gates["MCU ctrl state"])
+
+        # Construct current expected givens rotation.
+        expected_master_circuit_d_3_2_T1.compose(Xcirc, inplace=True)
+        expected_master_circuit_d_3_2_T1.append(MCU, rotation_data["MCU ctrls"] + [rotation_data["pivot"]])
+        expected_master_circuit_d_3_2_T1.compose(Xcirc, inplace=True)
+
+    # TODO create dummy mag hamiltonian data for d=2 big lattice, then small lattice cases.
 
     # Case 1, large enough lattice that no controls are repeated among vertices.
+    print("Case 1")
+    print("Expected circuit:")
+    print(expected_master_circuit_d_3_2_T1.draw())
+
+    # create master circuit instance along with blank result_circuit and lattice registers
+    lattice_def_d_3_2 = LatticeDef(1.5, 3)
+    lattice_encoder_d_3_2 = LatticeStateEncoder(
+        IRREP_TRUNCATION_DICT_1_3_3BAR,
+        dummy_phys_states_d_3_2_T1,
+        lattice=lattice_def_d_3_2)
+    lattice_registers_d_3_2 = LatticeRegisters.from_lattice_state_encoder(lattice_encoder_d_3_2)
+    circ_mgr = LatticeCircuitManager(lattice_encoder_d_3_2,
+                                     dummy_mag_hamiltonian_d_3_2_T1)
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(
+        lattice_registers_d_3_2)
+
+    # define expected_circuit
+
+    # run apply magnetic trotter step code on test data
+    circ_mgr.apply_magnetic_trotter_step(
+        master_circuit,
+        lattice_registers_d_3_2,
+        optimize_circuits=False
+    )
+    print("Obtained circuit:")
+    print(master_circuit.draw())
+    assert _check_circuits_logically_equivalent(_flatten_circuit(master_circuit), expected_master_circuit_d_3_2_T1), "Encountered inequivalent circuits. Expected:\n" \
+        f"{expected_master_circuit_d_3_2_T1.draw()}\nObtained:\n" \
+        f"{master_circuit.draw()}"
+    # assert transpile(expected_master_circuit_d_3_2_T1) == transpile(master_circuit), "Encountered inequivalent circuits. Expected:\n" \
+    #     f"{expected_master_circuit_d_3_2_T1.draw()}\nObtained:\n" \
+    #     f"{master_circuit.draw()}"
+    print("Test case passed.")
+
+    # confirm that result_circuit matches expected_circuit
+
+
+
     # TODO test that we get the expected circuit for d=3/2 and d=2 subcases.
 
     # Case 2, small lattice where controls are repeated within a plaquette.
     # TODO test that we get the expected circuit for d=3/2 and d=2 subcases.
-    raise NotImplementedError("Test not yet implemented.")
+    raise NotImplementedError("Not all test cases have been implemented yet.")
 
 
 def _test_compute_LP_family():
@@ -864,7 +1061,7 @@ def _test_eliminate_phys_states_that_differ_from_rep_at_Q_idx():
 
 
 def _run_tests():
-    _test_create_blank_full_lattice_circuit_has_promised_register_order()
+    #_test_create_blank_full_lattice_circuit_has_promised_register_order()
     _test_apply_magnetic_trotter_step()
     _test_compute_LP_family()
     _test_compute_LP_family_fails_on_bad_input()
