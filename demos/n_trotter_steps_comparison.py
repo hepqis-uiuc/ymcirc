@@ -135,6 +135,7 @@ if __name__ == "__main__":
                 f"with dt = {dt}."
             )
 
+            # TODO use from_lattice_encoder method for this.
             # Create lattice, do sanity checks, and log some info.
             lattice = LatticeRegisters(
                 dimensions=dimensions,

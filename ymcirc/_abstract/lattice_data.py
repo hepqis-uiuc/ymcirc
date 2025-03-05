@@ -181,7 +181,7 @@ class Plaquette(Generic[T]):
                 control_links_ordered.append(self._lattice.get_link((vertex_vector, link_dir)))
 
         return tuple(control_links_ordered)
-         
+
     @property
     def bottom_left_vertex(self) -> LatticeVector:
         """Retrieve the address for the bottom-left vertex."""
