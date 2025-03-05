@@ -1,5 +1,5 @@
 """
-This module contains methods for constructing Givens rotation circuits.
+This module contains methods and classes for constructing Givens rotation circuits.
 
 Original author: Cianan Conefrey-Shinozaki, Oct 2024.
 
@@ -8,6 +8,7 @@ two multi-qubit states into each other.
 """
 
 from __future__ import annotations
+from dataclasses import dataclass, FrozenInstanceError
 from qiskit import QuantumCircuit
 from qiskit.circuit import Qubit
 from qiskit.circuit.library.standard_gates import RXGate
@@ -17,6 +18,45 @@ import numpy as np
 import copy
 from scipy.linalg import expm
 from typing import Tuple, List, Set, Dict, Union
+
+
+@dataclass(frozen=True)
+class LPOperator:
+    """
+    Immutable wrapper for string reps of ladder/projector operators.
+
+    The following values are allowed:
+      - "P1": projector onto "1" state.
+      - "P0": projector onto "0" state.
+      - "L+": "raising" ladder operator.
+      - "L-": "lowering" ladder operator.
+    """
+    value: str
+
+    def __post_init__(self):
+        valid_vals = ["P0", "P1", "L+", "L-"]
+        if self.value not in valid_vals:
+            raise ValueError(f"{LPOperator.__name__} value must be one of the following: {valid_vals}. Encountered: '{self.value}'.")
+
+
+@dataclass(frozen=True)
+class LPFamily:
+    """
+    Immutable wrapper for working with LP families.
+
+    The LPOperator class is used for validation, but data remains a list of strings.
+    """
+    value: List[str]
+
+    def __post_init__(self):
+        # Validate.
+        if not isinstance(self.value, list):
+            raise ValueError(f"Input {self.value} not a list.")
+        for op_val in self.value:
+            try:
+                LPOperator(op_val)
+            except ValueError:
+                raise ValueError(f"Encounterd invalid {LPOperator.__name__} value '{op_val}'.")
 
 
 def givens(
@@ -75,7 +115,11 @@ def givens(
 
         # Construct the pre- and post-MCRX circuits.
         Xcirc = _build_Xcirc(
+<<<<<<< HEAD
             bitstring_value_of_LP_family(compute_LP_family(bit_string_1,bit_string_2)), control=target
+=======
+            bitstring_value_of_LP_family(compute_LP_family(bit_string_1, bit_string_2)), control=target
+>>>>>>> ffb78dd2114af281e53c19cbfdd6fe2cbbf515f6
         )
 
         # Add multiRX to the circuit, specifying
@@ -464,7 +508,7 @@ def prune_controls(
     q_prime_idx = next(
         (
             idx
-            for idx, LP_val in enumerate(representative_LP_family)
+            for idx, LP_val in enumerate(representative_LP_family.value)
             if LP_val[0] == "L"
         ),
         -1,
@@ -666,7 +710,7 @@ def fuse_controls(
     return angle_bin
 
 
-def compute_LP_family(bit_string_1: str, bit_string_2: str) -> List[str]:
+def compute_LP_family(bit_string_1: str, bit_string_2: str) -> LPFamily:
     """
     Compare each element of bit_string_1 and bit_string_2 to obtain LP family.
 
@@ -699,11 +743,11 @@ def compute_LP_family(bit_string_1: str, bit_string_2: str) -> List[str]:
                     f"Encountered non-bit character while comparing chars: {char_1_2_tuple}."
                 )
 
-    return LP_family
+    return LPFamily(LP_family)
 
 
 def _apply_LP_family_to_bit_string(
-    LP_family: List[str], q_prime_idx: int, bit_string: str
+    LP_family: LPFamily | List[str], q_prime_idx: int, bit_string: str
 ) -> str:
     """
     Use LP_family to figure out how bit_string will transform under the CX
@@ -712,11 +756,14 @@ def _apply_LP_family_to_bit_string(
     The q_prime_idx is skipped in applying the LP family. Bits in bit_string which are an L-index only
     flip if the bit at q_prime_idx has value 1.
     """
+    if not isinstance(LP_family, LPFamily):
+        LP_family = LPFamily(LP_family)
+
     if bit_string[q_prime_idx] == "0":
         return bit_string
 
     result_string_list = list(bit_string)
-    for idx, op in enumerate(LP_family):
+    for idx, op in enumerate(LP_family.value):
         if idx == q_prime_idx:
             continue  # Never flip the bit at this index.
         match op[0]:
@@ -752,11 +799,14 @@ def _eliminate_phys_states_that_differ_from_rep_at_Q_idx(
     )
 
 
-def bitstring_value_of_LP_family(lp_fam: str) -> str:
+def bitstring_value_of_LP_family(lp_fam: List[str] | LPFamily) -> str:
+    """Validates form of lp_fam with LPFamily class if List[str]."""
+    if not isinstance(lp_fam, LPFamily):
+        lp_fam = LPFamily(lp_fam)
     # Assigns a bitstring value to the LP family. This will help in binning LP families and
     # later in the gray code ordering.
     LP_bitstring = ""
-    for operator in lp_fam:
+    for operator in lp_fam.value:
         if operator == "L+" or operator == "L-":
             LP_bitstring += "0"
         elif operator == "P0" or operator == "P1":
@@ -944,7 +994,7 @@ def _test_Xcirc():
     Xcirc_expected = QuantumCircuit(7)
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=5)
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=6)
-    Xcirc = _build_Xcirc(bitstring_value_of_LP_family(compute_LP_family), control_qubit)
+    Xcirc = _build_Xcirc(bitstring_value_of_LP_family(compute_LP_family(bs1, bs2)), control_qubit)
 
     assert Xcirc_expected == Xcirc, (
         "Encountered inequivalent circuits. Expected:\n"
@@ -963,7 +1013,7 @@ def _test_Xcirc():
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=2)
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=4)
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=9)
-    Xcirc = _build_Xcirc(bitstring_value_of_LP_family(compute_LP_family), control_qubit)
+    Xcirc = _build_Xcirc(bitstring_value_of_LP_family(compute_LP_family(bs1, bs2)), control_qubit)
 
     assert Xcirc_expected == Xcirc, (
         "Encountered inequivalent circuits. Expected:\n"
@@ -1048,7 +1098,7 @@ def _test_compute_LP_family():
     """Check computation of LP family works."""
     bs1 = "11000"
     bs2 = "10001"
-    expected_LP_family = ["P1", "L-", "P0", "P0", "L+"]
+    expected_LP_family = LPFamily(["P1", "L-", "P0", "P0", "L+"])
     print(
         f"Checking that the bit strings {bs1} and {bs2} "
         f"yield the LP family {expected_LP_family}."
@@ -1184,7 +1234,7 @@ def _test_prune_controls_acts_as_expected():
     bs1 = "11001001"
     bs2 = "11000110"
     phys_states = {bs1, bs2, "11111111"}
-    expected_rep_LP_family = ["P1", "P1", "P0", "P0", "L-", "L+", "L+", "L-"]
+    expected_rep_LP_family = LPFamily(["P1", "P1", "P0", "P0", "L-", "L+", "L+", "L-"])
     expected_q_prime_idx = 4
     expected_bs1_tilde = "11001110"
     expected_bs2_tilde = bs2  # No change since control is 0-valued.
@@ -1226,7 +1276,7 @@ def _test_prune_controls_acts_as_expected():
     bs1 = "11000011"
     bs2 = "11001001"  # Differs at 1 qubit at index 6, will be in Q set.
     phys_states = {bs1, bs2, "11111111", "00000000"}
-    expected_rep_LP_family = ["P1", "P1", "P0", "P0", "L+", "P0", "L-", "P1"]
+    expected_rep_LP_family = LPFamily(["P1", "P1", "P0", "P0", "L+", "P0", "L-", "P1"])
     expected_q_prime_idx = 4
     expected_bs1_tilde = bs1  # No change since control is 0-valude
     expected_bs2_tilde = "11001011"
@@ -1251,7 +1301,7 @@ def _test_prune_controls_acts_as_expected():
     result_rep_LP_family = compute_LP_family(bs1, bs2)
     assert (
         result_rep_LP_family == expected_rep_LP_family
-    ), f"LP family = {compute_LP_family(bs1, bs2)}"
+    ), f"Expected: {expected_rep_LP_family}, Result: {result_rep_LP_family}"
     for pre_LP_state, expected_post_LP_state in expected_P_tilde.items():
         result_post_LP_state = _apply_LP_family_to_bit_string(
             expected_rep_LP_family, expected_q_prime_idx, pre_LP_state
@@ -1422,6 +1472,65 @@ def _test_givens_fused_controls():
     print("givens with fused controls test passed.")
 
 
+def _test_LPOperator_works():
+    print(
+        f"Checking that {LPOperator.__name__} only takes the correct values, "
+        "raises a ValueError with invalid values, and is immutable.")
+    correct_vals = ["L+", "L-", "P1", "P0"]
+    incorrect_val = "Q"
+    for val in correct_vals:
+        print("Checking creation with value:", val)
+        assert LPOperator(val).value == val
+        print("Test passed.")
+
+    print(f"Check that {incorrect_val} causes a ValueError.")
+    try:
+        LPOperator(incorrect_val)
+    except ValueError as e:
+        print(f"Test passed. Raised error: {e}")
+    else:
+        raise AssertionError("ValueError not raised.")
+
+    print("Check that LPOperator is immutable.")
+    lp_op = LPOperator("L-")
+    try:
+        lp_op.value = "L+"
+    except FrozenInstanceError as e:
+        print(f"Test passed. Raised error: {e}")
+    else:
+        raise AssertionError("FrozenInstanceError not raised.")
+
+
+def _test_LPFamily_works():
+    print(f"Checking that {LPFamily.__name__} only takes correct values, raises a ValueError with invalid values, and is immutable.")
+
+    # Test creation with list of strings.
+    lp_family_str = ["L+", "L-", "P0"]
+    print(f"Testing creation of LPFamily with list of valid strings: {lp_family_str}.")
+    assert LPFamily(lp_family_str).value == lp_family_str, f"Encountered value: {LPFamily(lp_family_str).value}, expected: {lp_family_str}."
+    print(f"Test passed, LPFamily.value == {lp_family_str}.")
+
+    # Test that creation with bad strings fails.
+    bad_lp_family = ["L+", "Q"]
+    print(f"Checking {bad_lp_family} causes ValueError.")
+    try:
+        LPFamily(bad_lp_family)
+    except ValueError as e:
+        print(f"Test passed. Raised error: {e}")
+    else:
+        raise AssertionError("ValueError not raised.")
+
+    # Test immutability.
+    print("Checking that LPFamily instances are immutable.")
+    lp_fam = LPFamily(lp_family_str)
+    try:
+        lp_fam.value = LPFamily(["P1"])
+    except FrozenInstanceError as e:
+        print(f"Test passed. Raised error: {e}")
+    else:
+        raise AssertionError("FrozenInstanceError not raised.")
+
+
 if __name__ == "__main__":
     _test_givens()
     # _test_givens2()  # TODO fix nondeterministic behavior of this test.
@@ -1439,4 +1548,7 @@ if __name__ == "__main__":
     _test_binary_to_gray()
     _test_control_fusion_fails_for_inconsistent_lp_bin
     _test_givens_fused_controls
+    _test_LPOperator_works()
+    _test_LPFamily_works()
+
     print("All tests passed.")
