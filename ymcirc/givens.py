@@ -75,7 +75,7 @@ def givens(
 
         # Construct the pre- and post-MCRX circuits.
         Xcirc = _build_Xcirc(
-            bitstring_value_of_LP_family(compute_LP_family), control=target
+            bitstring_value_of_LP_family(compute_LP_family(bit_string_1, bit_string_2)), control=target
         )
 
         # Add multiRX to the circuit, specifying
@@ -945,7 +945,7 @@ def _test_Xcirc():
     Xcirc_expected = QuantumCircuit(7)
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=5)
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=6)
-    Xcirc = _build_Xcirc(bitstring_value_of_LP_family(compute_LP_family), control_qubit)
+    Xcirc = _build_Xcirc(bitstring_value_of_LP_family(compute_LP_family(bs1, bs2)), control_qubit)
 
     assert Xcirc_expected == Xcirc, (
         "Encountered inequivalent circuits. Expected:\n"
@@ -964,7 +964,7 @@ def _test_Xcirc():
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=2)
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=4)
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=9)
-    Xcirc = _build_Xcirc(bitstring_value_of_LP_family(compute_LP_family), control_qubit)
+    Xcirc = _build_Xcirc(bitstring_value_of_LP_family(compute_LP_family(bs1, bs2)), control_qubit)
 
     assert Xcirc_expected == Xcirc, (
         "Encountered inequivalent circuits. Expected:\n"

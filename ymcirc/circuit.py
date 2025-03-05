@@ -238,7 +238,7 @@ class LatticeCircuitManager:
                     pruning_dict = {}
                     for bit_string_1, bit_string_2, matrix_elem in self._mag_hamiltonian:
                         angle = -matrix_elem * (1 / (2 * (coupling_g**2))) * dt
-                        lp_bs_value = bitstring_value_of_LP_family(compute_LP_family(bit_string_1,bit_string_2))
+                        lp_bs_value = bitstring_value_of_LP_family(compute_LP_family(bit_string_1, bit_string_2))
                         if lp_bs_value not in lp_bin.keys():
                             lp_bin[lp_bs_value] = []
                         lp_bin[lp_bs_value].append((bit_string_1,bit_string_2,angle))
@@ -251,7 +251,7 @@ class LatticeCircuitManager:
                             pruning_dict[(bit_string_1,bit_string_2)] = pruned_controls
                     # apply control fusion to each LP family
                     for lp_fam_bs, lp_bin_w_angle in lp_bin.items():
-                        plaquette_local_rotation_circuit = givens_fused_controls(lp_bin_w_angle,lp_fam_bs,pruned_controls)
+                        plaquette_local_rotation_circuit = givens_fused_controls(lp_bin_w_angle, lp_fam_bs, pruned_controls)
                         if optimize_circuits is True:
                             plaquette_local_rotation_circuit = transpile(
                                 plaquette_local_rotation_circuit, optimization_level=3
@@ -262,7 +262,7 @@ class LatticeCircuitManager:
                             qubits=[*vertex_qubits, *link_qubits],
                             inplace=True,
                         )
-                    
+
                 else:
                     for bit_string_1, bit_string_2, matrix_elem in self._mag_hamiltonian:
                         if physical_states_for_control_pruning is not None:
