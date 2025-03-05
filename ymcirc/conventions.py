@@ -136,12 +136,16 @@ _SINGLET_DATA_FILE_PATHS: Dict[str, Path] = {
     "d=2, T2": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(2)_singlet_bitmaps.json",
     "d=3, T1": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3)_singlet_bitmaps.json",
     "d=3, T2": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(3)_singlet_bitmaps.json",
+    "d=3/2, T1p": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3_2)_singlet_prime_bitmaps.json",
+    "d=2, T1p": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(2)_singlet_prime_bitmaps.json"
 }
 _HAMILTONIAN_DATA_FILE_PATHS: Dict[str, Path] = {
     "d=3/2, T1": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3_2)_magnetic_hamiltonian.json",
     "d=3/2, T2": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(3_2)_magnetic_hamiltonian.json",
     "d=2, T1": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(2)_magnetic_hamiltonian.json",
-    "d=3, T1": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3)_magnetic_hamiltonian.json"
+    "d=3, T1": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3)_magnetic_hamiltonian.json",
+    "d=3/2, T1p": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3_2)_prime_magnetic_hamiltonian.json",
+    "d=2, T1p": _HAMILTONIAN_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(2)_prime_magnetic_hamiltonian.json"
 }
 
 # Useful type aliases.
@@ -501,10 +505,10 @@ class LatticeStateEncoder:
 
 def _test_singlet_bitmaps():
     print("Testing singlet bitmaps...")
-    # Check that there are 6 vertex singlet bitmaps (3 dimensionalities * 2 irrep truncations).
-    there_are_six_singlet_bitmaps = len(VERTEX_SINGLET_BITMAPS) == 6
-    print(f"\nlen(VERTEX_SINGLET_BITMAPS) == 6? {there_are_six_singlet_bitmaps}.")
-    assert there_are_six_singlet_bitmaps
+    # Check that there are 8 vertex singlet bitmaps (3 dimensionalities * 2 irrep truncations + T1p in two dimensions).
+    there_are_six_singlet_bitmaps = len(VERTEX_SINGLET_BITMAPS) == 8
+    print(f"\nlen(VERTEX_SINGLET_BITMAPS) == 8? {there_are_six_singlet_bitmaps}.")
+    assert there_are_six_singlet_bitmaps, f"Encountered {len(VERTEX_SINGLET_BITMAPS)} bitmaps."
 
 
 def _test_vertex_bitmaps_have_right_amount_of_singlets():
@@ -700,16 +704,20 @@ def _test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding()
 
     Attempts encoding on the following cases:
     - d=3/2, T1
+    - d=3/2, T1p
     - d=3/2, T2
     - d=2, T1
+    - d=2, T1p
     - d=3, T1
     """
-    cases = ["d=3/2, T1", "d=3/2, T2", "d=2, T1", "d=3, T1"]
+    cases = ["d=3/2, T1", "d=3/2, T1p", "d=3/2, T2", "d=2, T1", "d=2, T1p", "d=3, T1"]
     # Each expected_bitlength = 4 * (n_link_qubits + n_vertex_qubits) for the corresponding case.
     expected_bitlength = [
         4*(2 + 0),
+        4*(2 + 0),
         4*(4 + 3),
         4*(2 + 3),
+        4*(2 + 1),
         4*(2 + 5)
     ]
     print(
@@ -718,14 +726,20 @@ def _test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding()
         f"following cases:\n{cases}."
     )
     for current_expected_bitlength, current_case in zip(expected_bitlength, cases):
+        dim_string, trunc_string = current_case.split(",")
+        dim_string = dim_string.strip()
+        trunc_string = trunc_string.strip()
         # Make encoder instance.
-        link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR if \
-                current_case[-2:] == "T1" else IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
+        if trunc_string in ["T1", "T1p"]:
+            link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR
+        elif trunc_string in ["T2"]:
+            link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
+        else:
+            raise ValueError(f"Unknown irrep truncation: '{trunc_string}'.")
         # No vertices needed for T1 and d=3/2
-        vertex_bitmap = {} if current_case[-2:] == "T1" \
-                and current_case[:5] == "d=3/2" else VERTEX_SINGLET_BITMAPS[current_case]
+        vertex_bitmap = {} if current_case in ["d=3/2, T1", "d=3/2, T1p"] else VERTEX_SINGLET_BITMAPS[current_case]
         lattice_encoder = LatticeStateEncoder(link_bitmap, vertex_bitmap)
-        
+
         print(f"Case {current_case}: confirming all initial and final states "
               "appearing in the magnetic Hamiltonian box term can be succesfully encoded.\n"
               f"Link bitmap: {link_bitmap}\n"

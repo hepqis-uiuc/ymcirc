@@ -249,6 +249,8 @@ class LatticeCircuitManager:
                             encoded_physical_states=physical_states_for_control_pruning,
                         )
                             pruning_dict[(bit_string_1,bit_string_2)] = pruned_controls
+                        else:
+                            pruned_controls = None
                     # sort according to gray-order
                     gray_ordered_lp_bin = {k: lp_bin[k] for k in sorted(lp_bin.keys(), key = lambda x: binary_to_gray(x))}
                     # apply control fusion to each LP family
@@ -269,7 +271,6 @@ class LatticeCircuitManager:
                             qubits=[*vertex_qubits, *link_qubits],
                             inplace=True,
                         )
-
                 else:
                     for bit_string_1, bit_string_2, matrix_elem in self._mag_hamiltonian:
                         if physical_states_for_control_pruning is not None:
@@ -287,7 +288,7 @@ class LatticeCircuitManager:
                             bit_string_1,
                             bit_string_2,
                             angle,
-                            reverse=True,
+                            reverse=False,
                             physical_control_qubits=physical_control_qubits,
                         )
                         if optimize_circuits is True:

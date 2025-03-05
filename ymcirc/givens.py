@@ -115,11 +115,7 @@ def givens(
 
         # Construct the pre- and post-MCRX circuits.
         Xcirc = _build_Xcirc(
-<<<<<<< HEAD
-            bitstring_value_of_LP_family(compute_LP_family(bit_string_1,bit_string_2)), control=target
-=======
             bitstring_value_of_LP_family(compute_LP_family(bit_string_1, bit_string_2)), control=target
->>>>>>> ffb78dd2114af281e53c19cbfdd6fe2cbbf515f6
         )
 
         # Add multiRX to the circuit, specifying

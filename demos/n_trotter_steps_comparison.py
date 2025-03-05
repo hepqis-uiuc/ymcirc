@@ -53,9 +53,11 @@ SIM_RESULTS_DIR.mkdir(exist_ok=True)
 # Configure simulation parameters and data.
 do_electric_evolution = True
 do_magnetic_evolution = True
-# dimensionality_and_truncation_string = "d=2, T1"
 dimensionality_and_truncation_string = "d=3/2, T1"
-trunc_string = dimensionality_and_truncation_string[-2:]
+#dimensionality_and_truncation_string = "d=2, T1p"
+dim_string, trunc_string = dimensionality_and_truncation_string.split(",")
+dim_string = dim_string.strip()
+trunc_string = trunc_string.strip()
 dimensions = 1.5
 linear_size = 3  # To indirectly control the number of plaquettes
 coupling_g = 1.0
@@ -66,6 +68,8 @@ sim_times = np.linspace(0.05, 2.5, num=20) # set num to 20 for comparison with t
 #sim_times = [0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
 only_include_elems_connected_to_electric_vacuum = False
 use_2box_hack = False  # Halves circuit depth by taking box + box^dagger = 2box. Only true if all nonzero matrix elements have the same magnitude.
+note_unphysical_states = True  # Emit warning when decoding unphysical plaquette states. Assign 0.0 electric energy.
+stop_on_unphysical_states = False  # Raise an error when decoding unphysical unphysical states. Terminate simulation.
 prune_controls = True
 control_fusion = True
 n_shots = 10000
@@ -86,9 +90,14 @@ if __name__ == "__main__":
 
     # Set the right vertex and link bitmaps based on
     # dimensionality_and_truncation_string.
-    # OK to not use vertex DOFs for d=3/2, T1.
-    vertex_bitmap = {} if dimensionality_and_truncation_string == "d=3/2, T1" else VERTEX_SINGLET_BITMAPS[dimensionality_and_truncation_string]  # Ok to not use vertex DoFs in this case.
-    link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR if dimensionality_and_truncation_string[-2:] == "T1" else IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
+    # OK to not use vertex DOFs for d=3/2, T1/T1p
+    vertex_bitmap = {} if dimensionality_and_truncation_string in ["d=3/2, T1", "d=3/2, T1p"] else VERTEX_SINGLET_BITMAPS[dimensionality_and_truncation_string]
+    if trunc_string in ["T1", "T1p"]:
+        link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR
+    elif trunc_string in ["T2"]:
+        link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
+    else:
+        raise ValueError(f"Unknown irrep truncation: '{trunc_string}'.")
 
     # Create an encoder for converting between physical states and bit strings.
     lattice_encoder = LatticeStateEncoder(link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap)
@@ -205,8 +214,7 @@ if __name__ == "__main__":
             # Aggregate data.
             current_sim_idx = (n_trotter_steps, sim_time)
             print(f"Setting data for {current_sim_idx}.")
-            for little_endian_state, counts in counts_dict_big_endian.items():
-                big_endian_state = little_endian_state[::-1]
+            for big_endian_state, counts in counts_dict_big_endian.items():
                 df_job_results.loc[current_sim_idx, big_endian_state] = counts
             # Make sure vacuum state data exists.
             if current_vacuum_state not in counts_dict_big_endian.keys():
@@ -218,7 +226,7 @@ if __name__ == "__main__":
                 avg_electric_energy = 0
                 for state, counts in counts_dict_big_endian.items():
                     print("Encoded state:", state)
-                    avg_electric_energy += convert_bitstring_to_evalue(state, link_bitmap, vertex_bitmap) * (counts / n_shots) / lattice.n_links
+                    avg_electric_energy += convert_bitstring_to_evalue(state, lattice_encoder, note_unphysical_states, stop_on_unphysical_states) * (counts / n_shots) / lattice.n_links
                 df_job_results.loc[current_sim_idx, "electric_energy"] = avg_electric_energy
 
             print("Updated df:\n", df_job_results)
