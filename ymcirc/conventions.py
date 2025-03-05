@@ -333,7 +333,6 @@ class LatticeStateEncoder:
             raise TypeError(f"The lattice argument must be an instance of {LatticeDef.__name__}. Received: {type(lattice)}.")
         if not consistent_num_controls_in_plaquette_states is True:
             raise ValueError("All physical plaquette states must have the same number of controls.")
-        
 
         # Now construct the vertex multiplicity bitmap, and infer qubit counts per DoFs.
         max_zero_indexed_multiplicity = max([current_vertex for vertices, a_links, c_links in physical_plaquette_states for current_vertex in vertices])
@@ -356,7 +355,6 @@ class LatticeStateEncoder:
             (4 * (self._expected_vertex_bit_string_length + self._expected_link_bit_string_length)) \
             + (n_total_control_links * self._expected_link_bit_string_length)
 
-
         # Check all bitmaps for consistency of length of bit string encodings.
         if any(len(bit_string) != self._expected_vertex_bit_string_length for bit_string in vertex_bitmap.values()):
             raise ValueError(f"Expecting length {self._expected_vertex_bit_string_length} vertex bit strings. Encountered: {list(vertex_bitmap.values())}.")
@@ -368,7 +366,13 @@ class LatticeStateEncoder:
         self._vertex_bitmap = vertex_bitmap
         self._bit_string_to_vertex_map = {bit_string: vertex for vertex, bit_string in vertex_bitmap.items()}
         self._bit_string_to_link_map = {bit_string: link for link, bit_string in link_bitmap.items()}
-        self._lattice = lattice # Should NOT mutate this ever!
+        # TODO The following conditional is a placeholder to deal with LatticeDef not yet supporting size tuples, remove eventually.
+        if lattice.dim == 1.5:
+            self._lattice = LatticeDef(lattice.dim, lattice.shape[0], lattice.periodic_boundary_conds)  # Make a new instance to avoid mutating user data!
+        elif not all([axis_length == lattice.shape[0] for axis_length in lattice.shape]):  
+            raise NotImplementedError("Lattices with different lengths along different dimensions not yet supported.")
+        else:
+            self._lattice = LatticeDef(lattice.dim, lattice.shape[0], lattice.periodic_boundary_conds)  # Make a new instance to avoid mutating user data!
 
     @property
     def vertex_bitmap(self) -> VertexMultiplicityBitmap:
