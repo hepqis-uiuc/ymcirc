@@ -977,6 +977,77 @@ def _test_n_plaquettes_whole_lattice():
         assert lattice.n_plaquettes == expected_n_plaquettes, f"Test failed: lattice has {lattice.n_plaquettes} unique plaquettes, expected {expected_n_plaquettes} unique plaquettes."
         print("Test passed.")
 
+# TODO there need to be tests for control link ordering in higher dimensions.
+def _test_control_link_registers_have_correct_ordering():
+    print("Checking that the ordering of control link registers matches expectations.\n")
+
+    cases_dict = {
+        "d=3/2, large lattice (no register repetitions)": {
+            "lattice registers": LatticeRegisters(1.5, 3),
+            "bottom left vertex": (1, 0),
+            "expected control link names ordered": [
+                "l:((0, 0), 1)",
+                "l:((2, 0), 1)",
+                "l:((2, 1), 1)",
+                "l:((0, 1), 1)"
+            ]
+        },
+        "d=3/2, small lattice (with register repetitions)": {
+            "lattice registers": LatticeRegisters(1.5, 2),
+            "bottom left vertex": (1, 0),
+            "expected control link names ordered": [
+                "l:((0, 0), 1)",
+                "l:((0, 0), 1)",
+                "l:((0, 1), 1)",
+                "l:((0, 1), 1)"
+            ]
+        },
+        "d=2, large lattice (no register repetitions)": {
+            "lattice registers": LatticeRegisters(2, 10),
+            "bottom left vertex": (4, 6),
+            "expected control link names ordered": [
+                "l:((3, 6), 1)",
+                "l:((4, 5), 2)",
+                "l:((5, 5), 2)",
+                "l:((5, 6), 1)",
+                "l:((5, 7), 1)",
+                "l:((5, 7), 2)",
+                "l:((4, 7), 2)",
+                "l:((3, 7), 1)",
+            ]
+        },
+        "d=2, small lattice (with register repetitions)": {
+            "lattice registers": LatticeRegisters(2, 2),
+            "bottom left vertex": (0, 0),
+            "expected control link names ordered": [
+                "l:((1, 0), 1)",
+                "l:((0, 1), 2)",
+                "l:((1, 1), 2)",
+                "l:((1, 0), 1)",
+                "l:((1, 1), 1)",
+                "l:((1, 1), 2)",
+                "l:((0, 1), 2)",
+                "l:((1, 1), 1)",
+            ]
+        },
+    }
+
+    for case_name, case_data in cases_dict.items():
+        print(f"Case: {case_name}.")
+        result_plaquette = case_data["lattice registers"].get_plaquettes(
+            lattice_vector=case_data["bottom left vertex"],
+            e1=1,
+            e2=2
+        )
+        result_control_link_registers_ordered = result_plaquette.control_links_ordered
+        print(f"Examining plaquette with bottom-left vertex {result_plaquette.bottom_left_vertex} in the {result_plaquette.plane}-plane.")
+        assert len(result_control_link_registers_ordered) == len(case_data["expected control link names ordered"]), "Length mismatch in number of control link registers."
+        for control_link_register, expected_register_name in zip(result_control_link_registers_ordered, case_data["expected control link names ordered"]):
+            print(f"Expected register {expected_register_name}, encountered {control_link_register.name}.")
+            assert control_link_register.name == expected_register_name, "Link mismatch occured."
+
+        print("Test passed.\n")
+
 
 def _run_tests():
     """
@@ -1037,6 +1108,8 @@ def _run_tests():
     _test_n_qubits_whole_lattice()
     print()
     _test_n_plaquettes_whole_lattice()
+    print()
+    _test_control_link_registers_have_correct_ordering()
 
     print("All tests passed.")
 

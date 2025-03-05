@@ -63,6 +63,11 @@ class Plaquette(Generic[T]):
             Retrieve a length-2 tuple of lattice unit vectors defining the plane of the lattice.
     """
 
+    _CONTROL_LINK_DIRS_PER_VERTEX_MAP: dict[DimensionalitySpecifier, Tuple[Tuple[int, ...], ...]] = {
+            1.5: ((-1,), (1,), (1,), (-1,)),
+            2: ((-1, -2), (-2, 1), (1, 2), (2, -1))
+        }
+
     def __init__(
             self,
             lattice: LatticeData,
@@ -89,9 +94,11 @@ class Plaquette(Generic[T]):
             vertices_ccw.append(lattice.add_unit_vector_to_vertex_vector(vertices_ccw[-1], step))
         link_steps_ccw = [e1, e2, -e1, -e2]
         self._vertices = tuple([lattice.get_vertex(v) for v in vertices_ccw])
+        self._ordered_vertex_vectors = vertices_ccw
         self._active_links = tuple([lattice.get_link(link_address) for link_address in zip(vertices_ccw, link_steps_ccw)])
+        self._lattice = lattice  # DO NOT MUTATE THIS.
 
-        # Construct the control link dict.
+        # Construct the control link dict, and ordered control link tuple.
         all_pos_and_neg_link_dirs = set(lattice_direction_labels + [(-1)*dir for dir in lattice_direction_labels])
         active_link_dirs_per_vertex = {
             vertices_ccw[0]: [e1, e2],
@@ -120,12 +127,12 @@ class Plaquette(Generic[T]):
 
     @property
     def active_links(self) -> tuple[T, T, T, T]:
-        """Retrieve the data on the active links."""
+        """Retrieve the data on the active links in counter-clockwise order."""
         return self._active_links
 
     @property
     def vertices(self) -> tuple[T, T, T, T]:
-        """Retrieve the data on the vertices."""
+        """Retrieve the data on the vertices in counter-clockwise order."""
         return self._vertices
 
     @property
@@ -133,6 +140,48 @@ class Plaquette(Generic[T]):
         """Retrieve the address dictionary for all the control links."""
         return self._control_links
 
+    @property
+    def control_links_ordered(self) -> tuple[T, ...]:
+        """
+        Retrieve the data on the control links in "standard" order.
+
+        A "counter-clockwise" convention is used to order the control links
+        stating with the bottom-left vertex.
+
+        In d=3/2, a length-4 tuple is returned
+        with the following order:
+
+        4 ------------- 3
+              |   |
+        1 ------------- 2
+
+        In d=2, a length-eight tuple is returned with the following
+        order:
+
+              7   6
+              |   |
+        8 ------------- 5
+              |   |
+        1 ------------- 4
+              |   |
+              2   3
+
+        In d=3, a length-16 tuple is returned where items 1-8 follow d=2 ordering.
+        Items 9-12 are the links "above" the plaquette as determined by the right
+        hand rule, going counter-clockwise starting from the bottom left vertex.
+        Items 13-16 are analogously the links "below" the plaquette.
+        """
+        control_links_ordered = []
+        try:
+            control_link_dirs_per_vertex = Plaquette._CONTROL_LINK_DIRS_PER_VERTEX_MAP[self._lattice.dim]
+        except KeyError:
+            raise NotImplementedError(f"Control link ordering for dim-{self._lattice.dim} plaquettes not yet implemented")
+        for vertex_idx, vertex_vector in enumerate(self._ordered_vertex_vectors):
+            for link_dir in control_link_dirs_per_vertex[vertex_idx]:
+                control_links_ordered.append(self._lattice.get_link((vertex_vector, link_dir)))
+
+        return tuple(control_links_ordered)
+         
     @property
     def bottom_left_vertex(self) -> LatticeVector:
         """Retrieve the address for the bottom-left vertex."""
