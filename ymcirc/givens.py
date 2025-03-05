@@ -75,7 +75,7 @@ def givens(
 
         # Construct the pre- and post-MCRX circuits.
         Xcirc = _build_Xcirc(
-            bitstring_value_of_LP_family(compute_LP_family), control=target
+            bitstring_value_of_LP_family(compute_LP_family(bit_string_1,bit_string_2)), control=target
         )
 
         # Add multiRX to the circuit, specifying
@@ -95,8 +95,8 @@ def givens(
 def givens_fused_controls(
     lp_bin_w_angle: List[(str, str, float)],
     lp_bin_value: str,
+    physical_control_qubits: Dict[(str, str), Set[int | Qubit]],
     reverse: bool = False,
-    physical_control_qubits: Dict[(str, str), Set[int | Qubit]] | None = None,
 ) -> QuantumCircuit:
     """
     Implements givens rotation using the same logic as the givens function but for fused multiRX's.
@@ -150,7 +150,6 @@ def givens_fused_controls(
         )
         for angle, ctrl_list in angle_dict.items():
             for ctrls, ctrl_state in ctrl_list:
-                ctrl_state = ctrl_state[::-1]
                 multiRX = RXGate(angle).control(
                     num_ctrl_qubits=len(ctrls), ctrl_state=ctrl_state
                 )
@@ -1407,11 +1406,11 @@ def _test_givens_fused_controls():
         [0, 2, 3, 4, 5, 6, 7, 1],
     )
     expected_circuit.append(
-        RXGate(1.0).control(num_ctrl_qubits=6, ctrl_state="000100"),
+        RXGate(1.0).control(num_ctrl_qubits=6, ctrl_state="001000"),
         [0, 2, 3, 5, 6, 7, 1],
     )
     expected_circuit.append(
-        RXGate(1.0).control(num_ctrl_qubits=5, ctrl_state="10010"), [0, 2, 3, 4, 5, 1]
+        RXGate(1.0).control(num_ctrl_qubits=5, ctrl_state="01001"), [0, 2, 3, 4, 5, 1]
     )
     expected_circuit.append(
         RXGate(1.0).control(num_ctrl_qubits=7, ctrl_state="0101010"),

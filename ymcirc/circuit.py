@@ -6,7 +6,7 @@ from __future__ import annotations
 import copy
 from ymcirc.conventions import LatticeStateEncoder
 from ymcirc.lattice_registers import LatticeRegisters
-from ymcirc.givens import givens, prune_controls, bitstring_value_of_LP_family, givens_fused_controls, compute_LP_family
+from ymcirc.givens import givens, prune_controls, bitstring_value_of_LP_family, givens_fused_controls, compute_LP_family, binary_to_gray
 from ymcirc._abstract.lattice_data import Plaquette
 from math import ceil
 from qiskit import transpile
@@ -249,9 +249,11 @@ class LatticeCircuitManager:
                             encoded_physical_states=physical_states_for_control_pruning,
                         )
                             pruning_dict[(bit_string_1,bit_string_2)] = pruned_controls
+                    # sort according to gray-order
+                    gray_ordered_lp_bin = {k: lp_bin[k] for k in sorted(lp_bin.keys(), key = lambda x: binary_to_gray(x))}
                     # apply control fusion to each LP family
-                    for lp_fam_bs, lp_bin_w_angle in lp_bin.items():
-                        plaquette_local_rotation_circuit = givens_fused_controls(lp_bin_w_angle,lp_fam_bs,pruned_controls)
+                    for lp_fam_bs, lp_bin_w_angle in gray_ordered_lp_bin.items():
+                        plaquette_local_rotation_circuit = givens_fused_controls(lp_bin_w_angle,lp_fam_bs,pruning_dict)
                         if optimize_circuits is True:
                             plaquette_local_rotation_circuit = transpile(
                                 plaquette_local_rotation_circuit, optimization_level=3

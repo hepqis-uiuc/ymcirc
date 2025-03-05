@@ -53,11 +53,11 @@ SIM_RESULTS_DIR.mkdir(exist_ok=True)
 # Configure simulation parameters and data.
 do_electric_evolution = True
 do_magnetic_evolution = True
-#dimensionality_and_truncation_string = "d=2, T1"
+# dimensionality_and_truncation_string = "d=2, T1"
 dimensionality_and_truncation_string = "d=3/2, T1"
 trunc_string = dimensionality_and_truncation_string[-2:]
 dimensions = 1.5
-linear_size = 2  # To indirectly control the number of plaquettes
+linear_size = 3  # To indirectly control the number of plaquettes
 coupling_g = 1.0
 mag_hamiltonian_matrix_element_threshold = 0.9 # Drop all matrix elements that have an abs value less than this.
 run_circuit_optimization = False
@@ -67,6 +67,7 @@ sim_times = np.linspace(0.05, 2.5, num=20) # set num to 20 for comparison with t
 only_include_elems_connected_to_electric_vacuum = False
 use_2box_hack = False  # Halves circuit depth by taking box + box^dagger = 2box. Only true if all nonzero matrix elements have the same magnitude.
 prune_controls = True
+control_fusion = True
 n_shots = 10000
 
 # Specify plotting options if desired, and whether to save plots/circuits/data to disk
@@ -115,7 +116,7 @@ if __name__ == "__main__":
     else:
         physical_plaquette_states = None
         print("Skipping control pruning.")
-    breakpoint()
+    # breakpoint()
 
     # TODO generate all parameterized givens rotation circuits here?
 
@@ -165,7 +166,8 @@ if __name__ == "__main__":
                         coupling_g=coupling_g,
                         dt=dt,
                         optimize_circuits=run_circuit_optimization,
-                        physical_states_for_control_pruning=physical_plaquette_states
+                        physical_states_for_control_pruning=physical_plaquette_states,
+                        control_fusion= control_fusion
                     )
 
                 if do_electric_evolution is True:
@@ -183,7 +185,7 @@ if __name__ == "__main__":
             master_circuit = transpile(master_circuit, optimization_level=3)
             print("Gate counts:\n", master_circuit.count_ops())
 
-            # breakpoint()
+            breakpoint()
 
             if save_circuits_qasm is True:
                 qasm_file_path = SERIALIZED_CIRCUITS_DIR / Path(f"qasm-{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}-vac_connected_only={only_include_elems_connected_to_electric_vacuum}/n_trotter={n_trotter_steps}-t={sim_time}.qasm")
