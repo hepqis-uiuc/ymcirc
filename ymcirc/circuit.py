@@ -249,9 +249,16 @@ class LatticeCircuitManager:
                             encoded_physical_states=physical_states_for_control_pruning,
                         )
                             pruning_dict[(bit_string_1,bit_string_2)] = pruned_controls
+                        else:
+                            pruned_controls = None
                     # apply control fusion to each LP family
                     for lp_fam_bs, lp_bin_w_angle in lp_bin.items():
-                        plaquette_local_rotation_circuit = givens_fused_controls(lp_bin_w_angle, lp_fam_bs, pruned_controls)
+                        plaquette_local_rotation_circuit = givens_fused_controls(
+                            lp_bin_w_angle=lp_bin_w_angle,
+                            lp_bin_value=lp_fam_bs,
+                            reverse=False,
+                            physical_control_qubits=pruned_controls
+                        )
                         if optimize_circuits is True:
                             plaquette_local_rotation_circuit = transpile(
                                 plaquette_local_rotation_circuit, optimization_level=3
@@ -262,7 +269,6 @@ class LatticeCircuitManager:
                             qubits=[*vertex_qubits, *link_qubits],
                             inplace=True,
                         )
-
                 else:
                     for bit_string_1, bit_string_2, matrix_elem in self._mag_hamiltonian:
                         if physical_states_for_control_pruning is not None:
@@ -280,7 +286,7 @@ class LatticeCircuitManager:
                             bit_string_1,
                             bit_string_2,
                             angle,
-                            reverse=True,
+                            reverse=False,
                             physical_control_qubits=physical_control_qubits,
                         )
                         if optimize_circuits is True:
