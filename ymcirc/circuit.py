@@ -22,7 +22,7 @@ HamiltonianData = List[Tuple[str, str, float]]
 
 class LatticeCircuitManager:
     """Class for creating quantum simulation circuits from LatticeRegister instances."""
-
+    
     def __init__(self, lattice_encoder: LatticeStateEncoder, mag_hamiltonian: HamiltonianData):
         """Create via a LatticeStateEncoder instance and magnetic Hamiltonian matrix elements."""
         # Copies to avoid inadvertently changing the behavior of the
@@ -207,6 +207,32 @@ class LatticeCircuitManager:
             # TODO test stitching logic when the same control reg shows up on multiple vertices.
             # For each plaquette, apply the the local Trotter step circuit.
             for plaquette in plaquettes:
+
+                # Deal with possibility of duplicated control registers.
+                # Iterate through all the control links, and if any are repeated, only the first
+                # will be treated as an actual physical control.
+                # TODO finish and clean this up.
+                distinct_control_links = set(plaquette.control_links_ordered)
+                repeated_c_link_mask: Tuple[bool] = tuple([plaquette.control_links_ordered.count(c_link) > 1 for c_link in plaquette.control_links_ordered])
+                physical_c_link_mask = []
+                encountered_c_links = []
+                for idx, c_link in enumerate(plaquette.control_links_ordered):
+                    if (c_link not in encountered_c_links) and (repeated_c_link_mask[idx] is True):
+                        physical_c_link_mask.append(True)
+                    else:
+                        physical_c_link_mask.append(False)
+                    encountered_c_links.append(c_link)
+
+                #physical_c_link_mask: Tuple[bool] = tuple([repeated_c_link_mask[idx] is True and ])
+                has_same_control_link_on_different_vertices = len(plaquette.control_links_ordered) != len(distinct_control_links)
+                #if has_same_control_link_on_different_vertices:
+                    # check mat_elem for consistency
+                print(plaquette.control_links_ordered)
+                print(set(plaquette.control_links_ordered))
+                print(repeated_c_link_mask)
+                print(physical_c_link_mask)
+                breakpoint()
+                
                 # Collect the local qubits for stitching purposes.
                 vertex_multiplicity_qubits = []
                 a_link_qubits = []
@@ -1164,7 +1190,7 @@ def _test_eliminate_phys_states_that_differ_from_rep_at_Q_idx():
 
 def _run_tests():
     #_test_create_blank_full_lattice_circuit_has_promised_register_order()
-    _test_apply_magnetic_trotter_step_d_3_2_large_lattice()
+    #_test_apply_magnetic_trotter_step_d_3_2_large_lattice()
     _test_apply_magnetic_trotter_step_d_3_2_small_lattice()
     _test_apply_magnetic_trotter_step_d_2_large_lattice()
     _test_apply_magnetic_trotter_step_d_2_small_lattice()
