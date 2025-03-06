@@ -18,7 +18,7 @@ from ymcirc._abstract.lattice_data import Plaquette
 from math import ceil
 from qiskit import transpile
 from qiskit.circuit import QuantumCircuit, QuantumRegister
-from typing import List, Tuple, Set, Union
+from typing import List, Tuple, Set, Union, Dict
 import numpy as np
 
 # A list of tuples: (state bitstring1, state bitstring2, matrix element)
@@ -173,6 +173,7 @@ class LatticeCircuitManager:
         optimize_circuits: bool = True,
         physical_states_for_control_pruning: Union[None | Set[str]] = None,
         control_fusion: bool = False,
+        gray_order: bool = False,
     ) -> None:
         """
         Add one magnetic Trotter step to the entire lattice circuit.
@@ -200,7 +201,10 @@ class LatticeCircuitManager:
                                     If provided, control pruning of multi-control rotation
                                     gate inside Givens rotation subcircuits will be attempted.
                                     If None, no control pruning is attempted.
-
+          - control_fusion: Optional boolian argument with the default set to False. If it's set
+             to be True, then the multi-RX controls in one LP family are fused whenever possible.
+          - gray_order: Optional boolian argument with default set to False. When it's set to be true,
+            the Givens rotations are ordered in a gray-code order of the LP families.  
         Returns:
           A new QuantumCircuit instance which is master_circuit with the
           Trotter step appended.
@@ -237,88 +241,108 @@ class LatticeCircuitManager:
                     for qubit in register:
                         link_qubits.append(qubit)
 
-                # Append a Givens rotation circuit for each magnetic Hamiltonian
-                # matrix element.
-                if control_fusion is True:
-                    # sort bitstrings corresponding to transitions in the magnetic hamiltonian into LP bins
-                    lp_bin = {}
-                    pruning_dict = {}
-                    for (
-                        bit_string_1,
-                        bit_string_2,
-                        matrix_elem,
-                    ) in self._mag_hamiltonian:
-                        angle = -matrix_elem * (1 / (2 * (coupling_g**2))) * dt
-                        lp_bs_value = bitstring_value_of_LP_family(
-                            compute_LP_family(bit_string_1, bit_string_2)
-                        )
-                        if lp_bs_value not in lp_bin.keys():
-                            lp_bin[lp_bs_value] = []
-                        lp_bin[lp_bs_value].append((bit_string_1, bit_string_2, angle))
-                        if physical_states_for_control_pruning is not None:
-                            pruned_controls = prune_controls(
-                                bit_string_1=bit_string_1,
-                                bit_string_2=bit_string_2,
-                                encoded_physical_states=physical_states_for_control_pruning,
-                            )
-                            pruning_dict[(bit_string_1, bit_string_2)] = pruned_controls
-                        else:
-                            pruned_controls = None
+                # Sort the bitstrings corresponding to transitions in the magnetic hamiltonian
+                # into LP bins. This step also simultaneously finds pruned controls for each
+                # transition and stores it in a dictionary.
+                lp_bin, pruning_dict = (
+                    LatticeCircuitManager._sort_matrix_elements_into_lp_bins(
+                        self._mag_hamiltonian,
+                        physical_states_for_control_pruning,
+                        coupling_g,
+                        dt,
+                    )
+                )
+
+                if gray_order is True:
                     # sort according to gray-order
-                    gray_ordered_lp_bin = {
+                    lp_bin = {
                         k: lp_bin[k]
                         for k in sorted(lp_bin.keys(), key=lambda x: binary_to_gray(x))
                     }
-                    # apply control fusion to each LP family
-                    for lp_fam_bs, lp_bin_w_angle in gray_ordered_lp_bin.items():
+                # iterate over all LP bins and apply givens rotation.
+                for lp_fam_bs, lp_bin_w_angle in lp_bin.items():
+                    if control_fusion is True:
                         plaquette_local_rotation_circuit = givens_fused_controls(
                             lp_bin_w_angle, lp_fam_bs, pruning_dict
                         )
-                        if optimize_circuits is True:
-                            plaquette_local_rotation_circuit = transpile(
-                                plaquette_local_rotation_circuit, optimization_level=3
-                            )
-                        # Stitch the Givens rotation into master circuit.
-                        master_circuit.compose(
-                            plaquette_local_rotation_circuit,
-                            qubits=[*vertex_qubits, *link_qubits],
-                            inplace=True,
+                    else:
+                        # if control fusion is turned off, givens rotation is applied individually
+                        # to all bistrings.
+                        plaquette_local_rotation_circuit = QuantumCircuit(
+                            len(lp_bin_w_angle[0][0])
                         )
-                else:
-                    for (
-                        bit_string_1,
-                        bit_string_2,
-                        matrix_elem,
-                    ) in self._mag_hamiltonian:
-                        if physical_states_for_control_pruning is not None:
-                            physical_control_qubits = prune_controls(
-                                bit_string_1=bit_string_1,
-                                bit_string_2=bit_string_2,
-                                encoded_physical_states=physical_states_for_control_pruning,
+                        for bs1, bs2, angle in lp_bin_w_angle:
+                            bs1_bs2_circuit = givens(
+                                bs1,
+                                bs2,
+                                angle,
+                                physical_control_qubits=pruning_dict[(bs1, bs2)],
                             )
-                        else:
-                            physical_control_qubits = None
-                        angle = -matrix_elem * (1 / (2 * (coupling_g**2))) * dt
-                        # We use the reverse argument to account for the little-endianness
-                        # of QuantumRegisters implemented by qiskit.
-                        plaquette_local_rotation_circuit = givens(
-                            bit_string_1,
-                            bit_string_2,
-                            angle,
-                            reverse=False,
-                            physical_control_qubits=physical_control_qubits,
+                            plaquette_local_rotation_circuit.compose(
+                                bs1_bs2_circuit, inplace=True
+                            )
+                    if optimize_circuits is True:
+                        plaquette_local_rotation_circuit = transpile(
+                            plaquette_local_rotation_circuit, optimization_level=3
                         )
-                        if optimize_circuits is True:
-                            plaquette_local_rotation_circuit = transpile(
-                                plaquette_local_rotation_circuit, optimization_level=3
-                            )
+                    # Stitch the Givens rotation into master circuit.
+                    master_circuit.compose(
+                        plaquette_local_rotation_circuit,
+                        qubits=[*vertex_qubits, *link_qubits],
+                        inplace=True,
+                    )
 
-                        # Stitch the Givens rotation into master circuit.
-                        master_circuit.compose(
-                            plaquette_local_rotation_circuit,
-                            qubits=[*vertex_qubits, *link_qubits],
-                            inplace=True,
-                        )
+    @staticmethod
+    def _sort_matrix_elements_into_lp_bins(
+        bitstrings_w_matrix_element: List[(str, str, float)],
+        physical_states_for_control_pruning: Union[None | Set[str]],
+        coupling_g: float,
+        dt: float,
+    ) -> Tuple[Dict[str, List[(str, str)]], Dict[(str, str), Set[int]]]:
+        """
+        This function does three things:
+        1. Sorts tuples of bitstrings into LP bins.
+        2. Computes angle of Givens rotation from matrix element
+        3. Finds pruned controls for bitstring tuples if 
+            physical_states_for_control_pruning is not None.
+
+        Input:
+            - bitstring_w_matrix_element: this is of the form (bs1,bs2,matrix_element)
+                where bs1 is the initial state, bs2 is the final state, and matrix_element
+                is the amplitude of transition.
+            - physical_states_for_control_pruning: physical_states utilized in control pruning.
+            - coupling_g: value of coupling constant being used.
+            - dt: timestep being used.
+
+        Output:
+            - dictionary where each key is a LP bin, and the corresponding value is a list of transitions
+                that have the same LP value.
+            - dictionary where each key is a tuple of bitstrings, and the entry is a set of pruned controls. 
+        """
+        lp_bin = {}
+        pruning_dict = {}
+        for (
+            bit_string_1,
+            bit_string_2,
+            matrix_elem,
+        ) in bitstrings_w_matrix_element:
+            angle = -matrix_elem * (1 / (2 * (coupling_g**2))) * dt
+            lp_bs_value = bitstring_value_of_LP_family(
+                compute_LP_family(bit_string_1, bit_string_2)
+            )
+            if lp_bs_value not in lp_bin.keys():
+                lp_bin[lp_bs_value] = []
+            lp_bin[lp_bs_value].append((bit_string_1, bit_string_2, angle))
+            if physical_states_for_control_pruning is not None:
+                pruned_controls = prune_controls(
+                    bit_string_1=bit_string_1,
+                    bit_string_2=bit_string_2,
+                    encoded_physical_states=physical_states_for_control_pruning,
+                )
+                pruning_dict[(bit_string_1, bit_string_2)] = pruned_controls
+            else:
+                pruning_dict[(bit_string_1, bit_string_2)] = None
+        return lp_bin, pruning_dict
 
 
 def _test_create_blank_full_lattice_circuit_has_promised_register_order():
