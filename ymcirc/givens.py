@@ -114,9 +114,9 @@ def givens(
         )
 
         # Construct the pre- and post-MCRX circuits.
-        Xcirc = _build_Xcirc(
-            bitstring_value_of_LP_family(compute_LP_family(bit_string_1, bit_string_2)), control=target
-        )
+        lp_family = compute_LP_family(bit_string_1, bit_string_2)
+        lp_family_bit_string = bitstring_value_of_LP_family(lp_family)
+        Xcirc = _build_Xcirc(lp_family_bit_string, control=target)
 
         # Add multiRX to the circuit, specifying
         # The proper control locations and target location
@@ -157,10 +157,9 @@ def givens_fused_controls(
     for bit_string_1, bit_string_2, angle in lp_bin_w_angle:
         if len(bit_string_1) != len(bit_string_2):
             raise ValueError("Bit strings must be the same length.")
-        lp_bin_matches = (
-            bitstring_value_of_LP_family(compute_LP_family(bit_string_1, bit_string_2))
-            == lp_bin_value
-        )
+        bs1_bs2_lp_family = compute_LP_family(bit_string_1, bit_string_2)
+        bs1_bs2_lp_family_bitstring_value = bitstring_value_of_LP_family(bs1_bs2_lp_family)
+        lp_bin_matches = bs1_bs2_lp_family_bitstring_value== lp_bin_value
         if lp_bin_matches is False:
             return ValueError(
                 "The LP value of the bitstrings should match with the LP bin value"
@@ -211,6 +210,7 @@ def _build_multiRX(
     angle: float,
     target: int,
     physical_control_qubits: Set[int | Qubit] | None,
+    ctrl_list: Tuple[List[int],str] | None = None
 ) -> Tuple[List[int], str, QuantumCircuit]:
     """
     Build the multi-control RX gate (MCRX) in Givens rotations.
@@ -990,7 +990,9 @@ def _test_Xcirc():
     Xcirc_expected = QuantumCircuit(7)
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=5)
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=6)
-    Xcirc = _build_Xcirc(bitstring_value_of_LP_family(compute_LP_family(bs1, bs2)), control_qubit)
+    lp_fam = compute_LP_family(bs1, bs2)
+    lp_fam_bitstring = bitstring_value_of_LP_family(lp_fam)
+    Xcirc = _build_Xcirc(lp_fam_bitstring, control_qubit)
 
     assert Xcirc_expected == Xcirc, (
         "Encountered inequivalent circuits. Expected:\n"
@@ -1009,7 +1011,9 @@ def _test_Xcirc():
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=2)
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=4)
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=9)
-    Xcirc = _build_Xcirc(bitstring_value_of_LP_family(compute_LP_family(bs1, bs2)), control_qubit)
+    lp_fam = compute_LP_family(bs1, bs2)
+    lp_fam_bitstring = bitstring_value_of_LP_family(lp_fam)
+    Xcirc = _build_Xcirc(lp_fam_bitstring, control_qubit)
 
     assert Xcirc_expected == Xcirc, (
         "Encountered inequivalent circuits. Expected:\n"
