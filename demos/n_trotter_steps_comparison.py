@@ -59,7 +59,7 @@ dim_string, trunc_string = dimensionality_and_truncation_string.split(",")
 dim_string = dim_string.strip()
 trunc_string = trunc_string.strip()
 dimensions = 1.5
-linear_size = 3  # To indirectly control the number of plaquettes
+linear_size = 2  # To indirectly control the number of plaquettes
 coupling_g = 1.0
 mag_hamiltonian_matrix_element_threshold = 0.9 # Drop all matrix elements that have an abs value less than this.
 run_circuit_optimization = False
@@ -71,7 +71,8 @@ use_2box_hack = False  # Halves circuit depth by taking box + box^dagger = 2box.
 note_unphysical_states = True  # Emit warning when decoding unphysical plaquette states. Assign 0.0 electric energy.
 stop_on_unphysical_states = False  # Raise an error when decoding unphysical unphysical states. Terminate simulation.
 prune_controls = True
-control_fusion = True
+control_fusion = False
+gray_order = True
 n_shots = 10000
 
 # Specify plotting options if desired, and whether to save plots/circuits/data to disk
@@ -176,7 +177,8 @@ if __name__ == "__main__":
                         dt=dt,
                         optimize_circuits=run_circuit_optimization,
                         physical_states_for_control_pruning=physical_plaquette_states,
-                        control_fusion= control_fusion
+                        control_fusion= control_fusion,
+                        gray_order=gray_order
                     )
 
                 if do_electric_evolution is True:
