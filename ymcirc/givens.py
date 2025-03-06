@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, FrozenInstanceError
 from qiskit import QuantumCircuit
 from qiskit.circuit import Qubit
+from qiskit.circuit import ControlledGate
 from qiskit.circuit.library.standard_gates import RXGate
 from qiskit.quantum_info import Operator
 from random import random
@@ -189,9 +190,7 @@ def givens_fused_controls(
         )
         for angle, ctrl_list in angle_dict.items():
             for ctrls, ctrl_state in ctrl_list:
-                multiRX = RXGate(angle).control(
-                    num_ctrl_qubits=len(ctrls), ctrl_state=ctrl_state
-                )
+                multiRX = _CRXGate(len(ctrls), ctrl_state, angle)
                 circ.append(multiRX, ctrls + [target])
         Xcirc = _build_Xcirc(lp_bin_value, control=target)
 
@@ -211,7 +210,7 @@ def _build_multiRX(
     target: int,
     physical_control_qubits: Set[int | Qubit] | None,
     ctrl_list: Tuple[List[int],str] | None = None
-) -> Tuple[List[int], str, QuantumCircuit]:
+) -> Tuple[List[int], str, ControlledGate]:
     """
     Build the multi-control RX gate (MCRX) in Givens rotations.
 
@@ -273,13 +272,12 @@ def _build_multiRX(
 
     # Assemble MCRX gate.
     # Note that the final qubit is the target.
+    MCRXGate = _CRXGate(len(physical_ctrls),ctrl_state,angle)
     return (
         physical_ctrls,
         ctrl_state,
-        RXGate(angle).control(
-            num_ctrl_qubits=len(physical_ctrls), ctrl_state=ctrl_state
-        ),
-    )
+        MCRXGate
+        )
 
 
 def _build_Xcirc(bs_of_lp_fam_little_endian: str, control: int) -> QuantumCircuit:
@@ -793,6 +791,10 @@ def _eliminate_phys_states_that_differ_from_rep_at_Q_idx(
             phys_states_set,
         )
     )
+
+def _CRXGate(num_ctrls: int, ctrl_state: str, angle: float) -> ControlledGate:
+    """ Returns a RXGate given num_ctrls and ctrl_state"""
+    return RXGate(angle).control(num_ctrl_qubits=num_ctrls,ctrl_state=ctrl_state)
 
 
 def bitstring_value_of_LP_family(lp_fam: List[str] | LPFamily) -> str:
