@@ -300,6 +300,8 @@ class LatticeCircuitManager:
         dt: float,
     ) -> Tuple[Dict[str, List[(str, str)]], Dict[(str, str), Set[int]]]:
         """
+        Rearrange magnetic Hamiltonian matrix elements to LP family bins.
+
         This function does three things:
         1. Sorts tuples of bitstrings into LP bins.
         2. Computes angle of Givens rotation from matrix element
@@ -307,7 +309,7 @@ class LatticeCircuitManager:
             physical_states_for_control_pruning is not None.
 
         Input:
-            - bitstring_w_matrix_element: this is of the form (bs1,bs2,matrix_element)
+            - bitstring_w_matrix_element: this is of the form (bs1, bs2, matrix_element)
                 where bs1 is the initial state, bs2 is the final state, and matrix_element
                 is the amplitude of transition.
             - physical_states_for_control_pruning: physical_states utilized in control pruning.
