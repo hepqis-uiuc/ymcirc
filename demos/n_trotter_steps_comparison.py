@@ -71,8 +71,7 @@ use_2box_hack = False  # Halves circuit depth by taking box + box^dagger = 2box.
 note_unphysical_states = True  # Emit warning when decoding unphysical plaquette states. Assign 0.0 electric energy.
 stop_on_unphysical_states = False  # Raise an error when decoding unphysical unphysical states. Terminate simulation.
 prune_controls = True
-control_fusion = False
-gray_order = True
+control_fusion = True
 n_shots = 10000
 
 # Specify plotting options if desired, and whether to save plots/circuits/data to disk
@@ -177,8 +176,8 @@ if __name__ == "__main__":
                         dt=dt,
                         optimize_circuits=run_circuit_optimization,
                         physical_states_for_control_pruning=physical_plaquette_states,
-                        control_fusion= control_fusion,
-                        gray_order=gray_order
+                        control_fusion=control_fusion,
+                        cache_mag_evol_circuit=True
                     )
 
                 if do_electric_evolution is True:
