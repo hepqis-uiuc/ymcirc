@@ -136,7 +136,7 @@ def givens(
 def givens_fused_controls(
     lp_bin_w_angle: List[(str, str, float)],
     lp_bin_value: str,
-    physical_control_qubits: Dict[(str, str), Set[int | Qubit]],
+    pruned_controls_dict: Dict[(str, str), Set[int | Qubit]],
     reverse: bool = False,
 ) -> QuantumCircuit:
     """
@@ -146,7 +146,7 @@ def givens_fused_controls(
         - lp_bin_w_angle: list of bitstrings of the same LP family and the angle they have to be rotated by.
         - lp_bin_value: bitstring value of LP bin
         - reverse: optional argument to deal with endianess issues
-        - physical_control_qubits: dictionary which provides pruned controls for bitstrings.
+        - pruned_controls_dict: dictionary which provides pruned controls for bitstrings.
 
     Output:
         QuantumCircuit object that has the necessary givens rotation.
@@ -160,10 +160,10 @@ def givens_fused_controls(
             raise ValueError("Bit strings must be the same length.")
         bs1_bs2_lp_family = compute_LP_family(bit_string_1, bit_string_2)
         bs1_bs2_lp_family_bitstring_value = bitstring_value_of_LP_family(bs1_bs2_lp_family)
-        lp_bin_matches = bs1_bs2_lp_family_bitstring_value== lp_bin_value
+        lp_bin_matches = bs1_bs2_lp_family_bitstring_value == lp_bin_value
         if lp_bin_matches is False:
             return ValueError(
-                "The LP value of the bitstrings should match with the LP bin value"
+                "The LP value of the bitstrings should match with the LP bin value."
             )
         no_rotation_is_needed = bit_string_1 == bit_string_2
         if no_rotation_is_needed:
@@ -186,7 +186,7 @@ def givens_fused_controls(
         # The proper control locations and target location
         # via a list of the qubit indices.
         angle_dict = fuse_controls(
-            lp_bin_value, lp_bin_w_angle, physical_control_qubits
+            lp_bin_value, lp_bin_w_angle, pruned_controls_dict
         )
         for angle, ctrl_list in angle_dict.items():
             for ctrls, ctrl_state in ctrl_list:
@@ -1444,7 +1444,7 @@ def _test_givens_fused_controls():
     pruned_controls[("00001000", "01000010")] = [0, 2, 3, 4, 5, 6, 7]
     bin_value = "10110101"
     generated_circuit = givens_fused_controls(
-        bitstring_list, bin_value, physical_control_qubits=pruned_controls
+        bitstring_list, bin_value, pruned_controls_dict=pruned_controls
     )
     expected_circuit = QuantumCircuit(8)
     expected_circuit.cx(1, 4)
