@@ -15,6 +15,7 @@ from qiskit.circuit import ControlledGate
 from qiskit.circuit.library.standard_gates import RXGate
 from qiskit.quantum_info import Operator
 from random import random
+from math import isclose
 import numpy as np
 import copy
 from scipy.linalg import expm
@@ -186,7 +187,7 @@ def givens_fused_controls(
         # The proper control locations and target location
         # via a list of the qubit indices.
         angle_dict = fuse_controls(
-            lp_bin_value, lp_bin_w_angle, pruned_controls_dict
+            lp_bin_value, lp_bin_w_angle, pruned_controls_dict, round_close_angles=True
         )
         for angle, ctrl_list in angle_dict.items():
             for ctrls, ctrl_state in ctrl_list:
@@ -590,6 +591,7 @@ def fuse_controls(
     bin_value: str,
     lp_bin_w_angle: List[(str, str, float)],
     pruned_controls: Union[Dict[List[(str, str)], Set[int]] | None] = None,
+    round_close_angles: bool = True
 ) -> Dict[float, tuple[List[int], str]]:
     """
     This function fuses the (pruned) controls of multiple multi-RX gates of the same LP family.
@@ -597,9 +599,13 @@ def fuse_controls(
     Input:
         - bin_value: The bitstring value of the LP family of the multi-RX gates.
         - lp_bin_w_angle: A list of the bitstrings that are to be givens-rotated.
-            The form of each list entry is (bitstring1, bitstring2, angle).
-        - pruned_controls: A dictionary which specifies which controls are to be pruned for a particular givens rotation. The entries in this
-            dictionary should be of the form pruned_controls[(bitstring1, bitstring2)] = list[int].
+                          The form of each list entry is (bitstring1, bitstring2, angle).
+        - pruned_controls: A dictionary which specifies which controls are to be
+                           pruned for a particular givens rotation. The entries in this
+                           dictionary should be of the form
+                           pruned_controls[(bitstring1, bitstring2)] = list[int].
+        - round_close_angles: boolean controling whether to use math.isclose to group angles together.
+                              uses rel_tol value of 1e-9.
 
     Output:
         - A dictionary in which the entries are fused controls binned according to angles. Each is of the form List[(controls,control_state)].
@@ -608,7 +614,7 @@ def fuse_controls(
     angle_bin = {}
     target = _determine_target_of_lp_bitstring(bin_value)
     # If a target couldn't be found, it means that the givens rotation is the identity rotation.
-    if target == None:
+    if target is None:
         return angle_bin
 
     # Check if the bitstrings are indeed in the LP family specified by the LP bin value.
@@ -622,6 +628,7 @@ def fuse_controls(
 
     # Step 1: build multiRX gates out of bitstrings, and bin them according to angles.
     for bitstring1, bitstring2, angle in lp_bin_w_angle:
+        # build the MCRX gate.
         if (
             pruned_controls != None
             and (bitstring1, bitstring2) in pruned_controls.keys()
@@ -637,11 +644,21 @@ def fuse_controls(
             ctrls, ctrl_state, multiRX = _build_multiRX(
                 bitstring1, bitstring2, angle, target, physical_control_qubits=None
             )
+
+        # Find or create an angle bin.
         if angle in angle_bin:
-            angle_bin[angle].append((ctrls, ctrl_state))
+            angle_bin_key = angle
+        elif round_close_angles is True:
+            angles_within_tol_of_current_angle = [angle_bin_val for idx, angle_bin_val in enumerate(angle_bin) if isclose(angle, angle_bin_val, rel_tol=1e-09)]
+            if len(angles_within_tol_of_current_angle) > 0:
+                angle_bin_key = angles_within_tol_of_current_angle[0]
+            else:
+                angle_bin_key = angle
+                angle_bin[angle_bin_key] = []
         else:
-            angle_bin[angle] = []
-            angle_bin[angle].append((ctrls, ctrl_state))
+            angle_bin_key = angle
+            angle_bin[angle_bin_key] = []
+        angle_bin[angle_bin_key].append((ctrls, ctrl_state))
 
     # Step 2: compare control qubits between all multiRX's. If there are some control qubits that differ,
     # perform decomposition on the controls that differ.
