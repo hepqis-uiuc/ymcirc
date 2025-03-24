@@ -296,26 +296,26 @@ class LatticeCircuitManager:
         # Sort the bitstrings corresponding to transitions in the magnetic hamiltonian
         # into LP bins. This step also simultaneously finds pruned controls for each
         # transition and stores it in a dictionary.
-        lp_bin, pruning_dict = (
+        lp_bin = (
                 LatticeCircuitManager._sort_matrix_elements_into_lp_bins(
                     self._mag_hamiltonian,
-                    physical_states_for_control_pruning,
                     coupling_g,
                     dt,
                 )
             )
-        if control_fusion is True:
-            # Sort according to Gray-order.
-            lp_bin = {
-                k: lp_bin[k]
-                for k in sorted(lp_bin.keys(), key=lambda x: binary_to_gray(x))
-            }
+        # CHECK
+        # if control_fusion is True:
+        #     #Sort according to Gray-order.
+        #     lp_bin = {
+        #         k: lp_bin[k]
+        #         for k in sorted(lp_bin.keys(), key=lambda x: binary_to_gray(bitstring_value_of_LP_family(x)))
+        #     }
         # iterate over all LP bins and apply givens rotation.
         plaquette_circ_n_qubits = len(self._mag_hamiltonian[0][0])  # TODO this is a disgusting way to get the size of the magnetic evol circuit per plaquette.
         plaquette_local_rotation_circuit = QuantumCircuit(plaquette_circ_n_qubits)
-        for lp_fam_bs, lp_bin_w_angle in lp_bin.items():
+        for lp_fam, lp_bin_w_angle in lp_bin.items():
             if control_fusion is True:
-                fused_circ_for_lp_fam = givens_fused_controls(lp_bin_w_angle, lp_fam_bs, pruning_dict)
+                fused_circ_for_lp_fam = givens_fused_controls(lp_bin_w_angle, lp_fam, physical_states_for_control_pruning)
                 plaquette_local_rotation_circuit.compose(fused_circ_for_lp_fam, inplace=True)
             else:
                 # If control fusion is turned off, givens rotation is applied individually
@@ -325,39 +325,35 @@ class LatticeCircuitManager:
                         bs1,
                         bs2,
                         angle,
-                        physical_control_qubits=pruning_dict[(bs1, bs2)],
+                        physical_states_for_control_pruning
                     )
                     plaquette_local_rotation_circuit.compose(
                         bs1_bs2_circuit, inplace=True
                     )
-            if optimize_circuits is True:
-                plaquette_local_rotation_circuit = transpile(
-                    plaquette_local_rotation_circuit, optimization_level=3
-                )
+            # if optimize_circuits is True:
+            #     plaquette_local_rotation_circuit = transpile(
+            #         plaquette_local_rotation_circuit, optimization_level=3
+            #     )
 
         return plaquette_local_rotation_circuit
 
     @staticmethod
     def _sort_matrix_elements_into_lp_bins(
         bitstrings_w_matrix_element: List[(str, str, float)],
-        physical_states_for_control_pruning: Union[None | Set[str]],
         coupling_g: float,
         dt: float,
     ) -> Tuple[Dict[str, List[(str, str)]], Dict[(str, str), Set[int]]]:
         """
         Rearrange magnetic Hamiltonian matrix elements to LP family bins.
 
-        This function does three things:
+        This function does two things:
         1. Sorts tuples of bitstrings into LP bins.
         2. Computes angle of Givens rotation from matrix element
-        3. Finds pruned controls for bitstring tuples if 
-            physical_states_for_control_pruning is not None.
 
         Input:
             - bitstring_w_matrix_element: this is of the form (bs1, bs2, matrix_element)
                 where bs1 is the initial state, bs2 is the final state, and matrix_element
                 is the amplitude of transition.
-            - physical_states_for_control_pruning: physical_states utilized in control pruning.
             - coupling_g: value of coupling constant being used.
             - dt: timestep being used.
 
@@ -367,29 +363,17 @@ class LatticeCircuitManager:
             - dictionary where each key is a tuple of bitstrings, and the entry is a set of pruned controls. 
         """
         lp_bin = {}
-        pruning_dict = {}
         for (
             bit_string_1,
             bit_string_2,
             matrix_elem,
         ) in bitstrings_w_matrix_element:
             angle = -matrix_elem * (1 / (2 * (coupling_g**2))) * dt
-            lp_bs_value = bitstring_value_of_LP_family(
-                compute_LP_family(bit_string_1, bit_string_2)
-            )
-            if lp_bs_value not in lp_bin.keys():
-                lp_bin[lp_bs_value] = []
-            lp_bin[lp_bs_value].append((bit_string_1, bit_string_2, angle))
-            if physical_states_for_control_pruning is not None:
-                pruned_controls = prune_controls(
-                    bit_string_1=bit_string_1,
-                    bit_string_2=bit_string_2,
-                    encoded_physical_states=physical_states_for_control_pruning,
-                )
-                pruning_dict[(bit_string_1, bit_string_2)] = pruned_controls
-            else:
-                pruning_dict[(bit_string_1, bit_string_2)] = None
-        return lp_bin, pruning_dict
+            lp_fam = compute_LP_family(bit_string_1, bit_string_2)
+            if lp_fam not in lp_bin.keys():
+                lp_bin[lp_fam] = []
+            lp_bin[lp_fam].append((bit_string_1, bit_string_2, angle))
+        return lp_bin
 
 
 def _test_create_blank_full_lattice_circuit_has_promised_register_order():

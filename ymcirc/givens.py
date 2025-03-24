@@ -36,7 +36,7 @@ class LPOperator:
     value: str
 
     def __post_init__(self):
-        valid_vals = ["P0", "P1", "L+", "L-"]
+        valid_vals = ["P","L"]
         if self.value not in valid_vals:
             raise ValueError(f"{LPOperator.__name__} value must be one of the following: {valid_vals}. Encountered: '{self.value}'.")
 
@@ -46,27 +46,28 @@ class LPFamily:
     """
     Immutable wrapper for working with LP families.
 
-    The LPOperator class is used for validation, but data remains a list of strings.
+    The LPOperator class is used for validation, but data remains a tuple of strings.
     """
-    value: List[str]
+    value: Tuple[str]
 
     def __post_init__(self):
         # Validate.
-        if not isinstance(self.value, list):
-            raise ValueError(f"Input {self.value} not a list.")
+        if not isinstance(self.value, tuple):
+            raise ValueError(f"Input {self.value} not a tuple.")
         for op_val in self.value:
             try:
                 LPOperator(op_val)
             except ValueError:
                 raise ValueError(f"Encounterd invalid {LPOperator.__name__} value '{op_val}'.")
+            
 
 
 def givens(
     bit_string_1: str,
     bit_string_2: str,
     angle: float,
+    encoded_physical_states: Set[str]| None,
     reverse: bool = False,
-    physical_control_qubits: Set[int | Qubit] | None = None,
 ) -> QuantumCircuit:
     """
     Build QuantumCircuit rotating two bit strings into each other by angle.
@@ -110,20 +111,17 @@ def givens(
                 target = idx
                 break
 
-        # Configure the multi-controlled X rotation (MCRX) gate.
-        ctrls, ctrl_state, multiRX = _build_multiRX(
-            bit_string_1, bit_string_2, angle, target, physical_control_qubits
-        )
+        ctrls,ctrl_state = _build_multiRX(bit_string_1,bit_string_2,target)
+        lp_fam = compute_LP_family(bit_string_1,bit_string_2)
 
-        # Construct the pre- and post-MCRX circuits.
-        lp_family = compute_LP_family(bit_string_1, bit_string_2)
-        lp_family_bit_string = bitstring_value_of_LP_family(lp_family)
-        Xcirc = _build_Xcirc(lp_family_bit_string, control=target)
+        pruned_ctrls, pruned_ctrl_state = prune_controls(lp_fam,ctrls,ctrl_state,encoded_physical_states)
+        Xcirc = _build_Xcirc(lp_fam, control=target)
+        multiRX = _CRXGate(len(pruned_ctrls),pruned_ctrl_state,angle)
 
         # Add multiRX to the circuit, specifying
         # The proper control locations and target location
         # via a list of the qubit indices.
-        circ.append(multiRX, ctrls + [target])
+        circ.append(multiRX, pruned_ctrls + [target])
 
         # Assemble the final circuit.
         # Using inplace speeds up circuit composition.
@@ -133,11 +131,10 @@ def givens(
             Xcirc = Xcirc.reverse_bits()
         return Xcirc
 
-
 def givens_fused_controls(
     lp_bin_w_angle: List[(str, str, float)],
-    lp_bin_value: str,
-    pruned_controls_dict: Dict[(str, str), Set[int | Qubit]],
+    lp_bin: LPFamily,
+    encoded_physical_states: Set[str]| None,
     reverse: bool = False,
 ) -> QuantumCircuit:
     """
@@ -152,16 +149,15 @@ def givens_fused_controls(
     Output:
         QuantumCircuit object that has the necessary givens rotation.
     """
-    # Input validation and sanity checks.
 
     num_qubits = len(lp_bin_w_angle[0][0])
 
+    # Input validation and sanity checks.
     for bit_string_1, bit_string_2, angle in lp_bin_w_angle:
         if len(bit_string_1) != len(bit_string_2):
             raise ValueError("Bit strings must be the same length.")
         bs1_bs2_lp_family = compute_LP_family(bit_string_1, bit_string_2)
-        bs1_bs2_lp_family_bitstring_value = bitstring_value_of_LP_family(bs1_bs2_lp_family)
-        lp_bin_matches = bs1_bs2_lp_family_bitstring_value == lp_bin_value
+        lp_bin_matches = bs1_bs2_lp_family.value == lp_bin.value
         if lp_bin_matches is False:
             return ValueError(
                 "The LP value of the bitstrings should match with the LP bin value."
@@ -179,21 +175,21 @@ def givens_fused_controls(
         return circ
     else:
         for idx in range(num_qubits):
-            current_idx_is_target_idx = lp_bin_value[idx] == "0"
+            current_idx_is_target_idx = lp_bin.value[idx] == "L"
             if current_idx_is_target_idx is True:
                 target = idx
                 break
-        # Add multiRX to the circuit, specifying
-        # The proper control locations and target location
-        # via a list of the qubit indices.
+        # First, fuse controls.
         angle_dict = fuse_controls(
-            lp_bin_value, lp_bin_w_angle, pruned_controls_dict, round_close_angles=True
+            lp_bin, lp_bin_w_angle, round_close_angles=True
         )
+        # Now, prune controls. make notw of encoded_physical_states = None
         for angle, ctrl_list in angle_dict.items():
             for ctrls, ctrl_state in ctrl_list:
-                multiRX = _CRXGate(len(ctrls), ctrl_state, angle)
-                circ.append(multiRX, ctrls + [target])
-        Xcirc = _build_Xcirc(lp_bin_value, control=target)
+                pruned_ctrls, pruned_ctrl_state = prune_controls(lp_bin,ctrls,ctrl_state,encoded_physical_states)
+                multiRX = _CRXGate(len(pruned_ctrls), pruned_ctrl_state, angle)
+                circ.append(multiRX, pruned_ctrls + [target])
+        Xcirc = _build_Xcirc(lp_bin, control=target)
 
         # Assemble the final circuit.
         # Using inplace speeds up circuit composition.
@@ -201,17 +197,15 @@ def givens_fused_controls(
         Xcirc.compose(circ, inplace=True)
         if reverse is True:
             Xcirc = Xcirc.reverse_bits()
+        
         return Xcirc
 
 
 def _build_multiRX(
     bs1_little_endian: str,
     bs2_little_endian: str,
-    angle: float,
-    target: int,
-    physical_control_qubits: Set[int | Qubit] | None,
-    ctrl_list: Tuple[List[int],str] | None = None
-) -> Tuple[List[int], str, ControlledGate]:
+    target: int
+) -> Tuple[List[int], str]:
     """
     Build the multi-control RX gate (MCRX) in Givens rotations.
 
@@ -231,21 +225,8 @@ def _build_multiRX(
     # The target (qu)bit isn't a control by definition.
     num_qubits = len(bs1_little_endian)
     ctrls = list(range(0, num_qubits))
-    if physical_control_qubits is not None:
-        # Use the physical control qubits determined via a control pruning algorithm.
-        unphysical_ctrls = []
-        physical_ctrls = []
-        for ctrl in ctrls:
-            if ctrl not in physical_control_qubits or ctrl == target:
-                unphysical_ctrls += [ctrl]
-            else:
-                physical_ctrls += [ctrl]
-        ctrl_state_delete_list = unphysical_ctrls
-    else:
-        # Do not assume a physical set of control qubits from control pruning.
-        ctrl_state_delete_list = [target]
-        ctrls.remove(target)
-        physical_ctrls = ctrls
+    ctrl_state_delete_list = [target]
+    ctrls.remove(target)
 
     # Construct the bit string ctrl_state which triggers the MCRX gate.
     mask_bitstring = (
@@ -268,20 +249,21 @@ def _build_multiRX(
     )
     # TODO: The following reversal cancels some other reversal of unknown
     # origin. This may indicate an endianness issue elsewhere in the codebase
-    # to be figured out.
-    ctrl_state = ctrl_state[::-1]
+    # to be figured out. 
+    # HYPOTHESIS: The Endianness issue arises from the RXGate applying ctrl_state
+    # in reverse. So, the output ctrl_state shouldn't be reversed because it has the
+    # right Endiannesss.
+    # ctrl_state = ctrl_state[::-1]
 
     # Assemble MCRX gate.
     # Note that the final qubit is the target.
-    MCRXGate = _CRXGate(len(physical_ctrls),ctrl_state,angle)
     return (
-        physical_ctrls,
-        ctrl_state,
-        MCRXGate
+        ctrls,
+        ctrl_state
         )
 
 
-def _build_Xcirc(bs_of_lp_fam_little_endian: str, control: int) -> QuantumCircuit:
+def _build_Xcirc(lp_fam: LPFamily, control: int) -> QuantumCircuit:
     """
     Build pre/post computation change-of-basis circuit in the Givens rotation.
 
@@ -289,10 +271,10 @@ def _build_Xcirc(bs_of_lp_fam_little_endian: str, control: int) -> QuantumCircui
     Applies CX gates conditioned on control, and all other bits where there's a bit flip
     between bs1 and bs2 as targets.
     """
-    num_qubits = len(bs_of_lp_fam_little_endian)
+    num_qubits = len(lp_fam.value)
     Xcirc = QuantumCircuit(num_qubits)
     for idx in range(control + 1, num_qubits):
-        bit_flip_happens_at_idx = bs_of_lp_fam_little_endian[idx] == "0"
+        bit_flip_happens_at_idx = lp_fam.value[idx] == "L"
         if bit_flip_happens_at_idx is True:
             Xcirc.cx(control_qubit=control, target_qubit=idx, ctrl_state="1")
 
@@ -435,9 +417,9 @@ def givens2(strings: list, angle: float, reverse: bool = False) -> QuantumCircui
 
     return X_3_circ
 
-
+# Change fused_ctrls and fused_ctrl_state
 def prune_controls(
-    bit_string_1: str, bit_string_2: str, encoded_physical_states: Set[str]
+    lp_fam: LPFamily, fused_ctrls: List[int], fused_ctrl_state: str, encoded_physical_states: Set[str] | None
 ) -> Set[int]:
     """
     Perform control pruning on circ to reduce multi-control unitaries (MCUs).
@@ -459,138 +441,103 @@ def prune_controls(
     Note that errors are raised if the bit string lengths are unequal, or there are non-bit
     characters in state encodings.
     """
-    # Validate input data.
-    bit_string_inputs_have_unequal_lengths = (
-        len(bit_string_1) != len(bit_string_2)
-    ) or (
-        any(
-            [
-                len(bit_string_1) != len(encoded_state)
-                for encoded_state in encoded_physical_states
-            ]
-        )
-    )
-    string_inputs_have_non_bit_chars = (
-        any([char not in {"0", "1"} for char in bit_string_1])
-        or any([char not in {"0", "1"} for char in bit_string_2])
-        or any(
-            [
-                char not in {"0", "1"}
-                for bit_string in encoded_physical_states
-                for char in bit_string
-            ]
-        )
-    )
-    if bit_string_inputs_have_unequal_lengths:
-        raise IndexError(
-            "All input state data must be the same length. Encountered:\n"
-            f"bit_string_1 = {bit_string_1}\n"
-            f"bit_string_2 = {bit_string_2}\n"
-            f"encoded_physical_states = {encoded_physical_states}"
-        )
-    elif string_inputs_have_non_bit_chars:
-        raise ValueError(
-            "All input state data must be interpretable as bit strings. Encountered:\n"
-            f"bit_string_1 = {bit_string_1}\n"
-            f"bit_string_2 = {bit_string_2}\n"
-            f"encoded_physical_states = {encoded_physical_states}"
+
+    if encoded_physical_states == None:
+        return (fused_ctrls, fused_ctrl_state)
+    else:
+
+        q_prime_idx = next(
+            (
+                idx
+                for idx, LP_val in enumerate(lp_fam.value)
+                if LP_val == "L"
+            ),
+            -1,
         )
 
-    # Find the LP family of the representative, and identify which qubit
-    # "L" first appears on.
-    representative_P = bit_string_1
-    representative_LP_family = compute_LP_family(bit_string_1, bit_string_2)
-    q_prime_idx = next(
-        (
-            idx
-            for idx, LP_val in enumerate(representative_LP_family.value)
-            if LP_val[0] == "L"
-        ),
-        -1,
-    )
-    if q_prime_idx == -1:
-        raise ValueError("Attempting to prune controls on two identical bit strings.")
+        # Use the LP family and q', compute the states tilde_p after the prefix
+        # circuit. Do this to the representative too.
+        P_tilde = {
+            _apply_LP_family_to_bit_string(
+                lp_fam, q_prime_idx, phys_state
+            )
+            for phys_state in encoded_physical_states
+        }
 
-    # Use the LP family and q', compute the states tilde_p after the prefix
-    # circuit. Do this to the representative too.
-    representative_P_tilde = _apply_LP_family_to_bit_string(
-        representative_LP_family, q_prime_idx, representative_P
-    )
-    P_tilde = {
-        _apply_LP_family_to_bit_string(
-            representative_LP_family, q_prime_idx, phys_state
-        )
-        for phys_state in encoded_physical_states
-    }
-
-    # Iterate through tilde_p, and identify bitstrings that differ at
-    # ONLY one qubit other than q'. Add these to the set Q.
-    Q_set = set()
-    for phys_tilde_state in P_tilde:
-        n_bit_differences = 0
-        for idx, (rep_char, phys_char) in enumerate(
-            zip(representative_P_tilde, phys_tilde_state)
-        ):
+        # if there is a control missing from the fused_ctrls list, we can remove that qubit from 
+        # all physical states in P_tilde
+        for idx in range(len(lp_fam.value)):
             if idx == q_prime_idx:
                 continue
-            elif rep_char != phys_char:
-                n_bit_differences += 1
-                diff_bit_idx = idx
-        if n_bit_differences == 1:
-            Q_set.add(diff_bit_idx)
+            if idx not in fused_ctrls:
+                P_tilde = {phys_state[:idx] + "x" + phys_state[idx+1:] for phys_state in P_tilde}
+        #remove target qubit from P_tilde states
+        P_tilde = {phys_state[:q_prime_idx] + phys_state[q_prime_idx+1:] for phys_state in P_tilde}
+        # remove all the x's
+        unfused_ctrls = [idx for idx in range(len(lp_fam.value))]
+        unfused_ctrls.remove(q_prime_idx)
+        P_tilde = {_remove_redundant_controls(unfused_ctrls, phys_state)[1] for phys_state in P_tilde}
+        representative_P_tilde = fused_ctrl_state
 
-    # Use Q to eliminate strings from tilde_p that differ at any qubit
-    # in Q.
-    P_tilde = _eliminate_phys_states_that_differ_from_rep_at_Q_idx(
-        representative_P_tilde, P_tilde, Q_set
-    )
-
-    # Eliminate states from tilde_p which differ at a qubit in Q.
-    bit_string_1_tilde = _apply_LP_family_to_bit_string(
-        representative_LP_family, q_prime_idx, bit_string_1
-    )
-    bit_string_2_tilde = _apply_LP_family_to_bit_string(
-        representative_LP_family, q_prime_idx, bit_string_2
-    )
-    should_continue_loop = True
-    while should_continue_loop:
-        # Find most frequently differing bit idx
-        index_counts = [
-            0,
-        ] * len(representative_P_tilde)
+        # Iterate through tilde_p, and identify bitstrings that differ at
+        # ONLY one qubit other than q'. Add these to the set Q.
+        Q_set = set()
         for phys_tilde_state in P_tilde:
+            n_bit_differences = 0
             for idx, (rep_char, phys_char) in enumerate(
                 zip(representative_P_tilde, phys_tilde_state)
             ):
-                if idx == q_prime_idx:
-                    continue
-                elif rep_char != phys_char:
-                    index_counts[idx] += 1
+                if rep_char != phys_char:
+                    n_bit_differences += 1
+                    diff_bit_idx = idx
+            if n_bit_differences == 1:
+                Q_set.add(diff_bit_idx)
 
-        # If there are differences, add the most frequently differing bit
-        # idx to Q, and eliminate P_tilde that differ at an index in Q.
-        if not all([count == 0 for count in index_counts]):
-            max_counts_idx = index_counts.index(max(index_counts))
-            Q_set.add(max_counts_idx)
-
-        # Update loop params.
+        # Use Q to eliminate strings from tilde_p that differ at any qubit
+        # in Q.
         P_tilde = _eliminate_phys_states_that_differ_from_rep_at_Q_idx(
             representative_P_tilde, P_tilde, Q_set
         )
-        should_continue_loop = not all(
-            [
-                tilde_state in {bit_string_1_tilde, bit_string_2_tilde}
-                for tilde_state in P_tilde
-            ]
-        )
 
-    return Q_set
+        # Eliminate states from tilde_p which differ at a qubit in Q.
+        should_continue_loop = True
+        while should_continue_loop:
+            # Find most frequently differing bit idx
+            index_counts = [
+                0,
+            ] * len(representative_P_tilde)
+            for phys_tilde_state in P_tilde:
+                for idx, (rep_char, phys_char) in enumerate(
+                    zip(representative_P_tilde, phys_tilde_state)
+                ):
+                    if rep_char != phys_char:
+                        index_counts[idx] += 1
+
+            # If there are differences, add the most frequently differing bit
+            # idx to Q, and eliminate P_tilde that differ at an index in Q.
+            if not all([count == 0 for count in index_counts]):
+                max_counts_idx = index_counts.index(max(index_counts))
+                Q_set.add(max_counts_idx)
+
+            # Update loop params.
+            P_tilde = _eliminate_phys_states_that_differ_from_rep_at_Q_idx(
+                representative_P_tilde, P_tilde, Q_set
+            )
+            should_continue_loop = not all(
+                [
+                    tilde_state== fused_ctrl_state
+                    for tilde_state in P_tilde
+                ]
+            )
+
+        pruned_ctrls,pruned_ctrl_state = _find_pruned_ctrl_list_from_Q_set(Q_set,fused_ctrls,fused_ctrl_state)
+
+        return (pruned_ctrls,pruned_ctrl_state)
 
 
 def fuse_controls(
-    bin_value: str,
+    lp_fam: LPFamily,
     lp_bin_w_angle: List[(str, str, float)],
-    pruned_controls: Union[Dict[List[(str, str)], Set[int]] | None] = None,
     round_close_angles: bool = True
 ) -> Dict[float, tuple[List[int], str]]:
     """
@@ -611,39 +558,21 @@ def fuse_controls(
         - A dictionary in which the entries are fused controls binned according to angles. Each is of the form List[(controls,control_state)].
     """
 
+
     angle_bin = {}
-    target = _determine_target_of_lp_bitstring(bin_value)
+    target = _determine_target_of_lp_fam(lp_fam)
     # If a target couldn't be found, it means that the givens rotation is the identity rotation.
     if target is None:
-        return angle_bin
-
-    # Check if the bitstrings are indeed in the LP family specified by the LP bin value.
-    for bitstring1, bitstring2, angle in lp_bin_w_angle:
-        lp_fam = compute_LP_family(bitstring1, bitstring2)
-        lp_fam_bs_value = bitstring_value_of_LP_family(lp_fam)
-        if bin_value != lp_fam_bs_value:
-            raise ValueError(
-                "The LP family of the bin doesn't match with the LP family of the bitstrings"
-            )
+        raise ValueError("Invalid LP Family")
 
     # Step 1: build multiRX gates out of bitstrings, and bin them according to angles.
     for bitstring1, bitstring2, angle in lp_bin_w_angle:
-        # build the MCRX gate.
-        if (
-            pruned_controls != None
-            and (bitstring1, bitstring2) in pruned_controls.keys()
-        ):
-            ctrls, ctrl_state, multiRX = _build_multiRX(
-                bitstring1,
-                bitstring2,
-                angle,
-                target,
-                pruned_controls[(bitstring1, bitstring2)],
-            )
-        else:
-            ctrls, ctrl_state, multiRX = _build_multiRX(
-                bitstring1, bitstring2, angle, target, physical_control_qubits=None
-            )
+        # find the controls of multiRX gate
+        ctrls, ctrl_state = _build_multiRX(
+            bitstring1,
+            bitstring2,
+            target
+        )
 
         # Find or create an angle bin.
         if angle in angle_bin:
@@ -660,42 +589,14 @@ def fuse_controls(
             angle_bin[angle_bin_key] = []
         angle_bin[angle_bin_key].append((ctrls, ctrl_state))
 
-    # Step 2: compare control qubits between all multiRX's. If there are some control qubits that differ,
-    # perform decomposition on the controls that differ.
+    # Step 2: Control fusion
     for angle, ctrls_list in angle_bin.items():
-        max_ctrl_qubits = set()
-        min_ctrl_state_length = len(ctrls_list[0][0])
-        # Obtain the maximum number of controls
-        for ctrls, ctrl_state in ctrls_list:
-            for ctrl in ctrls:
-                if ctrl not in max_ctrl_qubits:
-                    max_ctrl_qubits.add(ctrl)
-            if len(ctrls) < min_ctrl_state_length:
-                min_ctrl_state_length = len(ctrls)
-        if min_ctrl_state_length == len(max_ctrl_qubits):
-            new_ctrls_list = ctrls_list
-        else:
-            new_ctrls_list = copy.deepcopy(ctrls_list)
-            for ctrls, ctrl_state in ctrls_list:
-                new_ctrls, new_ctrl_states = _decompose_pruned_controls(
-                    ctrls, ctrl_state, max_ctrl_qubits
-                )
-                new_ctrls_list.remove((ctrls, ctrl_state))
-                for new_ctrl_state_to_be_added in new_ctrl_states:
-                    new_ctrls_list.append((new_ctrls, new_ctrl_state_to_be_added))
-        angle_bin[angle] = new_ctrls_list
-
-    # Step 3: Control fusion
-    for angle, ctrls_list in angle_bin.items():
-        # sort the controls so that they are in the right positions.
-        sorted_ctrls_list = [
-            _sort_controls_list(ctrls, ctrl_state) for ctrls, ctrl_state in ctrls_list
-        ]
         # sort the controls according to a gray-order
         sorted_ctrls_list = sorted(
-            sorted_ctrls_list, key=lambda x: binary_to_gray(x[1])
+            ctrls_list, key=lambda x: binary_to_gray(x[1])
         )
         # control fuse
+        # CHECK
         ctrl_state_length = len(sorted_ctrls_list[0][1])
         for i in range(ctrl_state_length - 1, -1, -1):
             comparison_idx = 0
@@ -742,19 +643,19 @@ def compute_LP_family(bit_string_1: str, bit_string_2: str) -> LPFamily:
     for char_1_2_tuple in zip(bit_string_1, bit_string_2):
         match char_1_2_tuple:
             case ("0", "0"):
-                LP_family.append("P0")
+                LP_family.append("P")
             case ("1", "1"):
-                LP_family.append("P1")
+                LP_family.append("P")
             case ("0", "1"):
-                LP_family.append("L+")
+                LP_family.append("L")
             case ("1", "0"):
-                LP_family.append("L-")
+                LP_family.append("L")
             case _:
                 raise ValueError(
                     f"Encountered non-bit character while comparing chars: {char_1_2_tuple}."
                 )
 
-    return LPFamily(LP_family)
+    return LPFamily(tuple(LP_family))
 
 
 def _apply_LP_family_to_bit_string(
@@ -777,7 +678,7 @@ def _apply_LP_family_to_bit_string(
     for idx, op in enumerate(LP_family.value):
         if idx == q_prime_idx:
             continue  # Never flip the bit at this index.
-        match op[0]:
+        match op:
             case "L":
                 result_string_list[idx] = str(
                     (int(result_string_list[idx]) + 1) % 2
@@ -811,9 +712,9 @@ def _eliminate_phys_states_that_differ_from_rep_at_Q_idx(
 
 def _CRXGate(num_ctrls: int, ctrl_state: str, angle: float) -> ControlledGate:
     """ Returns a RXGate given num_ctrls and ctrl_state"""
-    return RXGate(angle).control(num_ctrl_qubits=num_ctrls,ctrl_state=ctrl_state)
+    return RXGate(angle).control(num_ctrl_qubits=num_ctrls,ctrl_state=ctrl_state[::-1])
 
-
+# FIX: type hint of lp_fam 
 def bitstring_value_of_LP_family(lp_fam: List[str] | LPFamily) -> str:
     """Validates form of lp_fam with LPFamily class if List[str]."""
     if not isinstance(lp_fam, LPFamily):
@@ -822,9 +723,9 @@ def bitstring_value_of_LP_family(lp_fam: List[str] | LPFamily) -> str:
     # later in the gray code ordering.
     LP_bitstring = ""
     for operator in lp_fam.value:
-        if operator == "L+" or operator == "L-":
+        if operator == "L":
             LP_bitstring += "0"
-        elif operator == "P0" or operator == "P1":
+        elif operator == "P":
             LP_bitstring += "1"
     return LP_bitstring
 
@@ -857,59 +758,17 @@ def _bitstrings_differ_in_one_bit(
         else:
             return False, None
 
-
-def _determine_target_of_lp_bitstring(lp_bitstring: str) -> int:
+# FIX: type hint of lp_fam here and in prune_controls
+def _determine_target_of_lp_fam(lp_fam: LPFamily) -> int:
     """Given a bitstring corresponding to a LP family, this function returns the target qubit"""
     target = None
-    for i in range(len(lp_bitstring)):
-        if lp_bitstring[i] != "0":
+    for i in range(len(lp_fam.value)):
+        if lp_fam.value[i] != "L":
             continue
-        elif lp_bitstring[i] == "0":
+        elif lp_fam.value[i] == "L":
             target = i
             break
     return target
-
-
-def _decompose_pruned_controls(
-    pruned_ctrls: list[int], ctrl_state: str, max_ctrls_needed: Set[int]
-) -> tuple[list[int], list[str]]:
-    """Decomposes pruned controls in a way appropriate for control fusion"""
-    decomp_register = 0
-    new_ctrls = copy.deepcopy(pruned_ctrls)
-    new_ctrl_state = ctrl_state
-    for max_ctrl_element in max_ctrls_needed:
-        if max_ctrl_element not in pruned_ctrls:
-            decomp_register += 1
-            new_ctrls.append(max_ctrl_element)
-            new_ctrl_state += "0"
-    if decomp_register == 0:
-        new_ctrls_to_be_added = [new_ctrl_state]
-    if decomp_register != 0:
-        new_ctrls_to_be_added = [new_ctrl_state]
-        for i in range(-decomp_register, 0):
-            old_ctrls_to_be_added = copy.deepcopy(new_ctrls_to_be_added)
-            for already_decomposed_ctrl_states in old_ctrls_to_be_added:
-                if i != -1:
-                    new_ctrl_decomposed1 = (
-                        already_decomposed_ctrl_states[:i]
-                        + "1"
-                        + already_decomposed_ctrl_states[i + 1 :]
-                    )
-                elif i == -1:
-                    new_ctrl_decomposed1 = already_decomposed_ctrl_states[:i] + "1"
-                new_ctrls_to_be_added.append(new_ctrl_decomposed1)
-    return new_ctrls, new_ctrls_to_be_added
-
-
-def _sort_controls_list(ctrls: List[int], ctrl_state: str) -> tuple[List[int], str]:
-    """Sorts the controls in the order they appear in the quantum circuit."""
-    ctrl_state_list = list(ctrl_state)
-    ctrls_and_state_zipped = zip(ctrls, ctrl_state_list)
-    sorted_ctrls_zipped = sorted(ctrls_and_state_zipped, key=lambda x: x[0])
-    ctrls, ctrl_state_list = zip(*sorted_ctrls_zipped)
-    ctrls = list(ctrls)
-    ctrl_state = "".join(ctrl_state_list)
-    return ctrls, ctrl_state
 
 
 def _remove_redundant_controls(
@@ -926,6 +785,20 @@ def _remove_redundant_controls(
             new_ctrl_state += ctrl_state[i]
     return new_ctrls, new_ctrl_state
 
+def _find_pruned_ctrl_list_from_Q_set(
+        Q_set: Set[int],
+        ctrls: List[int],
+        ctrl_state: str
+):
+    """ Finds the pruned control list by only retaining pruned controls"""
+    pruned_ctrls = []
+    pruned_ctrl_state = ""
+    for idx in range(len(ctrls)):
+        if idx in Q_set:
+            pruned_ctrls.append(ctrls[idx])
+            pruned_ctrl_state += ctrl_state[idx]
+    return (pruned_ctrls,pruned_ctrl_state)
+        
 
 def _make_bitstring(length):
     # Helper for testing purposes.
@@ -1157,103 +1030,17 @@ def _test_compute_LP_family_fails_for_non_bitstrings():
         assert False, "ValueError not raised."
 
 
-def _test_prune_controls_fails_for_unequal_length_inputs():
-    """IndexError should be raised if any of the bit strings in an input has a different length."""
-    bs1 = "11001"
-    bs2 = "11000"
-    phys_states = {bs1, bs2, "11111", "1100"}
-    print(
-        "Checking that a wrong-length bit string in the physical "
-        "states raises an IndexError:\n"
-        f"bs1 = {bs1}\n"
-        f"bs2 = {bs2}\n"
-        f"phys_states = {phys_states}\n"
-    )
-    try:
-        prune_controls(bs1, bs2, phys_states)
-    except IndexError as e:
-        print(f"Test passed. Raised error: {e}\n")
-    else:
-        assert False, "IndexError not raised."
-
-    bs1 = "11001"
-    bs2 = "1100"
-    phys_states = {bs1, bs2, "11111", "11000"}
-    print(
-        "Checking that a wrong-length bit string in one of the input "
-        "states raises an IndexError:\n"
-        f"bs1 = {bs1}\n"
-        f"bs2 = {bs2}\n"
-        f"phys_states = {phys_states}\n"
-    )
-    try:
-        print(f"bs1 = {bs1}\n" f"bs2 = {bs2}\n" f"phys_states = {phys_states}")
-        prune_controls(bs1, bs2, phys_states)
-    except IndexError as e:
-        print(f"Test passed. Raised error: {e}\n")
-    else:
-        assert False, "IndexError not raised."
-    try:
-        print(f"bs1 = {bs2}\n" f"bs2 = {bs1}\n" f"phys_states = {phys_states}")
-        prune_controls(bs2, bs1, phys_states)
-    except IndexError as e:
-        print(f"Test passed. Raised error: {e}\n")
-    else:
-        assert False, "IndexError not raised."
-
-
-def _test_prune_controls_fails_for_non_bitstrings():
-    """Non bit characters in any bit strings should cause a ValueError to be raised."""
-    bs1 = "11001"
-    bs2 = "11000"
-    phys_states = {bs1, bs2, "11111", "1100a"}
-    print(
-        "Checking that a non-bit char in the physical "
-        "states raises an ValueError:\n"
-        f"bs1 = {bs1}\n"
-        f"bs2 = {bs2}\n"
-        f"phys_states = {phys_states}\n"
-    )
-    try:
-        prune_controls(bs1, bs2, phys_states)
-    except ValueError as e:
-        print(f"Test passed. Raised error: {e}\n")
-    else:
-        assert False, "ValueError not raised."
-
-    bs1 = "11001"
-    bs2 = "110a0"
-    phys_states = {bs1, bs2, "11111", "11000"}
-    print(
-        "Checking that a non-bit char in one of the input "
-        "states raises an ValueError:\n"
-        f"bs1 = {bs1}\n"
-        f"bs2 = {bs2}\n"
-        f"phys_states = {phys_states}\n"
-    )
-    try:
-        print(f"bs1 = {bs1}\n" f"bs2 = {bs2}\n" f"phys_states = {phys_states}\n")
-        prune_controls(bs1, bs2, phys_states)
-    except ValueError as e:
-        print(f"Test passed. Raised error: {e}\n")
-    else:
-        assert False, "ValueError not raised."
-    try:
-        print(f"bs1 = {bs2}\n" f"bs2 = {bs1}\n" f"phys_states = {phys_states}\n")
-        prune_controls(bs2, bs1, phys_states)
-    except ValueError as e:
-        print(f"Test passed. Raised error: {e}\n")
-    else:
-        assert False, "ValueError not raised."
-
-
 def _test_prune_controls_acts_as_expected():
     """Check the output of prune_controls for good input."""
     # Case 1, one control needed.
     bs1 = "11001001"
     bs2 = "11000110"
+    ctrls, ctrl_state = _build_multiRX(bs1,bs2,4)
+    ctrls.remove(5)
+    ctrls.remove(6)
+    fused_ctrl_state = ctrl_state[:4] + ctrl_state[6:]
     phys_states = {bs1, bs2, "11111111"}
-    expected_rep_LP_family = LPFamily(["P1", "P1", "P0", "P0", "L-", "L+", "L+", "L-"])
+    expected_rep_LP_family = LPFamily(("P", "P", "P", "P", "L", "L", "L", "L"))
     expected_q_prime_idx = 4
     expected_bs1_tilde = "11001110"
     expected_bs2_tilde = bs2  # No change since control is 0-valued.
@@ -1264,6 +1051,9 @@ def _test_prune_controls_acts_as_expected():
     }
     # Elimination rounds: none, none, 2356 -> add 2 to Q, eliminate all but bs1 tilde and bs2 tilde
     expected_Q_set = {2}
+    pruned_idx = ctrls.index(2)
+    expected_pruned_ctrls = [2]
+    expected_pruned_ctrl_state = ctrl_state[pruned_idx]
 
     print(
         "Testing the following prune_controls case:\n"
@@ -1287,15 +1077,17 @@ def _test_prune_controls_acts_as_expected():
         ), f"expected tilde state {expected_post_LP_state} != actual tilde state {result_post_LP_state}"
 
     # Check the return value from the algorithm.
-    result_Q_set = prune_controls(bs1, bs2, phys_states)
-    assert result_Q_set == expected_Q_set, f"result Q set = {result_Q_set}"
+    result_pruned_ctrls, result_pruned_ctrl_state = prune_controls(expected_rep_LP_family, ctrls,fused_ctrl_state, phys_states)
+    assert result_pruned_ctrls == expected_pruned_ctrls, f"result pruned_ctrls = {result_pruned_ctrls}"
+    assert result_pruned_ctrl_state == expected_pruned_ctrl_state, f"result pruned_ctrl_state = {result_pruned_ctrl_state}"
     print("Test passed.")
 
     # Case 2, two controls needed.
     bs1 = "11000011"
     bs2 = "11001001"  # Differs at 1 qubit at index 6, will be in Q set.
+    ctrls, ctrl_state = _build_multiRX(bs1,bs2,4)
     phys_states = {bs1, bs2, "11111111", "00000000"}
-    expected_rep_LP_family = LPFamily(["P1", "P1", "P0", "P0", "L+", "P0", "L-", "P1"])
+    expected_rep_LP_family = LPFamily(("P", "P", "P", "P", "L", "P", "L", "P"))
     expected_q_prime_idx = 4
     expected_bs1_tilde = bs1  # No change since control is 0-valude
     expected_bs2_tilde = "11001011"
@@ -1307,12 +1099,15 @@ def _test_prune_controls_acts_as_expected():
     }
     # Elimination round 1: none, 6, 2356, 0167 -> add 6 to Q, eliminate all but bs1 tilde, bs2_tilde
     expected_Q_set = {6}
+    pruned_idx = ctrls.index(6)
+    expected_pruned_ctrls = [6]
+    expected_pruned_ctrl_state = ctrl_state[pruned_idx]
 
     print(
         "Testing the following prune_controls case:\n"
         f"bs1 = {bs1} (as representative)\n"
         f"bs2 = {bs2}\n"
-        f"phys_states = {phys_states}"
+        f"phys_states = {phys_states}\n"
         f"expected_Q_set = {expected_Q_set}"
     )
 
@@ -1330,8 +1125,9 @@ def _test_prune_controls_acts_as_expected():
         ), f"expected tilde state {expected_post_LP_state} != actual tilde state {result_post_LP_state}"
 
     # Check the return value from the algorithm.
-    result_Q_set = prune_controls(bs1, bs2, phys_states)
-    assert result_Q_set == expected_Q_set, f"result Q set = {result_Q_set}"
+    result_pruned_ctrls, result_pruned_ctrl_state = prune_controls(expected_rep_LP_family, ctrls,ctrl_state, phys_states)
+    assert result_pruned_ctrls == expected_pruned_ctrls, f"result pruned_ctrls = {result_pruned_ctrls}"
+    assert result_pruned_ctrl_state == expected_pruned_ctrl_state, f"result pruned_ctrl_state = {result_pruned_ctrl_state}"
     print("Test passed.")
 
 
@@ -1411,20 +1207,9 @@ def _test_control_fusion():
         ("01100000", "00101010", 1.0),
         ("00001000", "01000010", 1.0),
     ]
-    pruned_controls = {}
-    pruned_controls[("00000000", "01001010")] = [0, 2, 5, 6, 7]
-    pruned_controls[("10001000", "11000010")] = [0, 2, 3, 4, 5]
-    pruned_controls[("01100000", "00101010")] = [0, 2, 3, 4, 5, 6, 7]
-    pruned_controls[("00001000", "01000010")] = [0, 2, 3, 4, 5, 6, 7]
-    bin_value = "10110101"
-    expected_control_fused_gates = [
-        ([0, 2, 3, 5, 6, 7], "000000"),
-        ([0, 2, 3, 4, 5, 6, 7], "0001000"),
-        ([0, 2, 3, 5, 6, 7], "001000"),
-        ([0, 2, 3, 4, 5], "01001"),
-        ([0, 2, 3, 4, 5, 6, 7], "0101010"),
-    ]
-    code_generated_fusion = fuse_controls(bin_value, bitstring_list, pruned_controls)
+    expected_control_fused_gates = [([0,2,3,5,6,7],"000000"),([0,2,3,4,5,6,7],"0101010"),([0,2,3,4,5,6,7],"1001000")]
+    bin_value = LPFamily(("P","L","P","P","L","P","L","P"))
+    code_generated_fusion = fuse_controls(bin_value, bitstring_list)
     assert code_generated_fusion[1.0] == expected_control_fused_gates
     print("Control fusion test passed.")
 
