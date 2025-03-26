@@ -127,8 +127,8 @@ from ymcirc.utilities import LazyDict, json_dict_loader
 
 # Filesystem stuff.
 _PROJECT_ROOT = Path(__file__).parent
-_SINGLET_DATA_DIR = _PROJECT_ROOT / "ymcirc_data/singlet-bitmaps/"
-_HAMILTONIAN_DATA_DIR = _PROJECT_ROOT / "ymcirc_data/magnetic-hamiltonian-box-term-matrix-elements/"
+_SINGLET_DATA_DIR = _PROJECT_ROOT / "_ymcirc_data/singlet-bitmaps/"
+_HAMILTONIAN_DATA_DIR = _PROJECT_ROOT / "_ymcirc_data/magnetic-hamiltonian-box-term-matrix-elements/"
 _SINGLET_DATA_FILE_PATHS: Dict[str, Path] = {
     "d=3/2, T1": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0)]_dim(3_2)_singlet_bitmaps.json",
     "d=3/2, T2": _SINGLET_DATA_DIR / "[(0, 0, 0), (1, 0, 0), (1, 1, 0), (2, 0, 0), (2, 1, 0), (2, 2, 0)]_dim(3_2)_singlet_bitmaps.json",
