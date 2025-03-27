@@ -42,7 +42,7 @@ class LatticeCircuitManager:
             "dt": None,
             "physical_states_for_control_pruning": None,
             "optimize_circuits": None,
-            "control_fusion": None
+            "control_fusion": None,
         }
 
     # TODO modularize the logic for walking through a lattice.
@@ -181,7 +181,7 @@ class LatticeCircuitManager:
         optimize_circuits: bool = True,
         physical_states_for_control_pruning: Union[None | Set[str]] = None,
         control_fusion: bool = False,
-        cache_mag_evol_circuit: bool = True
+        cache_mag_evol_circuit: bool = True,
     ) -> None:
         """
         Add one magnetic Trotter step to the entire lattice circuit.
@@ -220,12 +220,15 @@ class LatticeCircuitManager:
         """
         # Create the magnetic Hamiltonian evolution circuit.
         mag_evol_recomputation_needed = (
-            (self._cached_mag_evol_circuit is None) or
-            (control_fusion != self._cached_mag_evol_params["control_fusion"]) or
-            (dt != self._cached_mag_evol_params["dt"]) or
-            (coupling_g != self._cached_mag_evol_params["coupling_g"]) or
-            (optimize_circuits != self._cached_mag_evol_params["optimize_circuits"]) or
-            (physical_states_for_control_pruning != self._cached_mag_evol_params["physical_states_for_control_pruning"])
+            (self._cached_mag_evol_circuit is None)
+            or (control_fusion != self._cached_mag_evol_params["control_fusion"])
+            or (dt != self._cached_mag_evol_params["dt"])
+            or (coupling_g != self._cached_mag_evol_params["coupling_g"])
+            or (optimize_circuits != self._cached_mag_evol_params["optimize_circuits"])
+            or (
+                physical_states_for_control_pruning
+                != self._cached_mag_evol_params["physical_states_for_control_pruning"]
+            )
         )
         if cache_mag_evol_circuit is True and not mag_evol_recomputation_needed:
             print("Fetching cached magnetic evolution circuit.")
@@ -237,7 +240,7 @@ class LatticeCircuitManager:
                 physical_states_for_control_pruning,
                 coupling_g,
                 dt,
-                optimize_circuits
+                optimize_circuits,
             )
             if cache_mag_evol_circuit is True:
                 print("Storing magnetic evolution circuit in cache.")
@@ -247,7 +250,7 @@ class LatticeCircuitManager:
                     "dt": dt,
                     "physical_states_for_control_pruning": physical_states_for_control_pruning,
                     "optimize_circuits": optimize_circuits,
-                    "control_fusion": control_fusion
+                    "control_fusion": control_fusion,
                 }
 
         # Stitch magnetic Hamiltonian evolution circuit onto LatticeRegisters.
@@ -275,8 +278,12 @@ class LatticeCircuitManager:
             for plaquette in plaquettes:
                 print("Stitching magnetic rotation onto plaquette.")
                 # Collect the local qubits for stitching purposes.
-                vertex_qubits = [qubit for register in plaquette.vertices for qubit in register]
-                link_qubits = [qubit for register in plaquette.active_links for qubit in register]
+                vertex_qubits = [
+                    qubit for register in plaquette.vertices for qubit in register
+                ]
+                link_qubits = [
+                    qubit for register in plaquette.active_links for qubit in register
+                ]
                 # Stitch the plaquette-local Givens rotation into master circuit.
                 master_circuit.compose(
                     plaquette_local_rotation_circuit,
@@ -285,46 +292,50 @@ class LatticeCircuitManager:
                 )
 
     def _build_mag_evol_circuit(
-            self,
-            control_fusion: bool,
-            physical_states_for_control_pruning: Union[None | Set[str]],
-            coupling_g: float,
-            dt: float,
-            optimize_circuits: bool
+        self,
+        control_fusion: bool,
+        physical_states_for_control_pruning: Union[None | Set[str]],
+        coupling_g: float,
+        dt: float,
+        optimize_circuits: bool,
     ) -> QuantumCircuit:
         """Build the magnetic time-evolution circuit for a plaquette."""
         # Sort the bitstrings corresponding to transitions in the magnetic hamiltonian
         # into LP bins. This step also simultaneously finds pruned controls for each
         # transition and stores it in a dictionary.
-        lp_bin = (
-                LatticeCircuitManager._sort_matrix_elements_into_lp_bins(
-                    self._mag_hamiltonian,
-                    coupling_g,
-                    dt,
-                )
-            )
+        lp_bin = LatticeCircuitManager._sort_matrix_elements_into_lp_bins(
+            self._mag_hamiltonian,
+            coupling_g,
+            dt,
+        )
         if control_fusion is True:
-            #Sort according to Gray-order.
+            # Sort according to Gray-order.
             lp_bin = {
                 k: lp_bin[k]
-                for k in sorted(lp_bin.keys(), key=lambda x: gray_to_index(bitstring_value_of_LP_family(x)))
+                for k in sorted(
+                    lp_bin.keys(),
+                    key=lambda x: gray_to_index(bitstring_value_of_LP_family(x)),
+                )
             }
         # iterate over all LP bins and apply givens rotation.
-        plaquette_circ_n_qubits = len(self._mag_hamiltonian[0][0])  # TODO this is a disgusting way to get the size of the magnetic evol circuit per plaquette.
+        plaquette_circ_n_qubits = len(
+            self._mag_hamiltonian[0][0]
+        )  # TODO this is a disgusting way to get the size of the magnetic evol circuit per plaquette.
         plaquette_local_rotation_circuit = QuantumCircuit(plaquette_circ_n_qubits)
         for lp_fam, lp_bin_w_angle in lp_bin.items():
             if control_fusion is True:
-                fused_circ_for_lp_fam = givens_fused_controls(lp_bin_w_angle, lp_fam, physical_states_for_control_pruning)
-                plaquette_local_rotation_circuit.compose(fused_circ_for_lp_fam, inplace=True)
+                fused_circ_for_lp_fam = givens_fused_controls(
+                    lp_bin_w_angle, lp_fam, physical_states_for_control_pruning
+                )
+                plaquette_local_rotation_circuit.compose(
+                    fused_circ_for_lp_fam, inplace=True
+                )
             else:
                 # If control fusion is turned off, givens rotation is applied individually
                 # to all bistrings.
                 for bs1, bs2, angle in lp_bin_w_angle:
                     bs1_bs2_circuit = givens(
-                        bs1,
-                        bs2,
-                        angle,
-                        physical_states_for_control_pruning
+                        bs1, bs2, angle, physical_states_for_control_pruning
                     )
                     plaquette_local_rotation_circuit.compose(
                         bs1_bs2_circuit, inplace=True
@@ -359,7 +370,7 @@ class LatticeCircuitManager:
         Output:
             - dictionary where each key is a LP bin, and the corresponding value is a list of transitions
                 that have the same LP value.
-            - dictionary where each key is a tuple of bitstrings, and the entry is a set of pruned controls. 
+            - dictionary where each key is a tuple of bitstrings, and the entry is a set of pruned controls.
         """
         lp_bin = {}
         for (
