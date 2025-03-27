@@ -28,10 +28,8 @@ class LPOperator:
     Immutable wrapper for string reps of ladder/projector operators.
 
     The following values are allowed:
-      - "P1": projector onto "1" state.
-      - "P0": projector onto "0" state.
-      - "L+": "raising" ladder operator.
-      - "L-": "lowering" ladder operator.
+      - "P": projector onto "0" or "1" state.
+      - "L": "raising" or "lowering" ladder operator.
     """
     value: str
 
@@ -59,14 +57,13 @@ class LPFamily:
                 LPOperator(op_val)
             except ValueError:
                 raise ValueError(f"Encounterd invalid {LPOperator.__name__} value '{op_val}'.")
-            
 
 
 def givens(
     bit_string_1: str,
     bit_string_2: str,
     angle: float,
-    encoded_physical_states: Set[str]| None,
+    encoded_physical_states: Set[str]| None = None,
     reverse: bool = False,
 ) -> QuantumCircuit:
     """
@@ -142,9 +139,8 @@ def givens_fused_controls(
 
     Inputs:
         - lp_bin_w_angle: list of bitstrings of the same LP family and the angle they have to be rotated by.
-        - lp_bin_value: bitstring value of LP bin
+        - lp_bin: the LP family the bitstrings in the bin belong to.
         - reverse: optional argument to deal with endianess issues
-        - pruned_controls_dict: dictionary which provides pruned controls for bitstrings.
 
     Output:
         QuantumCircuit object that has the necessary givens rotation.
@@ -183,7 +179,9 @@ def givens_fused_controls(
         angle_dict = fuse_controls(
             lp_bin, lp_bin_w_angle, round_close_angles=True
         )
-        # Now, prune controls. make notw of encoded_physical_states = None
+        # Now, prune controls. 
+        # Note that this step will become redundant when control_pruning is turned off
+        # i.e., when encoded_physical_states = None. 
         for angle, ctrl_list in angle_dict.items():
             for ctrls, ctrl_state in ctrl_list:
                 pruned_ctrls, pruned_ctrl_state = prune_controls(lp_bin,ctrls,ctrl_state,encoded_physical_states)
@@ -207,17 +205,14 @@ def _build_multiRX(
     target: int
 ) -> Tuple[List[int], str]:
     """
-    Build the multi-control RX gate (MCRX) in Givens rotations.
 
-    If a set physical_control_qubits is provided, any controls
-    NOT in that set are ignored when constructing the multi-control.
-    This is useful if a set of sufficient control qubits has been determined
-    which acts as a Givens rotation on the physical state space.
+    Find the controls and control state of the multi-control RX gate involved in 
+    Givens rotations.
 
     Return:
-      - (ctrls, ctrl_state, multiRX): a tuple consisting of control qubit
-        indices, the bit string state of those those controls which triggers
-        the rotation gate, and the circuit implementing the MCRX gate.
+      - (ctrls, ctrl_state): a tuple consisting of control qubit
+        indices, and the bit string state of those those controls which triggers
+        the rotation gate.
 
     Note that the final qubit in multiRX is the target qubit.
     """
@@ -252,11 +247,10 @@ def _build_multiRX(
     # to be figured out. 
     # HYPOTHESIS: The Endianness issue arises from the RXGate applying ctrl_state
     # in reverse. So, the output ctrl_state shouldn't be reversed because it has the
-    # right Endiannesss.
-    # ctrl_state = ctrl_state[::-1]
+    # right Endiannesss. This correction has been implemented in the helper function
+    #_CRXGate.
 
-    # Assemble MCRX gate.
-    # Note that the final qubit is the target.
+    # Return the controls and the control state.
     return (
         ctrls,
         ctrl_state
@@ -417,43 +411,34 @@ def givens2(strings: list, angle: float, reverse: bool = False) -> QuantumCircui
 
     return X_3_circ
 
-# Change fused_ctrls and fused_ctrl_state
+
 def prune_controls(
-    lp_fam: LPFamily, fused_ctrls: List[int], fused_ctrl_state: str, encoded_physical_states: Set[str] | None
+    lp_fam: LPFamily, ctrls: List[int], ctrl_state: str, encoded_physical_states: Set[str] | None
 ) -> Set[int]:
     """
     Perform control pruning on circ to reduce multi-control unitaries (MCUs).
 
     This algorithm decreases the two-qubit gate depth of resulting
     circuits by determining the set of necessary control qubits to
-    implement a Givens rotation between bit_string_1 and bit_string_2
-    without inducing any rotations between states in encoded_physical_states.
+    implement a Givens rotation without inducing any rotations 
+    between states in encoded_physical_states.
 
     Input:
-        - bit_string_1: a physical state encoded in a bit string.
-        - bit_string_2: a physical state encoded in a bit string.
+        - lp_fam: the LP family the controls and control state belong to
+        - ctrls: A list of controls that are needed for the MCRX gate in the Givens rotation. 
+                Note that a list of controls post-fusion can also be used here.
+        - ctrl_state: The control state corresponding to the list of controls
         - encoded_physical_states: a set of physical states encoded in a bit string.
     Output:
-        - A set of necessary controls to implement a Givens rotation between
-            the two bit strings without inducing rotations among states in
-            encoded_physical_states.
+        - A tuple of pruned controls and the corresponding control state.
 
-    Note that errors are raised if the bit string lengths are unequal, or there are non-bit
-    characters in state encodings.
     """
 
     if encoded_physical_states == None:
-        return (fused_ctrls, fused_ctrl_state)
+        return (ctrls, ctrl_state)
     else:
 
-        q_prime_idx = next(
-            (
-                idx
-                for idx, LP_val in enumerate(lp_fam.value)
-                if LP_val == "L"
-            ),
-            -1,
-        )
+        q_prime_idx = _determine_target_of_lp_fam(lp_fam)
 
         # Use the LP family and q', compute the states tilde_p after the prefix
         # circuit. Do this to the representative too.
@@ -464,12 +449,12 @@ def prune_controls(
             for phys_state in encoded_physical_states
         }
 
-        # if there is a control missing from the fused_ctrls list, we can remove that qubit from 
+        # if there is a control missing from the ctrls list, we can remove that qubit from 
         # all physical states in P_tilde
         for idx in range(len(lp_fam.value)):
             if idx == q_prime_idx:
                 continue
-            if idx not in fused_ctrls:
+            if idx not in ctrls:
                 P_tilde = {phys_state[:idx] + "x" + phys_state[idx+1:] for phys_state in P_tilde}
         #remove target qubit from P_tilde states
         P_tilde = {phys_state[:q_prime_idx] + phys_state[q_prime_idx+1:] for phys_state in P_tilde}
@@ -477,7 +462,7 @@ def prune_controls(
         unfused_ctrls = [idx for idx in range(len(lp_fam.value))]
         unfused_ctrls.remove(q_prime_idx)
         P_tilde = {_remove_redundant_controls(unfused_ctrls, phys_state)[1] for phys_state in P_tilde}
-        representative_P_tilde = fused_ctrl_state
+        representative_P_tilde = ctrl_state
 
         # Iterate through tilde_p, and identify bitstrings that differ at
         # ONLY one qubit other than q'. Add these to the set Q.
@@ -525,12 +510,12 @@ def prune_controls(
             )
             should_continue_loop = not all(
                 [
-                    tilde_state== fused_ctrl_state
+                    tilde_state== ctrl_state
                     for tilde_state in P_tilde
                 ]
             )
 
-        pruned_ctrls,pruned_ctrl_state = _find_pruned_ctrl_list_from_Q_set(Q_set,fused_ctrls,fused_ctrl_state)
+        pruned_ctrls,pruned_ctrl_state = _find_pruned_ctrl_list_from_Q_set(Q_set,ctrls,ctrl_state)
 
         return (pruned_ctrls,pruned_ctrl_state)
 
@@ -544,13 +529,9 @@ def fuse_controls(
     This function fuses the (pruned) controls of multiple multi-RX gates of the same LP family.
 
     Input:
-        - bin_value: The bitstring value of the LP family of the multi-RX gates.
+        - lp_fam: The LP family of the multi-RX gates.
         - lp_bin_w_angle: A list of the bitstrings that are to be givens-rotated.
                           The form of each list entry is (bitstring1, bitstring2, angle).
-        - pruned_controls: A dictionary which specifies which controls are to be
-                           pruned for a particular givens rotation. The entries in this
-                           dictionary should be of the form
-                           pruned_controls[(bitstring1, bitstring2)] = list[int].
         - round_close_angles: boolean controling whether to use math.isclose to group angles together.
                               uses rel_tol value of 1e-9.
 
@@ -578,7 +559,7 @@ def fuse_controls(
         if angle in angle_bin:
             angle_bin_key = angle
         elif round_close_angles is True:
-            angles_within_tol_of_current_angle = [angle_bin_val for idx, angle_bin_val in enumerate(angle_bin) if isclose(angle, angle_bin_val, rel_tol=1e-09)]
+            angles_within_tol_of_current_angle = [angle_bin_val for angle_bin_val in angle_bin.keys()  if isclose(angle, angle_bin_val, rel_tol=1e-09)]
             if len(angles_within_tol_of_current_angle) > 0:
                 angle_bin_key = angles_within_tol_of_current_angle[0]
             else:
@@ -593,10 +574,9 @@ def fuse_controls(
     for angle, ctrls_list in angle_bin.items():
         # sort the controls according to a gray-order
         sorted_ctrls_list = sorted(
-            ctrls_list, key=lambda x: binary_to_gray(x[1])
+            ctrls_list, key=lambda x: gray_to_index(x[1])
         )
         # control fuse
-        # CHECK
         ctrl_state_length = len(sorted_ctrls_list[0][1])
         for i in range(ctrl_state_length - 1, -1, -1):
             comparison_idx = 0
@@ -631,10 +611,8 @@ def compute_LP_family(bit_string_1: str, bit_string_2: str) -> LPFamily:
     Output:
         - A list of the same length as one of the input bitstrings. Each element of
             the return list consists of the following:
-            - "P0" if both inputs have a zero at that index.
-            - "P1" if both inputs have a one at that index.
-            - "L+" if bit_string_2 has a 1 where bit_string_1 has a 0.
-            - "L-" if bit_string_2 has a 0 where bit_string_1 has a 1.
+            - "P" if both inputs have the same value at that index
+            - "L" if the inputs differ at that index
     """
     if len(bit_string_1) != len(bit_string_2):
         raise IndexError("Both input bit strings must have the same length.")
@@ -714,7 +692,7 @@ def _CRXGate(num_ctrls: int, ctrl_state: str, angle: float) -> ControlledGate:
     """ Returns a RXGate given num_ctrls and ctrl_state"""
     return RXGate(angle).control(num_ctrl_qubits=num_ctrls,ctrl_state=ctrl_state[::-1])
 
-# FIX: type hint of lp_fam 
+# FIX: type hint of lp_fam
 def bitstring_value_of_LP_family(lp_fam: List[str] | LPFamily) -> str:
     """Validates form of lp_fam with LPFamily class if List[str]."""
     if not isinstance(lp_fam, LPFamily):
@@ -730,15 +708,17 @@ def bitstring_value_of_LP_family(lp_fam: List[str] | LPFamily) -> str:
     return LP_bitstring
 
 
-def binary_to_gray(binary_str: str) -> str:
-    """Convert a binary string to its Gray code representation."""
-    gray = []
-    gray.append(binary_str[0])  # The first bit is the same
-    for i in range(1, len(binary_str)):
-        # XOR the current bit with the previous bit
-        gray_bit = str(int(binary_str[i]) ^ int(binary_str[i - 1]))
-        gray.append(gray_bit)
-    return "".join(gray)
+def gray_to_index(gray_str: str) -> int:
+    """Convert a Gray code string to its binary equivalent."""
+    binary = [int(gray_str[0])]  # The first binary bit is the same as the first Gray code bit
+    for i in range(1, len(gray_str)):
+        # XOR the previous binary bit with the current Gray code bit
+        binary_bit = binary[i - 1] ^ int(gray_str[i])
+        binary.append(binary_bit)
+    index_value = 0
+    for i in range(len(binary)):
+        index_value += (binary[-i-1])*(2**i) 
+    return index_value
 
 
 def _bitstrings_differ_in_one_bit(
@@ -762,6 +742,8 @@ def _bitstrings_differ_in_one_bit(
 def _determine_target_of_lp_fam(lp_fam: LPFamily) -> int:
     """Given a bitstring corresponding to a LP family, this function returns the target qubit"""
     target = None
+    if not isinstance(lp_fam, LPFamily):
+        lp_fam = LPFamily(lp_fam)
     for i in range(len(lp_fam.value)):
         if lp_fam.value[i] != "L":
             continue
@@ -798,7 +780,7 @@ def _find_pruned_ctrl_list_from_Q_set(
             pruned_ctrls.append(ctrls[idx])
             pruned_ctrl_state += ctrl_state[idx]
     return (pruned_ctrls,pruned_ctrl_state)
-        
+
 
 def _make_bitstring(length):
     # Helper for testing purposes.
@@ -883,8 +865,7 @@ def _test_Xcirc():
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=5)
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=6)
     lp_fam = compute_LP_family(bs1, bs2)
-    lp_fam_bitstring = bitstring_value_of_LP_family(lp_fam)
-    Xcirc = _build_Xcirc(lp_fam_bitstring, control_qubit)
+    Xcirc = _build_Xcirc(lp_fam, control_qubit)
 
     assert Xcirc_expected == Xcirc, (
         "Encountered inequivalent circuits. Expected:\n"
@@ -904,8 +885,7 @@ def _test_Xcirc():
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=4)
     Xcirc_expected.cx(control_qubit=control_qubit, target_qubit=9)
     lp_fam = compute_LP_family(bs1, bs2)
-    lp_fam_bitstring = bitstring_value_of_LP_family(lp_fam)
-    Xcirc = _build_Xcirc(lp_fam_bitstring, control_qubit)
+    Xcirc = _build_Xcirc(lp_fam, control_qubit)
 
     assert Xcirc_expected == Xcirc, (
         "Encountered inequivalent circuits. Expected:\n"
@@ -939,9 +919,10 @@ def _test_multiRX():
     expected_circ.append(multiRX_expected_gate, expected_ctrls + [control_qubit])
 
     actual_circ = QuantumCircuit(4)
-    actual_ctrls, actual_ctrl_state, multiRX_actual = _build_multiRX(
-        bs1, bs2, angle, target=control_qubit, physical_control_qubits=None
+    actual_ctrls, actual_ctrl_state = _build_multiRX(
+        bs1, bs2, target=control_qubit
     )
+    multiRX_actual = _CRXGate(len(actual_ctrls),actual_ctrl_state,angle)
     actual_circ.append(multiRX_actual, actual_ctrls + [control_qubit])
 
     assert expected_circ == actual_circ, (
@@ -972,9 +953,10 @@ def _test_multiRX():
     expected_circ.append(multiRX_expected_gate, expected_ctrls + [control_qubit])
 
     actual_circ = QuantumCircuit(12)
-    actual_ctrls, actual_ctrl_state, multiRX_actual = _build_multiRX(
-        bs1, bs2, angle, target=control_qubit, physical_control_qubits=None
+    actual_ctrls, actual_ctrl_state = _build_multiRX(
+        bs1, bs2, target=control_qubit
     )
+    multiRX_actual = _CRXGate(len(actual_ctrls),actual_ctrl_state,angle)
     actual_circ.append(multiRX_actual, actual_ctrls + [control_qubit])
 
     assert expected_circ == actual_circ, (
@@ -990,7 +972,7 @@ def _test_compute_LP_family():
     """Check computation of LP family works."""
     bs1 = "11000"
     bs2 = "10001"
-    expected_LP_family = LPFamily(["P1", "L-", "P0", "P0", "L+"])
+    expected_LP_family = LPFamily(("P", "L", "P", "P", "L"))
     print(
         f"Checking that the bit strings {bs1} and {bs2} "
         f"yield the LP family {expected_LP_family}."
@@ -1036,9 +1018,6 @@ def _test_prune_controls_acts_as_expected():
     bs1 = "11001001"
     bs2 = "11000110"
     ctrls, ctrl_state = _build_multiRX(bs1,bs2,4)
-    ctrls.remove(5)
-    ctrls.remove(6)
-    fused_ctrl_state = ctrl_state[:4] + ctrl_state[6:]
     phys_states = {bs1, bs2, "11111111"}
     expected_rep_LP_family = LPFamily(("P", "P", "P", "P", "L", "L", "L", "L"))
     expected_q_prime_idx = 4
@@ -1077,7 +1056,7 @@ def _test_prune_controls_acts_as_expected():
         ), f"expected tilde state {expected_post_LP_state} != actual tilde state {result_post_LP_state}"
 
     # Check the return value from the algorithm.
-    result_pruned_ctrls, result_pruned_ctrl_state = prune_controls(expected_rep_LP_family, ctrls,fused_ctrl_state, phys_states)
+    result_pruned_ctrls, result_pruned_ctrl_state = prune_controls(expected_rep_LP_family, ctrls,ctrl_state, phys_states)
     assert result_pruned_ctrls == expected_pruned_ctrls, f"result pruned_ctrls = {result_pruned_ctrls}"
     assert result_pruned_ctrl_state == expected_pruned_ctrl_state, f"result pruned_ctrl_state = {result_pruned_ctrl_state}"
     print("Test passed.")
@@ -1132,7 +1111,7 @@ def _test_prune_controls_acts_as_expected():
 
 
 def _test_apply_LP_family():
-    lp_family = ["L-", "L-", "L+", "P0", "L+", "P1"]
+    lp_family = ("L", "L", "L", "P", "L", "P")
     q_prime_idx = 0  # The first 'L' in the LP family list.
     print(
         f"Checking that application of LP family diagonalizing 'circuit' defined by {lp_family} to bit strings works."
@@ -1214,73 +1193,106 @@ def _test_control_fusion():
     print("Control fusion test passed.")
 
 
-def _test_binary_to_gray():
+def _test_gray_to_index():
     bitstring_to_be_gray_ordered = [
-        "1000",
-        "0010",
-        "0100",
-        "0011",
-        "0000",
-        "0001",
-        "0101",
+    '00000', '00001', '00010', '00011',
+    '00100', '00101', '00110', '00111',
+    '01000', '01001', '01010', '01011',
+    '01100', '01101', '01110', '01111',
+    '10000', '10001', '10010', '10011',
+    '10100', '10101', '10110', '10111',
+    '11000', '11001', '11010', '11011',
+    '11100', '11101', '11110', '11111'
     ]
-    expected_gray_code_order = ["0000", "0001", "0011", "0010", "0100", "0101", "1000"]
+    expected_gray_order =  [
+    '00000', '00001', '00011', '00010', '00110', '00111', '00101', '00100',
+    '01100', '01101', '01111', '01110', '01010', '01011', '01001', '01000',
+    '11000', '11001', '11011', '11010', '11110', '11111', '11101', '11100',
+    '10100', '10101', '10111', '10110', '10010', '10011', '10001', '10000'
+    ]
+    # expected_gray_code_order = ["0000", "0001", "0011", "0010","0110", "0101","0100", "1000"]
     code_generated_gray_order = sorted(
-        bitstring_to_be_gray_ordered, key=lambda x: binary_to_gray(x)
+        bitstring_to_be_gray_ordered, key=lambda x: gray_to_index(x)
     )
-    assert expected_gray_code_order == code_generated_gray_order
+    #print(code_generated_gray_order)
+    assert expected_gray_order == code_generated_gray_order
     print("Binary to Gray Order passed.")
+
+def _test_gray_to_index_for_larger_bitstrings():
+    bitstrings_to_be_gray_ordered = [
+        '11000000000000000001',
+        '11000000000000000010',
+        '11000000000000000111',
+        '11000000000000000100',
+        '10000000000000000000',
+        '11000000000000000000',
+        '11000000000000000011',
+        '11000000000000000110',
+        '11000000000000000101',
+        '11000000000000001100'
+    ]
+    expected_gray_order = [
+        '11000000000000000000',
+        '11000000000000000001',
+        '11000000000000000011',
+        '11000000000000000010',
+        '11000000000000000110',
+        '11000000000000000111',
+        '11000000000000000101',
+        '11000000000000000100',
+        '11000000000000001100',
+        '10000000000000000000'
+    ]
+    code_generated_gray_order = sorted(bitstrings_to_be_gray_ordered, key=lambda x: gray_to_index(x))
+    assert expected_gray_order==code_generated_gray_order
+    print("Gray to index for bitstrings of length 20 passed.")
 
 
 def _test_givens_fused_controls():
     bitstring_list = [
         ("00000000", "01001010", 1.0),
-        ("10001000", "11000010", 1.0),
-        ("01100000", "00101010", 1.0),
         ("00001000", "01000010", 1.0),
+        ("01101010", "00100000", 1.0),
+        ("00101000", "01100010", 1.0),
     ]
-    pruned_controls = {}
-    pruned_controls[("00000000", "01001010")] = [0, 2, 5, 6, 7]
-    pruned_controls[("10001000", "11000010")] = [0, 2, 3, 4, 5]
-    pruned_controls[("01100000", "00101010")] = [0, 2, 3, 4, 5, 6, 7]
-    pruned_controls[("00001000", "01000010")] = [0, 2, 3, 4, 5, 6, 7]
-    bin_value = "10110101"
+    bin_value = LPFamily(("P", "L", "P", "P", "L", "P", "L", "P"))
+    encoded_physical_states = {
+        "00000000",
+        "01001010",
+        "00001000",
+        "01000010",
+        "01101010",
+        "00100000",
+        "00101000",
+        "01100010",
+        "00110000",
+    }
     generated_circuit = givens_fused_controls(
-        bitstring_list, bin_value, pruned_controls_dict=pruned_controls
+        bitstring_list, bin_value, encoded_physical_states=encoded_physical_states
     )
     expected_circuit = QuantumCircuit(8)
     expected_circuit.cx(1, 4)
     expected_circuit.cx(1, 6)
     expected_circuit.append(
-        RXGate(1.0).control(num_ctrl_qubits=6, ctrl_state="000000"),
-        [0, 2, 3, 5, 6, 7, 1],
-    )
-    expected_circuit.append(
-        RXGate(1.0).control(num_ctrl_qubits=7, ctrl_state="0001000"),
-        [0, 2, 3, 4, 5, 6, 7, 1],
-    )
-    expected_circuit.append(
-        RXGate(1.0).control(num_ctrl_qubits=6, ctrl_state="001000"),
-        [0, 2, 3, 5, 6, 7, 1],
-    )
-    expected_circuit.append(
-        RXGate(1.0).control(num_ctrl_qubits=5, ctrl_state="01001"), [0, 2, 3, 4, 5, 1]
-    )
-    expected_circuit.append(
-        RXGate(1.0).control(num_ctrl_qubits=7, ctrl_state="0101010"),
-        [0, 2, 3, 4, 5, 6, 7, 1],
+        RXGate(1.0).control(num_ctrl_qubits=1, ctrl_state="0"),
+        [3, 1],
     )
     expected_circuit.cx(1, 4)
     expected_circuit.cx(1, 6)
     assert expected_circuit == generated_circuit
     print("givens with fused controls test passed.")
 
+def _test_bitstring_value_of_LP_fam():
+    lp_fam = ("L","P","L","L","P","P")
+    expected_bitstring = "010011"
+    assert expected_bitstring == bitstring_value_of_LP_family(lp_fam)
+    print("bitstring_value_of_LP_fam passed.")
 
 def _test_LPOperator_works():
     print(
         f"Checking that {LPOperator.__name__} only takes the correct values, "
         "raises a ValueError with invalid values, and is immutable.")
-    correct_vals = ["L+", "L-", "P1", "P0"]
+    correct_vals = ("L", "L", "P", "P")
     incorrect_val = "Q"
     for val in correct_vals:
         print("Checking creation with value:", val)
@@ -1296,9 +1308,9 @@ def _test_LPOperator_works():
         raise AssertionError("ValueError not raised.")
 
     print("Check that LPOperator is immutable.")
-    lp_op = LPOperator("L-")
+    lp_op = LPOperator("L")
     try:
-        lp_op.value = "L+"
+        lp_op.value = "P"
     except FrozenInstanceError as e:
         print(f"Test passed. Raised error: {e}")
     else:
@@ -1309,13 +1321,13 @@ def _test_LPFamily_works():
     print(f"Checking that {LPFamily.__name__} only takes correct values, raises a ValueError with invalid values, and is immutable.")
 
     # Test creation with list of strings.
-    lp_family_str = ["L+", "L-", "P0"]
+    lp_family_str = ("L", "L", "P")
     print(f"Testing creation of LPFamily with list of valid strings: {lp_family_str}.")
     assert LPFamily(lp_family_str).value == lp_family_str, f"Encountered value: {LPFamily(lp_family_str).value}, expected: {lp_family_str}."
     print(f"Test passed, LPFamily.value == {lp_family_str}.")
 
     # Test that creation with bad strings fails.
-    bad_lp_family = ["L+", "Q"]
+    bad_lp_family = ("L", "Q")
     print(f"Checking {bad_lp_family} causes ValueError.")
     try:
         LPFamily(bad_lp_family)
@@ -1328,7 +1340,7 @@ def _test_LPFamily_works():
     print("Checking that LPFamily instances are immutable.")
     lp_fam = LPFamily(lp_family_str)
     try:
-        lp_fam.value = LPFamily(["P1"])
+        lp_fam.value = LPFamily(("P","L"))
     except FrozenInstanceError as e:
         print(f"Test passed. Raised error: {e}")
     else:
@@ -1343,15 +1355,15 @@ if __name__ == "__main__":
     _test_compute_LP_family()
     _test_compute_LP_family_fails_on_bad_input()
     _test_compute_LP_family_fails_for_non_bitstrings()
-    _test_prune_controls_fails_for_unequal_length_inputs()
-    _test_prune_controls_fails_for_non_bitstrings()
     _test_prune_controls_acts_as_expected()
     _test_apply_LP_family()
     _test_eliminate_phys_states_that_differ_from_rep_at_Q_idx()
     _test_control_fusion()
-    _test_binary_to_gray()
-    _test_control_fusion_fails_for_inconsistent_lp_bin
-    _test_givens_fused_controls
+    _test_gray_to_index()
+    _test_bitstring_value_of_LP_fam()
+    _test_gray_to_index_for_larger_bitstrings()
+    _test_control_fusion_fails_for_inconsistent_lp_bin()
+    _test_givens_fused_controls()
     _test_LPOperator_works()
     _test_LPFamily_works()
 
