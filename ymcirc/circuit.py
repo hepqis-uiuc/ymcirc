@@ -12,7 +12,7 @@ from ymcirc.givens import (
     bitstring_value_of_LP_family,
     givens_fused_controls,
     compute_LP_family,
-    binary_to_gray,
+    gray_to_index,
 )
 from ymcirc._abstract.lattice_data import Plaquette
 from math import ceil
@@ -303,13 +303,12 @@ class LatticeCircuitManager:
                     dt,
                 )
             )
-        # CHECK
-        # if control_fusion is True:
-        #     #Sort according to Gray-order.
-        #     lp_bin = {
-        #         k: lp_bin[k]
-        #         for k in sorted(lp_bin.keys(), key=lambda x: binary_to_gray(bitstring_value_of_LP_family(x)))
-        #     }
+        if control_fusion is True:
+            #Sort according to Gray-order.
+            lp_bin = {
+                k: lp_bin[k]
+                for k in sorted(lp_bin.keys(), key=lambda x: gray_to_index(bitstring_value_of_LP_family(x)))
+            }
         # iterate over all LP bins and apply givens rotation.
         plaquette_circ_n_qubits = len(self._mag_hamiltonian[0][0])  # TODO this is a disgusting way to get the size of the magnetic evol circuit per plaquette.
         plaquette_local_rotation_circuit = QuantumCircuit(plaquette_circ_n_qubits)
@@ -330,10 +329,10 @@ class LatticeCircuitManager:
                     plaquette_local_rotation_circuit.compose(
                         bs1_bs2_circuit, inplace=True
                     )
-            # if optimize_circuits is True:
-            #     plaquette_local_rotation_circuit = transpile(
-            #         plaquette_local_rotation_circuit, optimization_level=3
-            #     )
+            if optimize_circuits is True:
+                plaquette_local_rotation_circuit = transpile(
+                    plaquette_local_rotation_circuit, optimization_level=3
+                )
 
         return plaquette_local_rotation_circuit
 
