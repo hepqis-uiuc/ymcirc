@@ -153,8 +153,8 @@ from ymcirc.utilities import LazyDict, json_loader
 
 # Filesystem stuff.
 _PROJECT_ROOT = Path(__file__).parent
-_HAMILTONIAN_DATA_DIR = _PROJECT_ROOT / "ymcirc_data/magnetic-hamiltonian-box-term-matrix-elements/"
-_PLAQUETTE_STATES_DATA_DIR = _PROJECT_ROOT / "ymcirc_data/plaquette-states/"
+_HAMILTONIAN_DATA_DIR = _PROJECT_ROOT / "_ymcirc_data/magnetic-hamiltonian-box-term-matrix-elements/"
+_PLAQUETTE_STATES_DATA_DIR = _PROJECT_ROOT / "_ymcirc_data/plaquette-states/"
 _HAMILTONIAN_DATA_FILE_PATHS: Dict[str, Path] = {
     "d=3/2, T1": _HAMILTONIAN_DATA_DIR / "T1_dim(3_2)_magnetic_hamiltonian.json",
     "d=3/2, T2": _HAMILTONIAN_DATA_DIR / "T2_dim(3_2)_magnetic_hamiltonian.json",
@@ -1498,6 +1498,7 @@ def _test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding()
 
     Attempts encoding the following cases:
     - d=3/2, T1
+    - d=3/2, T1p
     - d=3/2, T2
     - d=2, T1
     """
