@@ -587,23 +587,7 @@ def fuse_controls(
         # sort the controls according to a gray-order
         sorted_ctrls_list = sorted(ctrls_list, key=lambda x: gray_to_index(x[1]))
         # control fuse
-        ctrl_state_length = len(sorted_ctrls_list[0][1])
-        for i in range(ctrl_state_length - 1, -1, -1):
-            comparison_idx = 0
-            while comparison_idx < len(sorted_ctrls_list) - 1:
-                if _bitstrings_differ_in_one_bit(
-                    sorted_ctrls_list[comparison_idx][1],
-                    sorted_ctrls_list[comparison_idx + 1][1],
-                ) == (True, i):
-                    ctrls = sorted_ctrls_list[comparison_idx][0]
-                    new_ctrl_state = (
-                        sorted_ctrls_list[comparison_idx][1][:i]
-                        + "x"
-                        + sorted_ctrls_list[comparison_idx][1][i + 1 :]
-                    )
-                    del sorted_ctrls_list[comparison_idx : comparison_idx + 2]
-                    sorted_ctrls_list.insert(comparison_idx, (ctrls, new_ctrl_state))
-                comparison_idx += 1
+        sorted_ctrls_list = _fuse_ctrls_of_ctrls_list(sorted_ctrls_list)
         sorted_ctrls_list = [
             _remove_redundant_controls(ctrls, ctrl_state)
             for ctrls, ctrl_state in sorted_ctrls_list
@@ -697,6 +681,40 @@ def _eliminate_phys_states_that_differ_from_rep_at_Q_idx(
             phys_states_set,
         )
     )
+
+def _fuse_ctrls_of_ctrls_list(sorted_ctrls_list: List[(List[int], str)]) -> List[(List[int], str)]:
+    """ 
+    Fuses the control states when the control states only differ in one bit. 
+    After fusion, the position in the control state where the fusion occurred is 
+    replaced by the placeholder string "x".
+
+    For example, if the control states to be fused were "0000", "0100", "1000", "1100", 
+    the fusion would happen in three steps:
+        1. "0000" and "0100" get fused into "0x00"
+        2. "1000" and "1100" get fused into "1x00"
+        3. "0x00" and "1x00" get fused into "xx00"
+
+    The redundant "x" controls can be removed by the helper function _remove_redundant_controls.
+    """
+    ctrl_state_length = len(sorted_ctrls_list[0][1])
+    for i in range(ctrl_state_length - 1, -1, -1):
+        comparison_idx = 0
+        while comparison_idx < len(sorted_ctrls_list) - 1:
+            if _bitstrings_differ_in_one_bit(
+                sorted_ctrls_list[comparison_idx][1],
+                sorted_ctrls_list[comparison_idx + 1][1],
+            ) == (True, i):
+                ctrls = sorted_ctrls_list[comparison_idx][0]
+                new_ctrl_state = (
+                    sorted_ctrls_list[comparison_idx][1][:i]
+                    + "x"
+                    + sorted_ctrls_list[comparison_idx][1][i + 1 :]
+                )
+                del sorted_ctrls_list[comparison_idx : comparison_idx + 2]
+                sorted_ctrls_list.insert(comparison_idx, (ctrls, new_ctrl_state))
+            comparison_idx += 1
+    return sorted_ctrls_list
+
 
 
 def _CRXGate(num_ctrls: int, ctrl_state: str, angle: float) -> ControlledGate:
