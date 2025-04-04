@@ -8,7 +8,7 @@ from ymcirc.conventions import LatticeStateEncoder
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import (
     givens,
-    prune_controls,
+    LPFamily,
     bitstring_value_of_LP_family,
     givens_fused_controls,
     compute_LP_family,
@@ -301,8 +301,8 @@ class LatticeCircuitManager:
     ) -> QuantumCircuit:
         """Build the magnetic time-evolution circuit for a plaquette."""
         # Sort the bitstrings corresponding to transitions in the magnetic hamiltonian
-        # into LP bins. This step also simultaneously finds pruned controls for each
-        # transition and stores it in a dictionary.
+        # into LP bins. This step also computes the angle of Givens rotation for each
+        # pair of bitstrings.
         lp_bin = LatticeCircuitManager._sort_matrix_elements_into_lp_bins(
             self._mag_hamiltonian,
             coupling_g,
@@ -332,7 +332,7 @@ class LatticeCircuitManager:
                 )
             else:
                 # If control fusion is turned off, givens rotation is applied individually
-                # to all bistrings.
+                # to all bitstrings.
                 for bs1, bs2, angle in lp_bin_w_angle:
                     bs1_bs2_circuit = givens(
                         bs1, bs2, angle, physical_states_for_control_pruning
@@ -352,7 +352,7 @@ class LatticeCircuitManager:
         bitstrings_w_matrix_element: List[(str, str, float)],
         coupling_g: float,
         dt: float,
-    ) -> Tuple[Dict[str, List[(str, str)]], Dict[(str, str), Set[int]]]:
+    ) -> Dict[LPFamily, List[(str, str, float)]]:
         """
         Rearrange magnetic Hamiltonian matrix elements to LP family bins.
 
@@ -369,8 +369,7 @@ class LatticeCircuitManager:
 
         Output:
             - dictionary where each key is a LP bin, and the corresponding value is a list of transitions
-                that have the same LP value.
-            - dictionary where each key is a tuple of bitstrings, and the entry is a set of pruned controls.
+                that have the same LP value. Each transition is of the form (bitstring1, bitstring2, angle).
         """
         lp_bin = {}
         for (
