@@ -114,13 +114,9 @@ def givens(
                 target = idx
                 break
 
-        ctrls, ctrl_state = _compute_ctrls_and_state_for_givens_MCRX(
-            bit_string_1, bit_string_2, target
-        )
+        ctrls, ctrl_state = _build_multiRX(bit_string_1, bit_string_2, target)
         lp_fam = compute_LP_family(bit_string_1, bit_string_2)
 
-        # Note that this step will become redundant when control_pruning is turned off
-        # i.e., when encoded_physical_states = None.
         pruned_ctrls, pruned_ctrl_state = prune_controls(
             lp_fam, ctrls, ctrl_state, encoded_physical_states
         )
@@ -212,7 +208,7 @@ def givens_fused_controls(
         return Xcirc
 
 
-def _compute_ctrls_and_state_for_givens_MCRX(
+def _build_multiRX(
     bs1_little_endian: str, bs2_little_endian: str, target: int
 ) -> Tuple[List[int], str]:
     """
@@ -425,7 +421,7 @@ def prune_controls(
     ctrls: List[int],
     ctrl_state: str,
     encoded_physical_states: Set[str] | None,
-) -> Tuple[List[int], str]:
+) -> Set[int]:
     """
     Perform control pruning on circ to reduce multi-control unitaries (MCUs).
 
@@ -474,10 +470,10 @@ def prune_controls(
             for phys_state in P_tilde
         }
         # remove all the x's
-        ctrls_with_missing_idxes_added = [idx for idx in range(len(lp_fam.value))]
-        ctrls_with_missing_idxes_added.remove(q_prime_idx)
+        unfused_ctrls = [idx for idx in range(len(lp_fam.value))]
+        unfused_ctrls.remove(q_prime_idx)
         P_tilde = {
-            _remove_redundant_controls(ctrls_with_missing_idxes_added, phys_state)[1]
+            _remove_redundant_controls(unfused_ctrls, phys_state)[1]
             for phys_state in P_tilde
         }
         representative_P_tilde = ctrl_state
@@ -543,7 +539,7 @@ def fuse_controls(
     round_close_angles: bool = True,
 ) -> Dict[float, tuple[List[int], str]]:
     """
-    This function fuses the controls of multiple multi-RX gates of the same LP family.
+    This function fuses the (pruned) controls of multiple multi-RX gates of the same LP family.
 
     Input:
         - lp_fam: The LP family of the multi-RX gates.
@@ -565,9 +561,7 @@ def fuse_controls(
     # Step 1: build multiRX gates out of bitstrings, and bin them according to angles.
     for bitstring1, bitstring2, angle in lp_bin_w_angle:
         # find the controls of multiRX gate
-        ctrls, ctrl_state = _compute_ctrls_and_state_for_givens_MCRX(
-            bitstring1, bitstring2, target
-        )
+        ctrls, ctrl_state = _build_multiRX(bitstring1, bitstring2, target)
 
         # Find or create an angle bin.
         if angle in angle_bin:
@@ -590,11 +584,7 @@ def fuse_controls(
 
     # Step 2: Control fusion
     for angle, ctrls_list in angle_bin.items():
-        # Note that the ctrls_list is a list of tuples of the form (ctrls,ctrl_state) where
-        # ctrls refer to the control indices and ctrl_state refers to the state the controls
-        # are in.
-
-        # sort the controls according to a gray-order.
+        # sort the controls according to a gray-order
         sorted_ctrls_list = sorted(ctrls_list, key=lambda x: gray_to_index(x[1]))
         # control fuse
         sorted_ctrls_list = _fuse_ctrls_of_ctrls_list(sorted_ctrls_list)
@@ -692,16 +682,13 @@ def _eliminate_phys_states_that_differ_from_rep_at_Q_idx(
         )
     )
 
-
-def _fuse_ctrls_of_ctrls_list(
-    sorted_ctrls_list: List[(List[int], str)],
-) -> List[(List[int], str)]:
-    """
-    Fuses the control states when the control states only differ in one bit.
-    After fusion, the position in the control state where the fusion occurred is
+def _fuse_ctrls_of_ctrls_list(sorted_ctrls_list: List[(List[int], str)]) -> List[(List[int], str)]:
+    """ 
+    Fuses the control states when the control states only differ in one bit. 
+    After fusion, the position in the control state where the fusion occurred is 
     replaced by the placeholder string "x".
 
-    For example, if the control states to be fused were "0000", "0100", "1000", "1100",
+    For example, if the control states to be fused were "0000", "0100", "1000", "1100", 
     the fusion would happen in three steps:
         1. "0000" and "0100" get fused into "0x00"
         2. "1000" and "1100" get fused into "1x00"
@@ -710,31 +697,24 @@ def _fuse_ctrls_of_ctrls_list(
     The redundant "x" controls can be removed by the helper function _remove_redundant_controls.
     """
     ctrl_state_length = len(sorted_ctrls_list[0][1])
-    for ctrl_state_idx in range(ctrl_state_length - 1, -1, -1):
-        sorted_ctrl_list_element_idx = 0
-        while sorted_ctrl_list_element_idx < len(sorted_ctrls_list) - 1:
+    for i in range(ctrl_state_length - 1, -1, -1):
+        comparison_idx = 0
+        while comparison_idx < len(sorted_ctrls_list) - 1:
             if _bitstrings_differ_in_one_bit(
-                sorted_ctrls_list[sorted_ctrl_list_element_idx][1],
-                sorted_ctrls_list[sorted_ctrl_list_element_idx + 1][1],
-            ) == (True, ctrl_state_idx):
-                ctrls = sorted_ctrls_list[sorted_ctrl_list_element_idx][0]
-                # "x" is added as a place holder in the place where controls got fused
-                # to indicate that there's no control state at that position anymore.
+                sorted_ctrls_list[comparison_idx][1],
+                sorted_ctrls_list[comparison_idx + 1][1],
+            ) == (True, i):
+                ctrls = sorted_ctrls_list[comparison_idx][0]
                 new_ctrl_state = (
-                    sorted_ctrls_list[sorted_ctrl_list_element_idx][1][:ctrl_state_idx]
+                    sorted_ctrls_list[comparison_idx][1][:i]
                     + "x"
-                    + sorted_ctrls_list[sorted_ctrl_list_element_idx][1][
-                        ctrl_state_idx + 1 :
-                    ]
+                    + sorted_ctrls_list[comparison_idx][1][i + 1 :]
                 )
-                del sorted_ctrls_list[
-                    sorted_ctrl_list_element_idx : sorted_ctrl_list_element_idx + 2
-                ]
-                sorted_ctrls_list.insert(
-                    sorted_ctrl_list_element_idx, (ctrls, new_ctrl_state)
-                )
-            sorted_ctrl_list_element_idx += 1
+                del sorted_ctrls_list[comparison_idx : comparison_idx + 2]
+                sorted_ctrls_list.insert(comparison_idx, (ctrls, new_ctrl_state))
+            comparison_idx += 1
     return sorted_ctrls_list
+
 
 
 def _CRXGate(num_ctrls: int, ctrl_state: str, angle: float) -> ControlledGate:
@@ -759,14 +739,7 @@ def bitstring_value_of_LP_family(lp_fam: List[str] | LPFamily) -> str:
 
 
 def gray_to_index(gray_str: str) -> int:
-    """
-    Find the index at which a particular bitstring occurs in the gray order.
-
-    This is implemented by first finding the binary equivalent of the bitstring
-    (see https://mathworld.wolfram.com/GrayCode.html for an easy introduction).
-    Once the binary representation is found, the binary number is converted to
-    an integer index, which is the return value.
-    """
+    """Convert a Gray code string to its binary equivalent."""
     binary = [
         int(gray_str[0])
     ]  # The first binary bit is the same as the first Gray code bit
@@ -816,8 +789,9 @@ def _determine_target_of_lp_fam(lp_fam: LPFamily) -> int:
 def _remove_redundant_controls(
     ctrls: List[int], ctrl_state: str
 ) -> tuple[List[int], str]:
-    if len(ctrls) != len(ctrl_state):
-        raise ValueError("The length of the controls and control state must be equal")
+    assert len(ctrls) == len(
+        ctrl_state
+    ), "The length of the controls and control state must be equal"
     new_ctrls = []
     new_ctrl_state = ""
     for i in range(len(ctrls)):
@@ -954,7 +928,7 @@ def _test_Xcirc():
     print(f"Test passed. Obtained circuit:\n{Xcirc.draw()}\n")
 
 
-def _test_building_MCRX_gate():
+def _test_multiRX():
     print("Verifying that the multiRX subcircuit is correctly constructed.")
 
     # Case 1
@@ -977,9 +951,7 @@ def _test_building_MCRX_gate():
     expected_circ.append(multiRX_expected_gate, expected_ctrls + [control_qubit])
 
     actual_circ = QuantumCircuit(4)
-    actual_ctrls, actual_ctrl_state = _compute_ctrls_and_state_for_givens_MCRX(
-        bs1, bs2, target=control_qubit
-    )
+    actual_ctrls, actual_ctrl_state = _build_multiRX(bs1, bs2, target=control_qubit)
     multiRX_actual = _CRXGate(len(actual_ctrls), actual_ctrl_state, angle)
     actual_circ.append(multiRX_actual, actual_ctrls + [control_qubit])
 
@@ -1011,9 +983,7 @@ def _test_building_MCRX_gate():
     expected_circ.append(multiRX_expected_gate, expected_ctrls + [control_qubit])
 
     actual_circ = QuantumCircuit(12)
-    actual_ctrls, actual_ctrl_state = _compute_ctrls_and_state_for_givens_MCRX(
-        bs1, bs2, target=control_qubit
-    )
+    actual_ctrls, actual_ctrl_state = _build_multiRX(bs1, bs2, target=control_qubit)
     multiRX_actual = _CRXGate(len(actual_ctrls), actual_ctrl_state, angle)
     actual_circ.append(multiRX_actual, actual_ctrls + [control_qubit])
 
@@ -1075,7 +1045,7 @@ def _test_prune_controls_acts_as_expected():
     # Case 1, one control needed.
     bs1 = "11001001"
     bs2 = "11000110"
-    ctrls, ctrl_state = _compute_ctrls_and_state_for_givens_MCRX(bs1, bs2, 4)
+    ctrls, ctrl_state = _build_multiRX(bs1, bs2, 4)
     phys_states = {bs1, bs2, "11111111"}
     expected_rep_LP_family = LPFamily(("P", "P", "P", "P", "L", "L", "L", "L"))
     expected_q_prime_idx = 4
@@ -1128,7 +1098,7 @@ def _test_prune_controls_acts_as_expected():
     # Case 2, two controls needed.
     bs1 = "11000011"
     bs2 = "11001001"  # Differs at 1 qubit at index 6, will be in Q set.
-    ctrls, ctrl_state = _compute_ctrls_and_state_for_givens_MCRX(bs1, bs2, 4)
+    ctrls, ctrl_state = _build_multiRX(bs1, bs2, 4)
     phys_states = {bs1, bs2, "11111111", "00000000"}
     expected_rep_LP_family = LPFamily(("P", "P", "P", "P", "L", "P", "L", "P"))
     expected_q_prime_idx = 4
@@ -1487,7 +1457,7 @@ if __name__ == "__main__":
     _test_givens()
     # _test_givens2()  # TODO fix nondeterministic behavior of this test.
     _test_Xcirc()
-    _test_building_MCRX_gate()
+    _test_multiRX()
     _test_compute_LP_family()
     _test_compute_LP_family_fails_on_bad_input()
     _test_compute_LP_family_fails_for_non_bitstrings()
