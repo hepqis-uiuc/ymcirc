@@ -432,7 +432,10 @@ def prune_controls(
     This algorithm decreases the two-qubit gate depth of resulting
     circuits by determining the set of necessary control qubits to
     implement a Givens rotation without inducing any rotations
-    between states in encoded_physical_states.
+    between states in encoded_physical_states. If the Set
+    encoded_physical_states is None, then the inputs
+    (ctrls, ctrl_state) are simply returned as a tuple with
+    no changes.
 
     Input:
         - lp_fam: the LP family the controls and control state belong to
