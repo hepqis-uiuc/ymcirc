@@ -71,6 +71,7 @@ use_2box_hack = False  # Halves circuit depth by taking box + box^dagger = 2box.
 note_unphysical_states = True  # Emit warning when decoding unphysical plaquette states. Assign 0.0 electric energy.
 stop_on_unphysical_states = False  # Raise an error when decoding unphysical unphysical states. Terminate simulation.
 prune_controls = True
+control_fusion = True
 n_shots = 10000
 
 # Specify plotting options if desired, and whether to save plots/circuits/data to disk
@@ -124,7 +125,7 @@ if __name__ == "__main__":
     else:
         physical_plaquette_states = None
         print("Skipping control pruning.")
-    breakpoint()
+    # breakpoint()
 
     # TODO generate all parameterized givens rotation circuits here?
 
@@ -174,7 +175,9 @@ if __name__ == "__main__":
                         coupling_g=coupling_g,
                         dt=dt,
                         optimize_circuits=run_circuit_optimization,
-                        physical_states_for_control_pruning=physical_plaquette_states
+                        physical_states_for_control_pruning=physical_plaquette_states,
+                        control_fusion=control_fusion,
+                        cache_mag_evol_circuit=True
                     )
 
                 if do_electric_evolution is True:
@@ -192,7 +195,7 @@ if __name__ == "__main__":
             master_circuit = transpile(master_circuit, optimization_level=3)
             print("Gate counts:\n", master_circuit.count_ops())
 
-            # breakpoint()
+            breakpoint()
 
             if save_circuits_qasm is True:
                 qasm_file_path = SERIALIZED_CIRCUITS_DIR / Path(f"qasm-{n_plaquettes}-plaquettes-in-d={dimensions}-irrep_trunc={trunc_string}-mat_elem_cut={mag_hamiltonian_matrix_element_threshold}-vac_connected_only={only_include_elems_connected_to_electric_vacuum}/n_trotter={n_trotter_steps}-t={sim_time}.qasm")
