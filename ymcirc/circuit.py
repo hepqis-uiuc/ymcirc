@@ -266,7 +266,7 @@ class LatticeCircuitManager:
                                internal givens rotation with the maximum
                                optimization level before composing with
                                master_circuit.
-          - set_of_physical_states: The set of all physical states encoded as bitstrings.
+          - physical_states_for_control_pruning: The set of all physical states encoded as bitstrings.
                                     If provided, control pruning of multi-control rotation
                                     gate inside Givens rotation subcircuits will be attempted.
                                     If None, no control pruning is attempted.
