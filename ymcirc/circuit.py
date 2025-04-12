@@ -4,7 +4,7 @@ A collection of utilities for building circuits.
 from __future__ import annotations
 import copy
 from ymcirc._abstract import LatticeDef
-from ymcirc.conventions import LatticeStateEncoder, IRREP_TRUNCATION_DICT_1_3_3BAR, ONE, THREE, THREE_BAR
+from ymcirc.conventions import PlaquetteState, LatticeStateEncoder, IRREP_TRUNCATION_DICT_1_3_3BAR, ONE, THREE, THREE_BAR
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import (
     givens,
@@ -32,7 +32,20 @@ class LatticeCircuitManager:
     def __init__(
         self, lattice_encoder: LatticeStateEncoder, mag_hamiltonian: HamiltonianData
     ):
-        """Create via a LatticeStateEncoder instance and magnetic Hamiltonian matrix elements."""
+        """
+        Create via a LatticeStateEncoder instance and magnetic Hamiltonian matrix elements.
+
+        If the lattice defined by lattice_encoder is small and periodic, then the data in mag_hamiltonian
+        will be filtered for consistency. "Small and periodic" means that the lattice has
+        periodic boundary conditions, and is small enough that it is possible for a single
+        physical lattice link to appear as control links on two different vertices in a given
+        plaquette. In this situation, all matrix elements in the magnetic Hamiltonian
+        for which the initial or the final state have distinct link state data on one of
+        these "shared" control links are discarded, and "duplicate" control links
+        are removed from the binary encoding of the plaquette states. This duplicate
+        removal is done by removing all but the first instance of a repeated control
+        link from the plaquette state.
+        """
         # Copies to avoid inadvertently changing the behavior of the
         # LatticeCircuitManager instance.
         self._encoder = copy.deepcopy(lattice_encoder)
@@ -48,11 +61,13 @@ class LatticeCircuitManager:
 
         # Determine if lattice is small and periodic. If yes, filter out inconsistent Hamiltonian terms
         # and drop repeated references to the same physical control link in mag_hamiltonian bit strings.
+        self._lattice_is_small = False
+        self._lattice_is_periodic = False
         lattice_size_threshold_for_smallness = 2
         if not lattice_encoder.lattice_def.all_boundary_conds_periodic:
             raise NotImplementedError("Lattices with nonperiodic or mixed boundary conditions not yet supported.")
         else:
-            lattice_is_periodic = True
+            self._lattice_is_periodic = True
         match lattice_encoder.lattice_def.dim:
             case 1.5:
                 lattice_size = lattice_encoder.lattice_def.shape[1]
@@ -62,79 +77,34 @@ class LatticeCircuitManager:
                     raise NotImplementedError("Non-square dim 2 lattices not yet supported.")
             case _:
                 raise NotImplementedError(f"Dim {lattice_encoder.lattice_def.dim} lattice not yet supported.")
-        lattice_is_small = True if lattice_size <= lattice_size_threshold_for_smallness else False
+        self._lattice_is_small = True if lattice_size <= lattice_size_threshold_for_smallness else False
+
         
-        if lattice_is_small is True and lattice_is_periodic is True:
-            #breakpoint()
-            # Filter out magnetic hamiltonian terms which are inconsistent (repeated control links must have the same value)
+        if self._lattice_is_small is True and self._lattice_is_periodic is True:
+            # Filter out magnetic Hamiltonian terms which are inconsistent (repeated control links must have the same value)
             filtered_and_trimmed_mag_hamiltonian: HamiltonianData = []
             for matrix_element in self._mag_hamiltonian:
-                final_state_vertex_multiplicities, final_state_a_links, final_state_c_links = lattice_encoder.decode_bit_string_to_plaquette_state(matrix_element[0])
-                initial_state_vertex_multiplicities, initial_state_a_links, initial_state_c_links = lattice_encoder.decode_bit_string_to_plaquette_state(matrix_element[1])
-                match lattice_encoder.lattice_def.dim:
-                    case 1.5:
-                        # c1 and c2 are the same physical link. c3 and c4 are the same physical link.
-                        final_state_has_inconsistent_controls = (
-                            (final_state_c_links[0] != final_state_c_links[1]) or
-                            (final_state_c_links[2] != final_state_c_links[3])
-                        )
-                        initial_state_has_inconsistent_controls = (
-                            (initial_state_c_links[0] != initial_state_c_links[1]) or
-                            (initial_state_c_links[2] != initial_state_c_links[3])
-                        )
-                    case 2:
-                        # physical equivalent controls: c1 == c4, c2 == c7, c3 == c6, c5 == c8
-                        final_state_has_inconsistent_controls = (
-                            (final_state_c_links[0] != final_state_c_links[3]) or
-                            (final_state_c_links[1] != final_state_c_links[6]) or
-                            (final_state_c_links[2] != final_state_c_links[5]) or
-                            (final_state_c_links[4] != final_state_c_links[7])
-                        )
-                        initial_state_has_inconsistent_controls = (
-                            (initial_state_c_links[0] != initial_state_c_links[3]) or
-                            (initial_state_c_links[1] != initial_state_c_links[6]) or
-                            (initial_state_c_links[2] != initial_state_c_links[5]) or
-                            (initial_state_c_links[4] != initial_state_c_links[7])
-                        )
-                    case _:
-                        raise NotImplementedError(f"Dim {lattice_encoder.lattice_def.dim} lattice not yet supported.")
+                final_plaquette_state = lattice_encoder.decode_bit_string_to_plaquette_state(matrix_element[0])
+                initial_plaquette_state = lattice_encoder.decode_bit_string_to_plaquette_state(matrix_element[1])
+                final_state_has_inconsistent_controls = self._plaquette_state_has_inconsistent_controls(final_plaquette_state)
+                initial_state_has_inconsistent_controls = self._plaquette_state_has_inconsistent_controls(initial_plaquette_state)
+                
                 if (final_state_has_inconsistent_controls is True) or (initial_state_has_inconsistent_controls is True):
+                    # Matrix element includes plaquette states that are nonsensical on a small, periodic lattice. Skip it.
                     continue
                 else:
-                    # Matrix element is consistent on shared controls. Re-encode as bitstring and keep.
-                    # Filter out duplicate c links by keeping only the first instance of each physically distinct c link.
-                    match lattice_encoder.lattice_def.dim:
-                        case 1.5:
-                            # c1 and c3 are kept
-                            final_state_physical_c_links = (final_state_c_links[0], final_state_c_links[2])
-                            initial_state_physical_c_links = (initial_state_c_links[0], initial_state_c_links[2])
-                        case 2:
-                            # c1, c2, c3, and c5 are kept
-                            final_state_physical_c_links = (final_state_c_links[0], final_state_c_links[1], final_state_c_links[2], final_state_c_links[4])
-                            initial_state_physical_c_links = (initial_state_c_links[0], initial_state_c_links[2], initial_state_c_links[2], initial_state_c_links[4])
-                        case _:
-                            raise NotImplementedError(f"Dim {lattice_encoder.lattice_def.dim} lattice not yet supported.")
-                    
-                    final_state_plaquette = (
-                        final_state_vertex_multiplicities,
-                        final_state_a_links,
-                        final_state_physical_c_links
-                    )
-                    initial_state_plaquette = (
-                        initial_state_vertex_multiplicities,
-                        initial_state_a_links,
-                        initial_state_physical_c_links
-                    )
+                    # Matrix element is consistent on shared controls. Trim out duplicate control links, re-encode plaquettes as bitstring, and keep.
+                    final_plaquette_state_trimmed_c_links = self._discard_duplicate_controls_from_plaquette_state(final_plaquette_state)
+                    initial_plaquette_state_trimmed_c_links = self._discard_duplicate_controls_from_plaquette_state(initial_plaquette_state)
                     consistent_and_trimmed_matrix_element = (
-                        lattice_encoder.encode_plaquette_state_as_bit_string(final_state_plaquette, override_n_c_links_validation=True),
-                        lattice_encoder.encode_plaquette_state_as_bit_string(initial_state_plaquette, override_n_c_links_validation=True),
+                        lattice_encoder.encode_plaquette_state_as_bit_string(final_plaquette_state_trimmed_c_links, override_n_c_links_validation=True),
+                        lattice_encoder.encode_plaquette_state_as_bit_string(initial_plaquette_state_trimmed_c_links, override_n_c_links_validation=True),
                         matrix_element[2]
                     )
                     filtered_and_trimmed_mag_hamiltonian.append(consistent_and_trimmed_matrix_element)
-            
-            self._mag_hamiltonian = filtered_and_trimmed_mag_hamiltonian
-            breakpoint()
-            
+
+            # Update the magnetic Hamiltonian data with the trimmed, consistent matrix elements.
+            self._mag_hamiltonian = filtered_and_trimmed_mag_hamiltonian            
 
     # TODO modularize the logic for walking through a lattice.
     def create_blank_full_lattice_circuit(
@@ -277,7 +247,7 @@ class LatticeCircuitManager:
         """
         Add one magnetic Trotter step to the entire lattice circuit.
 
-        This is done by iterating over every lattice vertex.At each vertex,
+        This is done by iterating over every lattice vertex. At each vertex,
         there's an additional iteration over every "positive" plaquette.
         For each such plaquette, the plaquette-local magnetic Trotter step
         is appended to the circuit.
@@ -476,6 +446,67 @@ class LatticeCircuitManager:
                 )
 
         return plaquette_local_rotation_circuit
+
+    def _plaquette_state_has_inconsistent_controls(self, plaquette: PlaquetteState) -> bool:
+        """
+        True if "shared" control links have different states; False otherwise.
+
+        For d=3/2, this corresponds to c1 == c2 and c3 == c4.
+
+        For d=2, this corresponds to c1 == c4, c2 == c7, c3 == c6, and c5 == c8.
+        
+        Note that this only makes sense on a small, periodic lattice, so a ValueError
+        is raised if the lattice fails those checks.
+        """
+        if (self._lattice_is_periodic is False) or (self._lattice_is_small is False):
+            raise ValueError("Plaquette state consistency check only makes sense on a small, periodic lattice.")
+
+        c_links = plaquette[2]
+        match self._encoder.lattice_def.dim:
+            case 1.5:
+                plaquette_state_has_inconsistent_controls = (
+                    (c_links[0] != c_links[1]) or
+                    (c_links[2] != c_links[3])
+                )
+            case 2:
+                plaquette_state_has_inconsistent_controls = (
+                    (c_links[0] != c_links[3]) or
+                    (c_links[1] != c_links[6]) or
+                    (c_links[2] != c_links[5]) or
+                    (c_links[4] != c_links[7])
+                )
+            case _:
+                raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
+
+        return plaquette_state_has_inconsistent_controls
+
+    def _discard_duplicate_controls_from_plaquette_state(self, plaquette: PlaquetteState) -> PlaquetteState:
+        """
+        Return a new instances of the plaquette where duplicate control link data has been discarded.
+
+        Only the first instance of a duplicate control link is kept. For example, on a 2-plaquette d=3/2
+        lattice with PBCs, only c1 and c3 are kept since c1 == c2 and c3 == c4. On a 4-plaquette d=2
+        lattice with PBCs, only c1, c2, c3, and c5 are kept since c1 == c4, c2 == c7, c3 == c6,
+        and c5 == c8.
+
+        Since this only makes sense on a small, periodic lattice, a ValueError
+        is raised if the lattice is not small and periodic.
+        """
+        if (self._lattice_is_periodic is False) or (self._lattice_is_small is False):
+            raise ValueError("Plaquette state consistency check only makes sense on a small, periodic lattice.")
+
+        vertex_multiplicities, a_links, c_links = plaquette
+        match self._encoder.lattice_def.dim:
+            case 1.5:
+                physical_c_links = (c_links[0], c_links[2])
+            case 2:
+                physical_c_links = (c_links[0], c_links[1], c_links[2], c_links[4])
+            case _:
+                raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
+            
+        plaquette_with_filtered_c_links = (vertex_multiplicities, a_links, physical_c_links)
+        return plaquette_with_filtered_c_links
+        
 
     @staticmethod
     def _sort_matrix_elements_into_lp_bins(
