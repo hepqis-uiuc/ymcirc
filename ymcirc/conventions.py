@@ -446,7 +446,9 @@ class LatticeStateEncoder:
 
     def encode_plaquette_state_as_bit_string(
             self,
-            plaquette: PlaquetteState) -> str:
+            plaquette: PlaquetteState,
+            override_n_c_links_validation: bool = False
+    ) -> str:
         """
         Convert plaquette to a bit string encoding.
 
@@ -481,6 +483,11 @@ class LatticeStateEncoder:
         |l1 l2 l3 l4 controls>
 
         in a bit string instead.
+
+        Finally, if the argument override_n_c_links_validation is True, then no validation on the total
+        number of control links will be performed. This is useful (for example) when working on small
+        lattices with periodic boundary conditions, where the same physical control link can be
+        connected to more than one vertex in a plaquette.
         """
         if len(plaquette) != 3:
             raise ValueError(
@@ -494,7 +501,7 @@ class LatticeStateEncoder:
             raise ValueError(f"Encountered {len(vertices)} vertex multiplicities instead of 4.")
         if len(a_links) != 4:
             raise ValueError(f"Encountered {len(a_links)} active links instead of 4.")
-        if len(c_links) != self._lattice.n_control_links_per_plaquette:
+        if len(c_links) != self._lattice.n_control_links_per_plaquette and (override_n_c_links_validation is False):
             raise ValueError(f"Encountered {len(c_links)} control links instead of {self._lattice.n_control_links_per_plaquette}.")
         bit_string_encoding = ""
 

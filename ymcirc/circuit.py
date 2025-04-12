@@ -46,6 +46,96 @@ class LatticeCircuitManager:
             "control_fusion": None,
         }
 
+        # Determine if lattice is small and periodic. If yes, filter out inconsistent Hamiltonian terms
+        # and drop repeated references to the same physical control link in mag_hamiltonian bit strings.
+        lattice_size_threshold_for_smallness = 2
+        if not lattice_encoder.lattice_def.all_boundary_conds_periodic:
+            raise NotImplementedError("Lattices with nonperiodic or mixed boundary conditions not yet supported.")
+        else:
+            lattice_is_periodic = True
+        match lattice_encoder.lattice_def.dim:
+            case 1.5:
+                lattice_size = lattice_encoder.lattice_def.shape[1]
+            case 2:
+                lattice_size = lattice_encoder.lattice_def.shape[1]
+                if lattice_size != lattice_encoder.lattice_def.shape[0]:
+                    raise NotImplementedError("Non-square dim 2 lattices not yet supported.")
+            case _:
+                raise NotImplementedError(f"Dim {lattice_encoder.lattice_def.dim} lattice not yet supported.")
+        lattice_is_small = True if lattice_size <= lattice_size_threshold_for_smallness else False
+        
+        if lattice_is_small is True and lattice_is_periodic is True:
+            #breakpoint()
+            # Filter out magnetic hamiltonian terms which are inconsistent (repeated control links must have the same value)
+            filtered_and_trimmed_mag_hamiltonian: HamiltonianData = []
+            for matrix_element in self._mag_hamiltonian:
+                final_state_vertex_multiplicities, final_state_a_links, final_state_c_links = lattice_encoder.decode_bit_string_to_plaquette_state(matrix_element[0])
+                initial_state_vertex_multiplicities, initial_state_a_links, initial_state_c_links = lattice_encoder.decode_bit_string_to_plaquette_state(matrix_element[1])
+                match lattice_encoder.lattice_def.dim:
+                    case 1.5:
+                        # c1 and c2 are the same physical link. c3 and c4 are the same physical link.
+                        final_state_has_inconsistent_controls = (
+                            (final_state_c_links[0] != final_state_c_links[1]) or
+                            (final_state_c_links[2] != final_state_c_links[3])
+                        )
+                        initial_state_has_inconsistent_controls = (
+                            (initial_state_c_links[0] != initial_state_c_links[1]) or
+                            (initial_state_c_links[2] != initial_state_c_links[3])
+                        )
+                    case 2:
+                        # physical equivalent controls: c1 == c4, c2 == c7, c3 == c6, c5 == c8
+                        final_state_has_inconsistent_controls = (
+                            (final_state_c_links[0] != final_state_c_links[3]) or
+                            (final_state_c_links[1] != final_state_c_links[6]) or
+                            (final_state_c_links[2] != final_state_c_links[5]) or
+                            (final_state_c_links[4] != final_state_c_links[7])
+                        )
+                        initial_state_has_inconsistent_controls = (
+                            (initial_state_c_links[0] != initial_state_c_links[3]) or
+                            (initial_state_c_links[1] != initial_state_c_links[6]) or
+                            (initial_state_c_links[2] != initial_state_c_links[5]) or
+                            (initial_state_c_links[4] != initial_state_c_links[7])
+                        )
+                    case _:
+                        raise NotImplementedError(f"Dim {lattice_encoder.lattice_def.dim} lattice not yet supported.")
+                if (final_state_has_inconsistent_controls is True) or (initial_state_has_inconsistent_controls is True):
+                    continue
+                else:
+                    # Matrix element is consistent on shared controls. Re-encode as bitstring and keep.
+                    # Filter out duplicate c links by keeping only the first instance of each physically distinct c link.
+                    match lattice_encoder.lattice_def.dim:
+                        case 1.5:
+                            # c1 and c3 are kept
+                            final_state_physical_c_links = (final_state_c_links[0], final_state_c_links[2])
+                            initial_state_physical_c_links = (initial_state_c_links[0], initial_state_c_links[2])
+                        case 2:
+                            # c1, c2, c3, and c5 are kept
+                            final_state_physical_c_links = (final_state_c_links[0], final_state_c_links[1], final_state_c_links[2], final_state_c_links[4])
+                            initial_state_physical_c_links = (initial_state_c_links[0], initial_state_c_links[2], initial_state_c_links[2], initial_state_c_links[4])
+                        case _:
+                            raise NotImplementedError(f"Dim {lattice_encoder.lattice_def.dim} lattice not yet supported.")
+                    
+                    final_state_plaquette = (
+                        final_state_vertex_multiplicities,
+                        final_state_a_links,
+                        final_state_physical_c_links
+                    )
+                    initial_state_plaquette = (
+                        initial_state_vertex_multiplicities,
+                        initial_state_a_links,
+                        initial_state_physical_c_links
+                    )
+                    consistent_and_trimmed_matrix_element = (
+                        lattice_encoder.encode_plaquette_state_as_bit_string(final_state_plaquette, override_n_c_links_validation=True),
+                        lattice_encoder.encode_plaquette_state_as_bit_string(initial_state_plaquette, override_n_c_links_validation=True),
+                        matrix_element[2]
+                    )
+                    filtered_and_trimmed_mag_hamiltonian.append(consistent_and_trimmed_matrix_element)
+            
+            self._mag_hamiltonian = filtered_and_trimmed_mag_hamiltonian
+            breakpoint()
+            
+
     # TODO modularize the logic for walking through a lattice.
     def create_blank_full_lattice_circuit(
         self, lattice: LatticeRegisters
@@ -303,7 +393,7 @@ class LatticeCircuitManager:
                 print(set(plaquette.control_links_ordered))
                 print(repeated_c_link_mask)
                 print(physical_c_link_mask)
-                #breakpoint()
+                breakpoint()
                 
                 # Collect the local qubits for stitching purposes.
                 vertex_multiplicity_qubits = []
@@ -700,7 +790,7 @@ def _test_apply_magnetic_trotter_step_d_3_2_large_lattice():
     print("Test passed.")
 
 
-# TODO finish updating this test.
+# TODO finish updating this test. Need to add another matrix element which won't fail the consistency test.
 def _test_apply_magnetic_trotter_step_d_3_2_small_lattice():
     print(
         "Checking that application of magnetic Trotter step works for d=3/2 "
@@ -721,7 +811,8 @@ def _test_apply_magnetic_trotter_step_d_3_2_small_lattice():
     #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or project operator involved determines the control states.
     # Ask yourself if you REALLY feel like doing all that before mucking about with this test data.
     dummy_mag_hamiltonian = [
-        ("00100001" + "00000000", "01010110" + "10011010", 0.33)  # One matrix element, plaquette only has a_link and c_link substrings.
+        ("00100001" + "00000000", "01010110" + "10011010", 0.33),  # One matrix element, plaquette only has a_link and c_link substrings. Should get filtered out based on c_link consistency.
+        ("00100001" + "00000000", "01010110" + "10100000", 0.33)  # One matrix element, plaquette only has a_link and c_link substrings. Should not get filtered out based on c_link consistency.
     ]
     dummy_phys_states = [
         (  # Matches the first encoded state in the dummy magnetic hamiltonian.
@@ -733,10 +824,15 @@ def _test_apply_magnetic_trotter_step_d_3_2_small_lattice():
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
             (THREE, THREE_BAR, THREE, THREE)
+        ),
+        (  # Matches the third encoded state in the dummy magnetic haimiltonian.
+            (0, 0, 0, 0),
+            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+            (THREE, THREE, ONE, ONE)
         )
     ]
     expected_master_circuit = QuantumCircuit(12)
-    expected_rotation_gates = {  # Data for constructing the expected circuit.
+    expected_rotation_gates = {  # Data for constructing the expected circuit. #TODO update to match the new mag hamiltonian data.
         "angle": -0.165,
         "MCU ctrl state": "00000000011",  # Little endian per qiskit convention.
         "givens rotations": [
@@ -906,9 +1002,9 @@ def _test_apply_magnetic_trotter_step_d_2_small_lattice():
 
 
 def _run_tests():
-    _test_create_blank_full_lattice_circuit_has_promised_register_order()
-    _test_apply_magnetic_trotter_step_d_3_2_large_lattice()
-    #_test_apply_magnetic_trotter_step_d_3_2_small_lattice()
+    #_test_create_blank_full_lattice_circuit_has_promised_register_order()
+    #_test_apply_magnetic_trotter_step_d_3_2_large_lattice()
+    _test_apply_magnetic_trotter_step_d_3_2_small_lattice()
     #_test_apply_magnetic_trotter_step_d_2_large_lattice()
     #_test_apply_magnetic_trotter_step_d_2_small_lattice()
 
