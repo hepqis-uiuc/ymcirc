@@ -70,10 +70,10 @@ class LatticeCircuitManager:
             self._lattice_is_periodic = True
         match lattice_encoder.lattice_def.dim:
             case 1.5:
-                lattice_size = lattice_encoder.lattice_def.shape[1]
+                lattice_size = lattice_encoder.lattice_def.shape[0]
             case 2:
-                lattice_size = lattice_encoder.lattice_def.shape[1]
-                if lattice_size != lattice_encoder.lattice_def.shape[0]:
+                lattice_size = lattice_encoder.lattice_def.shape[0]
+                if lattice_size != lattice_encoder.lattice_def.shape[1]:
                     raise NotImplementedError("Non-square dim 2 lattices not yet supported.")
             case _:
                 raise NotImplementedError(f"Dim {lattice_encoder.lattice_def.dim} lattice not yet supported.")
@@ -104,7 +104,7 @@ class LatticeCircuitManager:
                     filtered_and_trimmed_mag_hamiltonian.append(consistent_and_trimmed_matrix_element)
 
             # Update the magnetic Hamiltonian data with the trimmed, consistent matrix elements.
-            self._mag_hamiltonian = filtered_and_trimmed_mag_hamiltonian            
+            self._mag_hamiltonian = filtered_and_trimmed_mag_hamiltonian
 
     # TODO modularize the logic for walking through a lattice.
     def create_blank_full_lattice_circuit(
@@ -267,9 +267,12 @@ class LatticeCircuitManager:
                                optimization level before composing with
                                master_circuit.
           - physical_states_for_control_pruning: The set of all physical states encoded as bitstrings.
-                                    If provided, control pruning of multi-control rotation
-                                    gate inside Givens rotation subcircuits will be attempted.
-                                    If None, no control pruning is attempted.
+                                                 If provided, control pruning of multi-control rotation
+                                                 gate inside Givens rotation subcircuits will be attempted.
+                                                 If the lattice is small and periodic, then duplicate control
+                                                 links which are shared between vertices will be stripped
+                                                 out first.
+                                                 If None, no control pruning is attempted.
           - control_fusion: Optional boolian argument with the default set to False. If it's set
                             to be True, then LP families of givens rotations are first Gray code ordered,
                             then redundant controls are removed.
@@ -279,6 +282,27 @@ class LatticeCircuitManager:
           A new QuantumCircuit instance which is master_circuit with the
           Trotter step appended.
         """
+        # Strip out redundant control links if physical state data provided and the lattice
+        # is both small enough and periodic (so that the same physical links can be distinct controls).
+        if (physical_states_for_control_pruning is not None) and (self._lattice_is_periodic is True) and (self._lattice_is_small is True):
+            stripped_physical_states = []
+            for plaquette_string in physical_states_for_control_pruning:
+                plaquette_state = self._encoder.decode_bit_string_to_plaquette_state(plaquette_string)
+                if self._plaquette_state_has_inconsistent_controls(plaquette_state) is True:
+                    continue
+
+                plaquette_state_c_links_stripped = self._discard_duplicate_controls_from_plaquette_state(plaquette_state)
+                plaquette_state_c_links_stripped_bit_string = self._encoder.encode_plaquette_state_as_bit_string(
+                    plaquette_state_c_links_stripped,
+                    override_n_c_links_validation=True
+                )
+                stripped_physical_states.append(plaquette_state_c_links_stripped_bit_string)
+            stripped_physical_states = set(stripped_physical_states)
+            if len(stripped_physical_states) == 0:
+                physical_states_for_control_pruning = None
+            else:
+                physical_states_for_control_pruning = stripped_physical_states
+        
         # Create the magnetic Hamiltonian evolution circuit.
         mag_evol_recomputation_needed = (
             (self._cached_mag_evol_circuit is None)
@@ -339,31 +363,32 @@ class LatticeCircuitManager:
             # For each plaquette, apply the the local Trotter step circuit.
             for plaquette in plaquettes:
                 # Get qubits for the current plaquette.
-                
-                # Deal with possibility of duplicated control registers.
-                # Iterate through all the control links, and if any are repeated, only the first
-                # will be treated as an actual physical control.
-                # TODO finish and clean this up.
-                distinct_control_links = set(plaquette.control_links_ordered)
-                repeated_c_link_mask: Tuple[bool] = tuple([plaquette.control_links_ordered.count(c_link) > 1 for c_link in plaquette.control_links_ordered])
-                physical_c_link_mask = []
-                encountered_c_links = []
-                for idx, c_link in enumerate(plaquette.control_links_ordered):
-                    if (c_link not in encountered_c_links) and (repeated_c_link_mask[idx] is True):
-                        physical_c_link_mask.append(True)
-                    else:
-                        physical_c_link_mask.append(False)
-                    encountered_c_links.append(c_link)
 
-                #physical_c_link_mask: Tuple[bool] = tuple([repeated_c_link_mask[idx] is True and ])
-                has_same_control_link_on_different_vertices = len(plaquette.control_links_ordered) != len(distinct_control_links)
-                #if has_same_control_link_on_different_vertices:
-                    # check mat_elem for consistency
-                print(plaquette.control_links_ordered)
-                print(set(plaquette.control_links_ordered))
-                print(repeated_c_link_mask)
-                print(physical_c_link_mask)
-                breakpoint()
+                # # TODO: Delete this chunk?
+                # # Deal with possibility of duplicated control registers.
+                # # Iterate through all the control links, and if any are repeated, only the first
+                # # will be treated as an actual physical control.
+                # # TODO finish and clean this up.
+                # distinct_control_links = set(plaquette.control_links_ordered)
+                # repeated_c_link_mask: Tuple[bool] = tuple([plaquette.control_links_ordered.count(c_link) > 1 for c_link in plaquette.control_links_ordered])
+                # physical_c_link_mask = []
+                # encountered_c_links = []
+                # for idx, c_link in enumerate(plaquette.control_links_ordered):
+                #     if (c_link not in encountered_c_links) and (repeated_c_link_mask[idx] is True):
+                #         physical_c_link_mask.append(True)
+                #     else:
+                #         physical_c_link_mask.append(False)
+                #     encountered_c_links.append(c_link)
+
+                # #physical_c_link_mask: Tuple[bool] = tuple([repeated_c_link_mask[idx] is True and ])
+                # has_same_control_link_on_different_vertices = len(plaquette.control_links_ordered) != len(distinct_control_links)
+                # #if has_same_control_link_on_different_vertices:
+                #     # check mat_elem for consistency
+                # print(plaquette.control_links_ordered)
+                # print(set(plaquette.control_links_ordered))
+                # print(repeated_c_link_mask)
+                # print(physical_c_link_mask)
+                # breakpoint()
                 
                 # Collect the local qubits for stitching purposes.
                 vertex_multiplicity_qubits = []
@@ -375,7 +400,20 @@ class LatticeCircuitManager:
                 for register in plaquette.active_links:
                     for qubit in register:
                         a_link_qubits.append(qubit)
-                for register in plaquette.control_links_ordered:
+                for c_link_idx, register in enumerate(plaquette.control_links_ordered):
+                    # If lattice is small and has PBCs, skip redundant c_link registers.
+                    if (self._lattice_is_small is True) and (self._lattice_is_periodic is True):
+                        redundant_c_link_idxes_by_dim_dict = {
+                            1.5 : [1, 3],
+                            2: [3, 5, 6, 7]
+                        }
+                        try:
+                            current_c_link_is_redundant = c_link_idx in redundant_c_link_idxes_by_dim_dict[self._encoder.lattice_def.dim]
+                        except KeyError:
+                            raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
+                        if current_c_link_is_redundant is True:
+                            continue
+                    
                     for qubit in register:
                         c_link_qubits.append(qubit)
                         
@@ -417,7 +455,7 @@ class LatticeCircuitManager:
                     key=lambda x: gray_to_index(bitstring_value_of_LP_family(x)),
                 )
             }
-        # iterate over all LP bins and apply givens rotation.
+        # Iterate over all LP bins and apply givens rotation.
         plaquette_circ_n_qubits = len(
             self._mag_hamiltonian[0][0]
         )  # TODO this is a disgusting way to get the size of the magnetic evol circuit per plaquette.
@@ -1034,7 +1072,7 @@ def _test_apply_magnetic_trotter_step_d_2_small_lattice():
 
 def _run_tests():
     #_test_create_blank_full_lattice_circuit_has_promised_register_order()
-    #_test_apply_magnetic_trotter_step_d_3_2_large_lattice()
+    _test_apply_magnetic_trotter_step_d_3_2_large_lattice()
     _test_apply_magnetic_trotter_step_d_3_2_small_lattice()
     #_test_apply_magnetic_trotter_step_d_2_large_lattice()
     #_test_apply_magnetic_trotter_step_d_2_small_lattice()
