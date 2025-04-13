@@ -359,36 +359,9 @@ class LatticeCircuitManager:
                 plaquettes: List[Plaquette] = lattice.get_plaquettes(vertex_address)
             print(f"Found {len(plaquettes)} plaquette(s).")
 
-            # TODO test stitching logic when the same control reg shows up on multiple vertices.
             # For each plaquette, apply the the local Trotter step circuit.
             for plaquette in plaquettes:
                 # Get qubits for the current plaquette.
-
-                # # TODO: Delete this chunk?
-                # # Deal with possibility of duplicated control registers.
-                # # Iterate through all the control links, and if any are repeated, only the first
-                # # will be treated as an actual physical control.
-                # # TODO finish and clean this up.
-                # distinct_control_links = set(plaquette.control_links_ordered)
-                # repeated_c_link_mask: Tuple[bool] = tuple([plaquette.control_links_ordered.count(c_link) > 1 for c_link in plaquette.control_links_ordered])
-                # physical_c_link_mask = []
-                # encountered_c_links = []
-                # for idx, c_link in enumerate(plaquette.control_links_ordered):
-                #     if (c_link not in encountered_c_links) and (repeated_c_link_mask[idx] is True):
-                #         physical_c_link_mask.append(True)
-                #     else:
-                #         physical_c_link_mask.append(False)
-                #     encountered_c_links.append(c_link)
-
-                # #physical_c_link_mask: Tuple[bool] = tuple([repeated_c_link_mask[idx] is True and ])
-                # has_same_control_link_on_different_vertices = len(plaquette.control_links_ordered) != len(distinct_control_links)
-                # #if has_same_control_link_on_different_vertices:
-                #     # check mat_elem for consistency
-                # print(plaquette.control_links_ordered)
-                # print(set(plaquette.control_links_ordered))
-                # print(repeated_c_link_mask)
-                # print(physical_c_link_mask)
-                # breakpoint()
                 
                 # Collect the local qubits for stitching purposes.
                 vertex_multiplicity_qubits = []
@@ -774,7 +747,7 @@ def _test_apply_magnetic_trotter_step_d_3_2_large_lattice():
     #      3a. Determine which registers are involved in the circuit following conventional ordering of vertices, then active links, then control links.
     #      3b. Determine what the "X" circuit prefix is by comparing the state bitstrings for the matrix element, determining the LP family, and then
     #          mapping each substring in the plaquette encoding onto actual registers in the lattice.
-    #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or project operator involved determines the control states.
+    #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or projector operator involved determines the control states.
     # Ask yourself if you REALLY feel like doing all that before mucking about with this test data.
     dummy_mag_hamiltonian = [
         ("00100000" + "00000000", "01010100" + "10011010", 0.33)  # One matrix element, plaquette only has a_link and c_link substrings.
@@ -799,7 +772,7 @@ def _test_apply_magnetic_trotter_step_d_3_2_large_lattice():
             {
                 "pivot": 1,
                 "CX targets": [8, 9, 5, 12, 7, 10, 16],
-                "MCU ctrls": [8, 0, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 16, 17]
+                "MCU ctrls": [8, 0, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 16, 17] # on ctrls, followed by off, with pivot and distant link regs skipped.
             },
             {
                 "pivot": 7,
@@ -859,7 +832,6 @@ def _test_apply_magnetic_trotter_step_d_3_2_large_lattice():
     print("Test passed.")
 
 
-# TODO finish updating this test. Need to add another matrix element which won't fail the consistency test.
 def _test_apply_magnetic_trotter_step_d_3_2_small_lattice():
     print(
         "Checking that application of magnetic Trotter step works for d=3/2 "
@@ -877,7 +849,7 @@ def _test_apply_magnetic_trotter_step_d_3_2_small_lattice():
     #      3a. Determine which registers are involved in the circuit following conventional ordering of vertices, then active links, then control links.
     #      3b. Determine what the "X" circuit prefix is by comparing the state bitstrings for the matrix element, determining the LP family, and then
     #          mapping each substring in the plaquette encoding onto actual registers in the lattice.
-    #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or project operator involved determines the control states.
+    #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or projector operator involved determines the control states (raising to get to final state is on, projector onto 1 is on).
     # Ask yourself if you REALLY feel like doing all that before mucking about with this test data.
     dummy_mag_hamiltonian = [
         ("00100001" + "00000000", "01010110" + "10011010", 0.33),  # One matrix element, plaquette only has a_link and c_link substrings. Should get filtered out based on c_link consistency.
@@ -901,18 +873,19 @@ def _test_apply_magnetic_trotter_step_d_3_2_small_lattice():
         )
     ]
     expected_master_circuit = QuantumCircuit(12)
-    expected_rotation_gates = {  # Data for constructing the expected circuit. #TODO update to match the new mag hamiltonian data.
+    # Only expecting one rotation per plaquette, yielding two total Givens rotations.
+    expected_rotation_gates = {  # Data for constructing the expected circuit.
         "angle": -0.165,
         "MCU ctrl state": "00000000011",  # Little endian per qiskit convention.
         "givens rotations": [
             {
                 "pivot": 1,
-                "CX targets": [8, 9, 5, 6, 7, 10],
-                "MCU ctrls": [8, 3, 0, 2, 4, 5, 6, 7, 9, 10, 11]
+                "CX targets": [8, 9, 5, 2, 3, 6],
+                "MCU ctrls": [8, 3, 0, 2, 4, 5, 6, 7, 9, 10, 11] # on ctrls first, followed by off, with pivot skipped.
             },
-            { # alinks 10;1, 00;2, 11;1, 10;2 clinks 00;1, 00;1 01;1, 01;1
+            {
                 "pivot": 7,
-                "CX targets": [2, 3, 11, 0, 1, 4],
+                "CX targets": [2, 3, 11, 8, 9, 0],
                 "MCU ctrls": [2, 9, 0, 1, 3, 4, 5, 6, 8, 10, 11]
             },
         ]
@@ -961,7 +934,6 @@ def _test_apply_magnetic_trotter_step_d_3_2_small_lattice():
         f"{expected_master_circuit.draw()}\nObtained:\n" \
         f"{master_circuit.draw()}"
     print("Test passed.")
-    raise NotImplementedError()
 
 
 def _test_apply_magnetic_trotter_step_d_2_large_lattice():
@@ -981,7 +953,7 @@ def _test_apply_magnetic_trotter_step_d_2_large_lattice():
     #      3a. Determine which registers are involved in the circuit following conventional ordering of vertices, then active links, then control links.
     #      3b. Determine what the "X" circuit prefix is by comparing the state bitstrings for the matrix element, determining the LP family, and then
     #          mapping each substring in the plaquette encoding onto actual registers in the lattice.
-    #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or project operator involved determines the control states.
+    #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or projector operator involved determines the control states.
     # Ask yourself if you REALLY feel like doing all that before mucking about with this test data.
     dummy_mag_hamiltonian = [
         ("0000" + "00100000" + "0000000000000010", "0010" + "01010100" + "1001101000000010", 0.33)  # One matrix element, plaquette has v, a_link, and c_link substrings.
@@ -1071,7 +1043,7 @@ def _test_apply_magnetic_trotter_step_d_2_small_lattice():
 
 
 def _run_tests():
-    #_test_create_blank_full_lattice_circuit_has_promised_register_order()
+    _test_create_blank_full_lattice_circuit_has_promised_register_order()
     _test_apply_magnetic_trotter_step_d_3_2_large_lattice()
     _test_apply_magnetic_trotter_step_d_3_2_small_lattice()
     #_test_apply_magnetic_trotter_step_d_2_large_lattice()
