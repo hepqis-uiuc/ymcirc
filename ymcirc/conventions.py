@@ -35,9 +35,9 @@ into a set of qubits (i.e. the state space of a link in a particular truncation
 is usually not of dimension 2^n). These are omitted from the irrep truncation
 dicts.
 
-The "bag states" at vertices encode the information needed to establish which
-singlet state the vertex is in. This is ambiguous in general because there are
-multiple ways to create singlets from link assignments in arbitrary dimension,
+There is also generically a multiplicity index associated with each lattice vertex
+denoting which singlet state the vertex is in. The multiplicity index is needed because
+there are generically multiple ways to create singlets from link assignments in arbitrary dimension,
 and for arbitrary irrep truncations, there will be complete link assignments
 which yield various "multiplicites" of singlets.
 
@@ -142,6 +142,13 @@ HAMILTONIAN_BOX_TERMS["d=3/2, T1"] = {
 with plaq_1 through plaq_4 taking the form described above for plaquette states.
 See the definition of HAMILTONIAN_BOX_TERMS below for a complete listing of all available
 combinations of dimension and truncation data.
+
+For small, periodic lattices, the same physical lattice link can be a control on
+distinct vertices in the same plaquette. For example, a periodic d=3/2 lattice
+with size 2 (2 plaquettes) will have c1 == c2 and c3 == c4. When circuits are constructed,
+all plaquette states and magnetic Hamiltonian terms for which the control links do
+not satisfy these equality constraints will be discarded. This logic is handled in
+the ymcirc.circuit module.
 """
 from __future__ import annotations
 import copy
