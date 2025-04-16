@@ -7,7 +7,7 @@ because of changes in how vertex singlet data are handled.
 import json
 import pickle
 from ymcirc.conventions import (
-    VERTEX_SINGLET_BITMAPS,
+    PHYSICAL_PLAQUETTE_STATES,
     IRREP_TRUNCATION_DICT_1_3_3BAR,
     IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8,
     ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT)
