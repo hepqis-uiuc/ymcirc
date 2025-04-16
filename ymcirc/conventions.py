@@ -558,7 +558,7 @@ class LatticeStateEncoder:
             raise ValueError("Vertex and link bitmaps are inconsistent with length of\n"
                              f"bit string {bit_string}. Expected n_bits: {self._expected_plaquette_bit_string_length}; encountered n_bits: {len(bit_string)}.")
 
-        # Prase input into vertex, active link, and control link substrings.
+        # Parse input into vertex, active link, and control link substrings.
         idx_first_a_link_bit = 4 * self._expected_vertex_bit_string_length
         idx_first_c_link_bit = idx_first_a_link_bit + (4 * self._expected_link_bit_string_length)
         vertices_substring = bit_string[:idx_first_a_link_bit]
