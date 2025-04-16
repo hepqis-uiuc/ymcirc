@@ -1,5 +1,5 @@
 """
-This script creates "diet QSP" simulation circuits.
+This script creates lattice time-evolution circuits.
 
 Various lattice sizes and dimensionalities are supported
 by working with the LatticeRegisters class in order to
@@ -7,7 +7,7 @@ handle addressing QuantumRegisters for lattice degrees
 of freedom.
 
 Currently a work in progress. Current file simulates vacuum persistence probability 
-and electric energy 
+and electric energy.
 """
 from __future__ import annotations
 
@@ -20,9 +20,10 @@ parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(parent_dir)
 
 from pathlib import Path
+from ymcirc._abstract import LatticeDef
 from ymcirc.conventions import (
     load_magnetic_hamiltonian,
-    VERTEX_SINGLET_BITMAPS,
+    PHYSICAL_PLAQUETTE_STATES,
     IRREP_TRUNCATION_DICT_1_3_3BAR,
     IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8)
 from ymcirc.circuit import LatticeCircuitManager
@@ -54,11 +55,10 @@ SIM_RESULTS_DIR.mkdir(exist_ok=True)
 do_electric_evolution = True
 do_magnetic_evolution = True
 dimensionality_and_truncation_string = "d=3/2, T1"
-#dimensionality_and_truncation_string = "d=2, T1p"
 dim_string, trunc_string = dimensionality_and_truncation_string.split(",")
 dim_string = dim_string.strip()
 trunc_string = trunc_string.strip()
-dimensions = 1.5
+dimensions = 1.5 if (dim_string == "d=3/2" or dim_string == "d=1.5") else int(dim_string[2:])
 linear_size = 2  # To indirectly control the number of plaquettes
 coupling_g = 1.0
 mag_hamiltonian_matrix_element_threshold = 0.9 # Drop all matrix elements that have an abs value less than this.
@@ -68,8 +68,8 @@ sim_times = np.linspace(0.05, 2.5, num=20) # set num to 20 for comparison with t
 #sim_times = [0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
 only_include_elems_connected_to_electric_vacuum = False
 use_2box_hack = False  # Halves circuit depth by taking box + box^dagger = 2box. Only true if all nonzero matrix elements have the same magnitude.
-note_unphysical_states = True  # Emit warning when decoding unphysical plaquette states. Assign 0.0 electric energy.
-stop_on_unphysical_states = False  # Raise an error when decoding unphysical unphysical states. Terminate simulation.
+warn_on_unphysical_links = True  # Emit warning when decoding unphysical plaquette states. Assign 0.0 electric energy.
+error_on_unphysical_links = False  # Raise an error when decoding unphysical unphysical states. Terminate simulation.
 prune_controls = True
 control_fusion = True
 n_shots = 10000
@@ -90,8 +90,6 @@ if __name__ == "__main__":
 
     # Set the right link bitmap based on
     # dimensionality_and_truncation_string.
-    # OK to not use vertex DOFs for d=3/2, T1/T1p
-    vertex_bitmap = {} if dimensionality_and_truncation_string in ["d=3/2, T1", "d=3/2, T1p"] else VERTEX_SINGLET_BITMAPS[dimensionality_and_truncation_string]
     if trunc_string in ["T1", "T1p"]:
         link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR
     elif trunc_string in ["T2"]:
@@ -99,8 +97,12 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Unknown irrep truncation: '{trunc_string}'.")
 
-    # Create an encoder for converting between physical states and bit strings.
-    lattice_encoder = LatticeStateEncoder(link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap)
+    # Define the lattice geometry, and create an encoder for mapping between physical states and bit strings.
+    lattice_def = LatticeDef(dimensions=dimensions, size=linear_size, periodic_boundary_conds=True)
+    lattice_encoder = LatticeStateEncoder(
+        link_bitmap=link_bitmap,
+        physical_plaquette_states=PHYSICAL_PLAQUETTE_STATES[dimensionality_and_truncation_string],
+        lattice=lattice_def)
 
     # Use the encoder to index Hamiltonian data in terms of bit string encodings of plaquettes.
     # This will be used to determine rotation angles in the simulation circuit.
@@ -118,14 +120,11 @@ if __name__ == "__main__":
     # We need the set of physical plaquette states to do control pruning.
     # If we aren't doing control pruning, we set this variable to a flag value of None.
     if prune_controls is True:
-        physical_plaquette_states: Set[str] = set(
-            init_state_final_state_mat_elem_tuple[0] for init_state_final_state_mat_elem_tuple in load_magnetic_hamiltonian(dimensionality_and_truncation_string, lattice_encoder)).union(
-                [init_state_final_state_mat_elem_tuple[1] for init_state_final_state_mat_elem_tuple in load_magnetic_hamiltonian(dimensionality_and_truncation_string, lattice_encoder)])
+        physical_plaquette_states: Set[str] = set(lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in PHYSICAL_PLAQUETTE_STATES[dimensionality_and_truncation_string])
         print("Performing control pruning. Num phys plaquette states:", len(physical_plaquette_states))
     else:
         physical_plaquette_states = None
         print("Skipping control pruning.")
-    # breakpoint()
 
     # TODO generate all parameterized givens rotation circuits here?
 
@@ -140,30 +139,23 @@ if __name__ == "__main__":
 
             # TODO use from_lattice_encoder method for this.
             # Create lattice, do sanity checks, and log some info.
-            lattice = LatticeRegisters(
-                dimensions=dimensions,
-                size=linear_size,
-                link_truncation_dict=link_bitmap,
-                vertex_singlet_dict=vertex_bitmap
-            )
-            current_vacuum_state = "0" * lattice.n_total_qubits
-            assert lattice.link_bitmap == lattice_encoder.link_bitmap
-            assert lattice.vertex_bitmap == lattice_encoder.vertex_bitmap
-            print(f"Created dim {lattice.dim} lattice with vertices:\n{lattice.vertex_addresses}.")
-            print(f"It has {lattice.n_qubits_per_link} qubits per link and {lattice.n_qubits_per_vertex} per vertex.")
+            lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+            current_vacuum_state = "0" * lattice_registers.n_total_qubits
+            print(f"Created dim {lattice_registers.dim} lattice with vertices:\n{lattice_registers.vertex_addresses}.")
+            print(f"It has {lattice_registers.n_qubits_per_link} qubits per link and {lattice_registers.n_qubits_per_vertex} per vertex.")
             print("It knows about the following encodings:")
-            for irrep, encoding in lattice.link_bitmap.items():
+            for irrep, encoding in lattice_registers.link_bitmap.items():
                 print(f"Link irrep encoding: {irrep} -> {encoding}")
-            for vertex_bag, encoding in lattice.vertex_bitmap.items():
-                print(f"Vertex singlet bag encoding: {vertex_bag} -> {encoding}")
+            for multiplicity_index, encoding in lattice_registers.vertex_bitmap.items():
+                print(f"Multiplicity index encoding: {multiplicity_index} -> {encoding}")
             print(f"It has the vacuum state: {current_vacuum_state}")
 
             # Needed to format file paths.
-            n_plaquettes = lattice.n_plaquettes
+            n_plaquettes = lattice_registers.n_plaquettes
 
             # # Assemble all lattice registers into a blank circuit.
             circ_mgr = LatticeCircuitManager(lattice_encoder, mag_hamiltonian)
-            master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
+            master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
 
             # Compute the rotation angle per trotter step
             # Append a single Trotter step over the lattice.
@@ -172,7 +164,7 @@ if __name__ == "__main__":
                 if do_magnetic_evolution is True:
                     circ_mgr.apply_magnetic_trotter_step(
                         master_circuit,
-                        lattice,
+                        lattice_registers,
                         coupling_g=coupling_g,
                         dt=dt,
                         optimize_circuits=run_circuit_optimization,
@@ -182,7 +174,7 @@ if __name__ == "__main__":
                     )
 
                 if do_electric_evolution is True:
-                    circ_mgr.apply_electric_trotter_step(master_circuit, lattice, electric_hamiltonian(link_bitmap), coupling_g=coupling_g,
+                    circ_mgr.apply_electric_trotter_step(master_circuit, lattice_registers, electric_hamiltonian(link_bitmap), coupling_g=coupling_g,
                         dt=dt)
 
             # Now optionally save circuit diagram/qasm, and log gate counts.
@@ -228,7 +220,7 @@ if __name__ == "__main__":
                 avg_electric_energy = 0
                 for state, counts in counts_dict_big_endian.items():
                     print("Encoded state:", state)
-                    avg_electric_energy += convert_bitstring_to_evalue(state, lattice_encoder, note_unphysical_states, stop_on_unphysical_states) * (counts / n_shots) / lattice.n_links
+                    avg_electric_energy += convert_bitstring_to_evalue(state, lattice_encoder, warn_on_unphysical_links, error_on_unphysical_links) * (counts / n_shots) / lattice_registers.n_links
                 df_job_results.loc[current_sim_idx, "electric_energy"] = avg_electric_energy
 
             print("Updated df:\n", df_job_results)
