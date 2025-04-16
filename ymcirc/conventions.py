@@ -338,7 +338,7 @@ class LatticeStateEncoder:
                              f" with unique values. Encountered: {physical_plaquette_states}.")
         if not isinstance(lattice, LatticeDef):
             raise TypeError(f"The lattice argument must be an instance of {LatticeDef.__name__}. Received: {type(lattice)}.")
-        if not consistent_num_controls_in_plaquette_states is True:
+        if consistent_num_controls_in_plaquette_states is not True:
             raise ValueError("All physical plaquette states must have the same number of controls.")
 
         # Now construct the vertex multiplicity bitmap, and infer qubit counts per DoFs.
