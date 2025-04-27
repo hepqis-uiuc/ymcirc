@@ -1,7 +1,9 @@
 from ymcirc.conventions import (
     VERTEX_SINGLET_BITMAPS, IRREP_TRUNCATION_DICT_1_3_3BAR,
     IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8, ONE, THREE,
-    THREE_BAR, SIX, SIX_BAR, EIGHT)
+    THREE_BAR, SIX, SIX_BAR, EIGHT,
+    LatticeStateEncoder, HAMILTONIAN_BOX_TERMS
+)
 
 
 def test_singlet_bitmaps():
