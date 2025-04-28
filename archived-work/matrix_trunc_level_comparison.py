@@ -114,14 +114,14 @@ if __name__ == "__main__":
             n_qubits_in_lattice = (lattice.n_qubits_per_vertex * len(lattice.vertex_register_keys)) \
                 + (lattice.n_qubits_per_link * len(lattice.link_register_keys))
             current_vacuum_state = "0" * n_qubits_in_lattice
-            assert lattice.link_truncation_bitmap == lattice_encoder.link_bitmap
-            assert lattice.vertex_singlet_bitmap == lattice_encoder.vertex_bitmap
+            assert lattice.link_bitmap == lattice_encoder.link_bitmap
+            assert lattice.vertex_bitmap == lattice_encoder.vertex_bitmap
             print(f"Created dim {lattice.dim} lattice with vertices:\n{lattice.vertex_register_keys}.")
             print(f"It has {lattice.n_qubits_per_link} qubits per link and {lattice.n_qubits_per_vertex} per vertex.")
             print("It knows about the following encodings:")
-            for irrep, encoding in lattice.link_truncation_bitmap.items():
+            for irrep, encoding in lattice.link_bitmap.items():
                 print(f"Link irrep encoding: {irrep} -> {encoding}")
-            for vertex_bag, encoding in lattice.vertex_singlet_bitmap.items():
+            for vertex_bag, encoding in lattice.vertex_bitmap.items():
                 print(f"Vertex singlet bag encoding: {vertex_bag} -> {encoding}")
             print(f"It has the vacuum state: {current_vacuum_state}")
 
