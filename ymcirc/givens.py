@@ -12,8 +12,8 @@ from dataclasses import dataclass, FrozenInstanceError
 from qiskit import QuantumCircuit
 from qiskit.circuit import Qubit
 from qiskit.circuit import ControlledGate
-from qiskit.circuit.library.standard_gates import RXGate
-from qiskit.quantum_info import Operator
+from qiskit.circuit.library.standard_gates import RXGate, RZGate, RYGate, MCXGate
+from qiskit.quantum_info import Operator, Statevector
 from random import random
 from math import isclose
 import numpy as np
@@ -100,7 +100,6 @@ def givens(
         return QuantumCircuit(len(bit_string_1))  # The identity circuit.
 
     num_qubits = len(bit_string_1)
-    circ = QuantumCircuit(num_qubits)
 
     # Build the circuit.
     if num_qubits == 1:
@@ -125,12 +124,9 @@ def givens(
             lp_fam, ctrls, ctrl_state, encoded_physical_states
         )
         Xcirc = _build_Xcirc(lp_fam, control=target)
-        multiRX = _CRXGate(len(pruned_ctrls), pruned_ctrl_state, angle)
 
-        # Add multiRX to the circuit, specifying
-        # The proper control locations and target location
-        # via a list of the qubit indices.
-        circ.append(multiRX, pruned_ctrls + [target])
+        circ = _CRXCircuit_with_MCX([pruned_ctrl_state, pruned_ctrls], 
+            angle, target, num_qubits)
 
         # Assemble the final circuit.
         # Using inplace speeds up circuit composition.
@@ -198,8 +194,9 @@ def givens_fused_controls(
                 pruned_ctrls, pruned_ctrl_state = prune_controls(
                     lp_bin, ctrls, ctrl_state, encoded_physical_states
                 )
-                multiRX = _CRXGate(len(pruned_ctrls), pruned_ctrl_state, angle)
-                circ.append(multiRX, pruned_ctrls + [target])
+                crxcircuit = _CRXCircuit_with_MCX([pruned_ctrl_state, pruned_ctrls], 
+            angle, target, num_qubits)
+                circ.compose(crxcircuit, inplace=True)
         Xcirc = _build_Xcirc(lp_bin, control=target)
 
         # Assemble the final circuit.
@@ -259,7 +256,7 @@ def _compute_ctrls_and_state_for_givens_MCRX(
     # HYPOTHESIS: The Endianness issue arises from the RXGate applying ctrl_state
     # in reverse. So, the output ctrl_state shouldn't be reversed because it has the
     # right Endiannesss. This correction has been implemented in the helper function
-    # _CRXGate.
+    # _CRXCircuit.
 
     # Return the controls and the control state.
     return (ctrls, ctrl_state)
@@ -740,9 +737,19 @@ def _fuse_ctrls_of_ctrls_list(
     return sorted_ctrls_list
 
 
-def _CRXGate(num_ctrls: int, ctrl_state: str, angle: float) -> ControlledGate:
-    """Returns a RXGate given num_ctrls and ctrl_state"""
-    return RXGate(angle).control(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state[::-1])
+def _CRXCircuit_with_MCX(ctr_list: List[Union[str, List[int]]], 
+    angle: float, target: int, num_qubits: int) -> QuantumCircuit:
+    """Returns the circuit decomposition of the RXGate into MCXs using the ABC decomposition (Corollary 4.2, Nielsen and Chaung)"""
+    ctrl_state, ctrls = ctr_list
+    num_ctrls = len(ctrl_state)
+    circ_with_mcx = QuantumCircuit(num_qubits)
+    circ_with_mcx.append(RZGate(-1.0*np.pi/2.0), [target])
+    circ_with_mcx.append(RYGate(-1.0*angle/2.0), [target])
+    circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state[::-1]), ctrls + [target])
+    circ_with_mcx.append(RYGate(1.0*angle/2.0), [target])
+    circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state[::-1]), ctrls + [target])
+    circ_with_mcx.append(RZGate(1.0*np.pi/2.0), [target])
+    return circ_with_mcx
 
 
 # FIX: type hint of lp_fam
@@ -958,7 +965,7 @@ def _test_Xcirc():
 
 
 def _test_building_MCRX_gate():
-    print("Verifying that the multiRX subcircuit is correctly constructed.")
+    print("Verifying that the multiRX with mutliCXs subcircuit is correctly constructed.")
 
     # Case 1
     bs1 = "1011"
@@ -973,18 +980,21 @@ def _test_building_MCRX_gate():
     print(
         f"Expected ctrl qubits = {expected_ctrls}, expected control state = {expected_ctrl_state}."
     )
-    expected_circ = QuantumCircuit(4)
-    multiRX_expected_gate = RXGate(angle).control(
-        num_ctrl_qubits=len(expected_ctrls), ctrl_state=expected_ctrl_state
-    )
-    expected_circ.append(multiRX_expected_gate, expected_ctrls + [control_qubit])
 
-    actual_circ = QuantumCircuit(4)
+    expected_circ = QuantumCircuit(4)
+    expected_circ.append(RZGate(-1.0*np.pi/2.0), [control_qubit])
+    expected_circ.append(RYGate(-1.0*angle/2.0), [control_qubit])
+    expected_circ.append(MCXGate(num_ctrl_qubits=len(expected_ctrls), 
+        ctrl_state=expected_ctrl_state), expected_ctrls + [control_qubit])
+    expected_circ.append(RYGate(1.0*angle/2.0), [control_qubit])
+    expected_circ.append(MCXGate(num_ctrl_qubits=len(expected_ctrls), 
+        ctrl_state=expected_ctrl_state), expected_ctrls + [control_qubit])
+    expected_circ.append(RZGate(1.0*np.pi/2.0), [control_qubit])
+
     actual_ctrls, actual_ctrl_state = _compute_ctrls_and_state_for_givens_MCRX(
         bs1, bs2, target=control_qubit
     )
-    multiRX_actual = _CRXGate(len(actual_ctrls), actual_ctrl_state, angle)
-    actual_circ.append(multiRX_actual, actual_ctrls + [control_qubit])
+    actual_circ = _CRXCircuit_with_MCX([actual_ctrl_state, actual_ctrls], angle, control_qubit, 4)
 
     assert expected_circ == actual_circ, (
         "Encountered inequivalent circuits. Expected:\n"
@@ -1008,17 +1018,19 @@ def _test_building_MCRX_gate():
         f"Expected ctrl qubits = {expected_ctrls}, expected control state = {expected_ctrl_state}."
     )
     expected_circ = QuantumCircuit(12)
-    multiRX_expected_gate = RXGate(angle).control(
-        num_ctrl_qubits=len(expected_ctrls), ctrl_state=expected_ctrl_state
-    )
-    expected_circ.append(multiRX_expected_gate, expected_ctrls + [control_qubit])
+    expected_circ.append(RZGate(-1.0*np.pi/2.0), [control_qubit])
+    expected_circ.append(RYGate(-1.0*angle/2.0), [control_qubit])
+    expected_circ.append(MCXGate(num_ctrl_qubits=len(expected_ctrls), 
+        ctrl_state=expected_ctrl_state), expected_ctrls + [control_qubit])
+    expected_circ.append(RYGate(1.0*angle/2.0), [control_qubit])
+    expected_circ.append(MCXGate(num_ctrl_qubits=len(expected_ctrls), 
+        ctrl_state=expected_ctrl_state), expected_ctrls + [control_qubit])
+    expected_circ.append(RZGate(1.0*np.pi/2.0), [control_qubit])
 
-    actual_circ = QuantumCircuit(12)
     actual_ctrls, actual_ctrl_state = _compute_ctrls_and_state_for_givens_MCRX(
         bs1, bs2, target=control_qubit
     )
-    multiRX_actual = _CRXGate(len(actual_ctrls), actual_ctrl_state, angle)
-    actual_circ.append(multiRX_actual, actual_ctrls + [control_qubit])
+    actual_circ = _CRXCircuit_with_MCX([actual_ctrl_state, actual_ctrls], angle, control_qubit, 12)
 
     assert expected_circ == actual_circ, (
         "Encountered inequivalent circuits. Expected:\n"
@@ -1027,6 +1039,80 @@ def _test_building_MCRX_gate():
     )
 
     print(f"Test passed. Obtained circuit:\n{actual_circ.draw()}\n")
+
+
+def _test_MCRX_with_MCX_is_same_as_MCU():
+    print("Verifying that the decomposition of the multiRX into mutliCXs is correct")
+
+    # Case 1
+    bs1 = "1011"
+    bs2 = "0001"
+    control_qubit = 2
+    angle = 0.5
+    expected_ctrls = [0, 1, 3]
+    expected_ctrl_state = "100"
+    print(
+        f"Case 1: bs1 = {bs1}, bs2 = {bs2}, ctrl_qubit = {control_qubit}, angle = {angle}."
+    )
+    print(
+        f"Expected ctrl qubits = {expected_ctrls}, expected control state = {expected_ctrl_state}."
+    )
+    expected_circ = QuantumCircuit(4)
+    multiRX_expected_gate = RXGate(angle).control(
+        num_ctrl_qubits=len(expected_ctrls), ctrl_state=expected_ctrl_state
+    )
+    expected_circ.append(multiRX_expected_gate, expected_ctrls + [control_qubit])
+    statevector_with_mcu = Statevector.from_instruction(expected_circ)
+
+
+    actual_ctrls, actual_ctrl_state = _compute_ctrls_and_state_for_givens_MCRX(
+        bs1, bs2, target=control_qubit
+    )
+    acutal_circ = _CRXCircuit_with_MCX([actual_ctrl_state, actual_ctrls], angle, control_qubit, 4)
+    statevector_with_mcx = Statevector.from_instruction(acutal_circ)
+
+    assert statevector_with_mcx.equiv(statevector_with_mcu), (
+        "Encountered inequivalent evolution circuits. Expected Statevector:\n"
+        f"{statevector_with_mcx}\nObtained Statevector:\n"
+        f"{statevector_with_mcu}"
+    )
+
+    print(f"Test passed. Circuits are evolution equivalent")
+
+    # Case 2
+    bs1 = "001100010011"
+    bs2 = "111100011011"
+    control_qubit = 8
+    angle = 0.5
+    expected_ctrls = [0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11]
+    expected_ctrl_state = "11010001100"
+    print(
+        f"Case 2: bs1 = {bs1}, bs2 = {bs2}, ctrl_qubit = {control_qubit}, angle = {angle}."
+    )
+    print(
+        f"Expected ctrl qubits = {expected_ctrls}, expected control state = {expected_ctrl_state}."
+    )
+    expected_circ = QuantumCircuit(12)
+    multiRX_expected_gate = RXGate(angle).control(
+        num_ctrl_qubits=len(expected_ctrls), ctrl_state=expected_ctrl_state
+    )
+    expected_circ.append(multiRX_expected_gate, expected_ctrls + [control_qubit])
+    statevector_with_mcu = Statevector.from_instruction(expected_circ)
+
+
+    actual_ctrls, actual_ctrl_state = _compute_ctrls_and_state_for_givens_MCRX(
+        bs1, bs2, target=control_qubit
+    )
+    acutal_circ = _CRXCircuit_with_MCX([actual_ctrl_state, actual_ctrls], angle, control_qubit, 12)
+    statevector_with_mcx = Statevector.from_instruction(acutal_circ)
+        
+    assert statevector_with_mcx.equiv(statevector_with_mcu), (
+        "Encountered inequivalent evolution circuits. Expected Statevector:\n"
+        f"{statevector_with_mcx}\nObtained Statevector:\n"
+        f"{statevector_with_mcu}"
+    )
+
+    print(f"Test passed. Circuits are evolution equivalent")
 
 
 def _test_compute_LP_family():
@@ -1405,10 +1491,14 @@ def _test_givens_fused_controls():
     expected_circuit = QuantumCircuit(8)
     expected_circuit.cx(1, 4)
     expected_circuit.cx(1, 6)
-    expected_circuit.append(
-        RXGate(1.0).control(num_ctrl_qubits=1, ctrl_state="0"),
-        [3, 1],
-    )
+    circ_with_mcx = QuantumCircuit(8)
+    circ_with_mcx.append(RZGate(-1.0*np.pi/2.0), [1])
+    circ_with_mcx.append(RYGate(-1.0*1.0/2.0), [1])
+    circ_with_mcx.append(MCXGate(num_ctrl_qubits=1, ctrl_state="0"), [3, 1])
+    circ_with_mcx.append(RYGate(1.0*1.0/2.0), [1])
+    circ_with_mcx.append(MCXGate(num_ctrl_qubits=1, ctrl_state="0"), [3, 1])
+    circ_with_mcx.append(RZGate(1.0*np.pi/2.0), [1])
+    expected_circuit.compose(circ_with_mcx, inplace=True)
     expected_circuit.cx(1, 4)
     expected_circuit.cx(1, 6)
     assert expected_circuit == generated_circuit
@@ -1491,6 +1581,7 @@ if __name__ == "__main__":
     # _test_givens2()  # TODO fix nondeterministic behavior of this test.
     _test_Xcirc()
     _test_building_MCRX_gate()
+    _test_MCRX_with_MCX_is_same_as_MCU()
     _test_compute_LP_family()
     _test_compute_LP_family_fails_on_bad_input()
     _test_compute_LP_family_fails_for_non_bitstrings()

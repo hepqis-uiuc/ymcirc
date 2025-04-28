@@ -19,7 +19,7 @@ from ymcirc.utilities import _check_circuits_logically_equivalent, _flatten_circ
 from math import ceil
 from qiskit import transpile
 from qiskit.circuit import QuantumCircuit, QuantumRegister
-from qiskit.circuit.library.standard_gates import RXGate
+from qiskit.circuit.library.standard_gates import RXGate, RYGate, RZGate, MCXGate
 from typing import List, Tuple, Set, Union, Dict
 import numpy as np
 
@@ -794,11 +794,23 @@ def _test_apply_magnetic_trotter_step_d_3_2_large_lattice():
                 control_qubit=rotation_data["pivot"],
                 target_qubit=target
             )
-        MCU = RXGate(expected_rotation_gates["angle"]).control(num_ctrl_qubits=len(rotation_data["MCU ctrls"]), ctrl_state=expected_rotation_gates["MCU ctrl state"])
+        pivot_qubit = [rotation_data["pivot"]]
+        angle = expected_rotation_gates["angle"]
+        ctrls = rotation_data["MCU ctrls"]
+        num_ctrls = len(rotation_data["MCU ctrls"])
+        ctrl_state = expected_rotation_gates["MCU ctrl state"]
+
+        circ_with_mcx = QuantumCircuit(18)
+        circ_with_mcx.append(RZGate(-1.0*np.pi/2.0), pivot_qubit)
+        circ_with_mcx.append(RYGate(-1.0*angle/2.0), pivot_qubit)
+        circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state), ctrls + pivot_qubit)
+        circ_with_mcx.append(RYGate(1.0*angle/2.0), pivot_qubit)
+        circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state), ctrls + pivot_qubit)
+        circ_with_mcx.append(RZGate(1.0*np.pi/2.0), pivot_qubit)
 
         # Construct current expected givens rotation.
         expected_master_circuit.compose(Xcirc, inplace=True)
-        expected_master_circuit.append(MCU, rotation_data["MCU ctrls"] + [rotation_data["pivot"]])
+        expected_master_circuit.compose(circ_with_mcx, inplace=True)
         expected_master_circuit.compose(Xcirc, inplace=True)
 
     print("Expected circuit:")
@@ -898,11 +910,23 @@ def _test_apply_magnetic_trotter_step_d_3_2_small_lattice():
                 control_qubit=rotation_data["pivot"],
                 target_qubit=target
             )
-        MCU = RXGate(expected_rotation_gates["angle"]).control(num_ctrl_qubits=len(rotation_data["MCU ctrls"]), ctrl_state=expected_rotation_gates["MCU ctrl state"])
+        pivot_qubit = [rotation_data["pivot"]]
+        angle = expected_rotation_gates["angle"]
+        ctrls = rotation_data["MCU ctrls"]
+        num_ctrls = len(rotation_data["MCU ctrls"])
+        ctrl_state = expected_rotation_gates["MCU ctrl state"]
+
+        circ_with_mcx = QuantumCircuit(12)
+        circ_with_mcx.append(RZGate(-1.0*np.pi/2.0), pivot_qubit)
+        circ_with_mcx.append(RYGate(-1.0*angle/2.0), pivot_qubit)
+        circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state), ctrls + pivot_qubit)
+        circ_with_mcx.append(RYGate(1.0*angle/2.0), pivot_qubit)
+        circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state), ctrls + pivot_qubit)
+        circ_with_mcx.append(RZGate(1.0*np.pi/2.0), pivot_qubit)
 
         # Construct current expected givens rotation.
         expected_master_circuit.compose(Xcirc, inplace=True)
-        expected_master_circuit.append(MCU, rotation_data["MCU ctrls"] + [rotation_data["pivot"]])
+        expected_master_circuit.compose(circ_with_mcx, inplace=True)
         expected_master_circuit.compose(Xcirc, inplace=True)
 
     print("Expected circuit:")
@@ -1030,11 +1054,23 @@ def _test_apply_magnetic_trotter_step_d_2_large_lattice():
                 control_qubit=rotation_data["pivot"],
                 target_qubit=target
             )
-        MCU = RXGate(expected_rotation_gates["angle"]).control(num_ctrl_qubits=len(rotation_data["MCU ctrls"]), ctrl_state=expected_rotation_gates["MCU ctrl state"])
+        pivot_qubit = [rotation_data["pivot"]]
+        angle = expected_rotation_gates["angle"]
+        ctrls = rotation_data["MCU ctrls"]
+        num_ctrls = len(rotation_data["MCU ctrls"])
+        ctrl_state = expected_rotation_gates["MCU ctrl state"]
+
+        circ_with_mcx = QuantumCircuit(45)
+        circ_with_mcx.append(RZGate(-1.0*np.pi/2.0), pivot_qubit)
+        circ_with_mcx.append(RYGate(-1.0*angle/2.0), pivot_qubit)
+        circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state), ctrls + pivot_qubit)
+        circ_with_mcx.append(RYGate(1.0*angle/2.0), pivot_qubit)
+        circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state), ctrls + pivot_qubit)
+        circ_with_mcx.append(RZGate(1.0*np.pi/2.0), pivot_qubit)
 
         # Construct current expected givens rotation.
         expected_master_circuit.compose(Xcirc, inplace=True)
-        expected_master_circuit.append(MCU, rotation_data["MCU ctrls"] + [rotation_data["pivot"]])
+        expected_master_circuit.compose(circ_with_mcx, inplace=True)
         expected_master_circuit.compose(Xcirc, inplace=True)
 
     print("Expected circuit:")
@@ -1138,11 +1174,23 @@ def _test_apply_magnetic_trotter_step_d_2_small_lattice():
                 control_qubit=rotation_data["pivot"],
                 target_qubit=target
             )
-        MCU = RXGate(expected_rotation_gates["angle"]).control(num_ctrl_qubits=len(rotation_data["MCU ctrls"]), ctrl_state=expected_rotation_gates["MCU ctrl state"])
+        pivot_qubit = [rotation_data["pivot"]]
+        angle = expected_rotation_gates["angle"]
+        ctrls = rotation_data["MCU ctrls"]
+        num_ctrls = len(rotation_data["MCU ctrls"])
+        ctrl_state = expected_rotation_gates["MCU ctrl state"]
+
+        circ_with_mcx = QuantumCircuit(20)
+        circ_with_mcx.append(RZGate(-1.0*np.pi/2.0), pivot_qubit)
+        circ_with_mcx.append(RYGate(-1.0*angle/2.0), pivot_qubit)
+        circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state), ctrls + pivot_qubit)
+        circ_with_mcx.append(RYGate(1.0*angle/2.0), pivot_qubit)
+        circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state), ctrls + pivot_qubit)
+        circ_with_mcx.append(RZGate(1.0*np.pi/2.0), pivot_qubit)
 
         # Construct current expected givens rotation.
         expected_master_circuit.compose(Xcirc, inplace=True)
-        expected_master_circuit.append(MCU, rotation_data["MCU ctrls"] + [rotation_data["pivot"]])
+        expected_master_circuit.compose(circ_with_mcx, inplace=True)
         expected_master_circuit.compose(Xcirc, inplace=True)
 
     print("Expected circuit:")
