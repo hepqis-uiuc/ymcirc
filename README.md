@@ -19,3 +19,31 @@ After setting up WSL there is a checklist of programs you will need before proce
 1. Download / update Git by running `sudo apt-get install git`.
 2. Download / update Python3 by running `sudo apt install python3 python3-pip`
 3. Download the venv package by running `sudo apt install python3.10-venv`
+
+## Tests
+The project uses [pytest](https://docs.pytest.org/en/stable/).
+There are also numerous useful [how-to](https://docs.pytest.org/en/stable/how-to/index.html#how-to) guides available.
+
+### Writing new tests
+When adding new tests, group the functionality being tested by file. For example, if you were writing tests for a class or function in a module named `ymcirc.some_module`, then all tests for this class should go in a file `tests/test_some_module.py`.
+
+Note that all test files must be named `test_[something].py`!
+
+### Running tests
+If you want to run all tests in the `test` directory, activate the virtual environment and then type:
+```
+pytest -v
+```
+The `-v` flag is optional and simply outputs additional debug info.
+
+If you want to run all tests in a specific file:
+```
+pytest tests/test_[file].py
+```
+
+If you want to run *just one* test:
+```
+pytest tests/test_mod.py::test_func.
+```
+
+There's also more complete documentation on [how to invoke pytest](https://docs.pytest.org/en/stable/how-to/usage.html) which presents some additional features.
