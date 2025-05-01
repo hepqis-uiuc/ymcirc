@@ -1,12 +1,11 @@
 """Classes for juggling registers in quantum simulations of lattices."""
 from __future__ import annotations
 import copy
-from math import ceil
 from qiskit.circuit import QuantumRegister  # type: ignore
 from typing import List, Dict, Union
-from ymcirc.conventions import IrrepBitmap, VertexMultiplicityBitmap
+from ymcirc.conventions import IrrepBitmap, LatticeStateEncoder, VertexMultiplicityBitmap
 from ymcirc._abstract.lattice_data import (
-    LatticeData, Plaquette, LatticeVector, VertexAddress,
+    LatticeData, Plaquette, LatticeVector, LatticeDef,
     LinkUnitVectorLabel, LinkAddress, DimensionalitySpecifier,
     VERTICAL_DIR_LABEL, VERTICAL_NUM_VERTICES_D_THREE_HALVES
 )
@@ -23,11 +22,11 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
     Defaults to 1 qubit per link and 0 per vertex.
 
     If bitstring maps
-    link_truncation_dict and/or vertex_singlet_dict are provided,
+    link_bitmap and/or vertex_bitmap are provided,
     the corresponding argument n_qubits_per_link and n_qubits_per_vertex
     are ignored, and qubit requirements are inferred based on the length
     of the bitstrings in the corresponding dict(s). In this case,
-    the number of links per vertex implied by vertex_singlet_dict
+    the number of links per vertex implied by vertex_bitmap
     must match the dimensionality of the lattice. In particular,
     the number of iWeights in the keys must be 2*dim for dim >= 2,
     or 3 for dim 1.5. For example, a key for dim 1.5 should look like:
@@ -37,6 +36,11 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
     This key is a length-two tuple whose first element is a tuple of three
     GT pattern i-weights, and whose second element is an integer indexing
     multiplicity.
+
+    If working with a LatticeStateEncoder instance, the class method
+    LatticeRegisters.from_lattice_state_encoder is provided
+    to automatically initialize a LatticeRegisters instance for
+    the lattice geometry which is consistent with the LatticeStateEncoder.
     """
 
     def __init__(
@@ -45,31 +49,31 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
             periodic_boundary_conds: bool | tuple[bool, ...] = True,
             n_qubits_per_link: int = 1,
             n_qubits_per_vertex: int = 0,
-            link_truncation_dict: Union[IrrepBitmap, None] = None,
-            vertex_singlet_dict: Union[VertexMultiplicityBitmap, None] = None):
+            link_bitmap: Union[IrrepBitmap, None] = None,
+            vertex_bitmap: Union[VertexMultiplicityBitmap, None] = None):
         """Initialize all registers needed to simulate the lattice."""
         super().__init__(dimensions, size, periodic_boundary_conds)
         # Infer qubit requirements if bit mappings provided,
         # and perform validation.
-        if link_truncation_dict is not None:
-            all_bitstring_encodings = list(link_truncation_dict.values())
+        if link_bitmap is not None:
+            all_bitstring_encodings = list(link_bitmap.values())
             n_qubits_per_link = 0 if len(all_bitstring_encodings) == 0 else len(all_bitstring_encodings[0])  # For an empty bit map, there are no states to encode.
-        if vertex_singlet_dict is not None:
-            all_bitstring_encodings = list(vertex_singlet_dict.values())
+        if vertex_bitmap is not None:
+            all_bitstring_encodings = list(vertex_bitmap.values())
             n_qubits_per_vertex = 0 if len(all_bitstring_encodings) == 0 else len(all_bitstring_encodings[0])  # For an empty bit map, there are no states to encode.
         self._validate_qubit_params(n_qubits_per_link, n_qubits_per_vertex)
 
         # Validate state bitmaps (if given).
-        if link_truncation_dict is not None and len(link_truncation_dict) > 0:
-            self._validate_link_truncation_dict(link_truncation_dict)
-        if vertex_singlet_dict is not None and len(vertex_singlet_dict) > 0:
-            self._validate_vertex_singlet_truncation_dict(vertex_singlet_dict)
-        self._link_truncation_dict = link_truncation_dict
-        self._vertex_singlet_dict = vertex_singlet_dict
+        if link_bitmap is not None and len(link_bitmap) > 0:
+            self._validate_link_bitmap(link_bitmap)
+        if vertex_bitmap is not None and len(vertex_bitmap) > 0:
+            self._validate_vertex_bitmap(vertex_bitmap)
+        self._link_bitmap = link_bitmap
+        self._vertex_bitmap = vertex_bitmap
 
         # Declare the actual QuantumRegister instances for lattice DoFs.
         self._initialize_qubit_registers(n_qubits_per_link, n_qubits_per_vertex)
-        
+
     def _validate_qubit_params(self, n_qubits_per_link: int = 1, n_qubits_per_vertex: int = 1):
         if n_qubits_per_vertex < 0:
             raise ValueError("Vertex registers must have nonnegative integer number of qubits. "
@@ -79,7 +83,7 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
             raise ValueError("Link registers must have positive integer number of qubits. "
                              f"n_qubits_per_link = {n_qubits_per_link}.")
 
-    def _validate_link_truncation_dict(self, candidate_dict: IrrepBitmap):
+    def _validate_link_bitmap(self, candidate_dict: IrrepBitmap):
         # Conveniences.
         all_link_bitstrings = list(candidate_dict.values())
         all_link_iweights = list(candidate_dict.keys())
@@ -96,26 +100,22 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
         if bit_lengths_differ:
             raise ValueError(f"The values of candidate_dict must all have the same bit length. Dict values encountered:\n{list(all_link_bitstrings)}")
 
-    def _validate_vertex_singlet_truncation_dict(self, candidate_dict: VertexMultiplicityBitmap):
+    # TODO fix this to work with ints
+    def _validate_vertex_bitmap(self, candidate_dict: VertexMultiplicityBitmap):
         # Conveniences.
-        all_vertex_singlet_bitstrings = list(candidate_dict.values())
-        all_vertex_singlet_bag_states = list(candidate_dict.keys())
-        bit_length = len(all_vertex_singlet_bitstrings[0])
-        n_links_per_vertex = ceil(self.dim) * 2 if self.dim != 1.5 else 3
-        iweight_len_SU3 = 3
+        all_vertex_bitstrings = list(candidate_dict.values())
+        all_vertex_multiplicities = list(candidate_dict.keys())
+        bit_length = len(all_vertex_bitstrings[0])
 
         # Boolean test results.
         bit_lengths_differ = any(len(bit_string) != bit_length for bit_string in candidate_dict.values())
-        all_values_are_strings = all(isinstance(bitstring, str) for bitstring in all_vertex_singlet_bitstrings)
-        all_keys_are_tuples_of_su3_iweights_and_int = all(
-            len(bag) == 2 and isinstance(bag[0], tuple) and len(bag[0]) == n_links_per_vertex and (
-                all(isinstance(iweight, tuple) and len(iweight) == iweight_len_SU3 for iweight in bag[0]))
-            and isinstance(bag[1], int) for bag in all_vertex_singlet_bag_states)
+        all_values_are_strings = all(isinstance(bitstring, str) for bitstring in all_vertex_bitstrings)
+        all_keys_are_nonnegative_ints = all(isinstance(key, int) and key >= 0 for key in all_vertex_multiplicities)
 
-        if not all_values_are_strings or not all_keys_are_tuples_of_su3_iweights_and_int:
-            raise TypeError(f"Expected a dict with keys that are length-two tuples whose first element are themselves length-3 tuples (i-Weights), and whose second elements are integers interpreted as indexing multiplicity. Encountered:\n{candidate_dict}")
+        if not all_values_are_strings or not all_keys_are_nonnegative_ints:
+            raise TypeError(f"Expected a dict with nonnegative integer keys and bitstring values. Encountered:\n{candidate_dict}")
         if bit_lengths_differ:
-            raise ValueError(f"The values of vertex_singlet_dict must all have the same bit length. Dict values encountered:\n{list(all_vertex_singlet_bitstrings)}")
+            raise ValueError(f"The values of the bitmap must all have the same bit length. Dict values encountered:\n{list(all_vertex_bitstrings)}")
 
     def _initialize_qubit_registers(self, n_qubits_per_link: int, n_qubits_per_vertex: int):
         self._n_qubits_per_link = n_qubits_per_link
@@ -139,7 +139,6 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
 
         return self._vertex_registers[lattice_vector]
 
-    #def get_link(self, lattice_vector: LatticeVector, unit_vector_label: LinkUnitVectorLabel) -> QuantumRegister:
     def get_link(self, link_address: LinkAddress) -> QuantumRegister:
         """
         Return the QuantumRegister for the link specified by link_address.
@@ -219,15 +218,38 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
             + len(self._link_registers)*self.n_qubits_per_link
 
     @property
-    def link_truncation_bitmap(self) -> Union[IrrepBitmap, None]:
+    def link_bitmap(self) -> Union[IrrepBitmap, None]:
         """
-        Return a copy of the link truncation dictionary to bitstrings, if defined.
+        Return a copy of the link truncation dictionary to bitstrings.
+
+        Returns None if not defined.
         """
-        return copy.deepcopy(self._link_truncation_dict)
+        return copy.deepcopy(self._link_bitmap)
 
     @property
-    def vertex_singlet_bitmap(self) -> Union[VertexMultiplicityBitmap, None]:
+    def vertex_bitmap(self) -> Union[VertexMultiplicityBitmap, None]:
         """
-        Return a copy of the vertex singlet dictionary map to bitstrings, if defined.
+        Return a copy of the vertex singlet dictionary map to bitstrings.
+
+        Returns None if not defined.
         """
-        return copy.deepcopy(self._vertex_singlet_dict)
+
+        return copy.deepcopy(self._vertex_bitmap)
+
+    @classmethod
+    def from_lattice_state_encoder(cls, lattice_encoder: LatticeStateEncoder) -> LatticeRegisters:
+        """Initialize from a LatticeStateEncoder instance."""
+        lattice_def: LatticeDef = lattice_encoder.lattice_def
+        is_hypercubic_lattice = all(axis_length == lattice_def.shape[0] for axis_length in lattice_def.shape)
+        if lattice_def.dim == 1.5 or is_hypercubic_lattice is True:
+            size = lattice_def.shape[0]
+        else:
+            raise NotImplementedError("LatticeRegisters for non-hypercubic lattices not yet implemented.")
+
+        return LatticeRegisters(
+            dimensions=lattice_def.dim,
+            size=size,
+            periodic_boundary_conds=lattice_def.periodic_boundary_conds,
+            link_bitmap=lattice_encoder.link_bitmap,
+            vertex_bitmap=lattice_encoder.vertex_bitmap
+        )

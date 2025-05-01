@@ -8,7 +8,6 @@ decomposition by the electric Casimir (according to the link_bitmap).
 from __future__ import annotations
 from ymcirc.conventions import (IrrepWeight, BitString, IrrepBitmap,
                                 LatticeStateEncoder)
-import numpy as np
 from typing import List
 import warnings
 
@@ -51,21 +50,22 @@ def _gt_pattern_iweight_to_casimir(gt_tuple: IrrepWeight) -> float:
     return (p**2 + q**2 + p * q + 3 * p + 3 * q) / 3.0
 
 
-def _handle_electric_energy_unphysical_states(global_state: str,
-                                              link_state: str,
-                                              note_unphysical_states: bool,
-                                              stop_on_unphysical_states: bool) -> float:
-    """ 
+def _handle_electric_energy_unphysical_states(
+        global_lattice_bit_string: str,
+        link_bit_string: str,
+        note_unphysical_states: bool,
+        stop_on_unphysical_states: bool) -> float:
+    """
     Handle unphysical link states in electric energy calculation.
     """
     if (stop_on_unphysical_states):
         # Terminate simulation
         raise ValueError(
             "Computation of electric energy terminated due to unphysical link state "
-            + str(link_state) + " in " + str(global_state))
+            + str(link_bit_string) + " in " + str(global_lattice_bit_string))
     elif (note_unphysical_states):
         # Just print an error, but continue simulation with electric energy for the state 0.0
-        warning_msg = f"Unphysical link state {link_state} in {global_state} found during computation of electric energy."
+        warning_msg = f"Unphysical link state {link_bit_string} in {global_lattice_bit_string} found during computation of electric energy."
         warnings.warn(warning_msg)
         return 0.0
     else:
@@ -81,18 +81,18 @@ def casimirs(link_bitmap: IrrepBitmap) -> List[float]:
 
 
 def convert_bitstring_to_evalue(
-        global_bitstring: str,
+        global_lattice_bit_string: str,
         lattice_encoder: LatticeStateEncoder,
-        note_unphysical_states: bool = True,
-        stop_on_unphysical_states: bool = False) -> float:
+        warn_on_unphysical_links: bool = True,
+        error_on_unphysical_links: bool = False) -> float:
     """
     Convert lattice links to total energy.
 
     Used for computing the average electric energy. 
     Chunks the bitstring into |v l1 l2 ..> for each vertex when 
-    there are bag states. Default behavior for unphysical states is to note
-    them and assign 0.0 energy. This can by logged with note_unphysical_states,
-    or a ValueError can be raised with stop_on_unphysical_states.
+    there are multiplicity data on the vertices. Default behavior for unphysical states is to note
+    them and assign 0.0 energy. This can by logged with warn_on_unphysical_links,
+    or a ValueError can be raised with error_on_unphysical_links.
     """
     link_bitmap = lattice_encoder.link_bitmap
     vertex_bitmap = lattice_encoder.vertex_bitmap
@@ -104,84 +104,84 @@ def convert_bitstring_to_evalue(
     casimirs_dict = {}
 
     # encode using iweights (such as (1, 0 ,0))
-    for i, iweight in enumerate(list(link_bitmap.keys())):
-        casimirs_dict[iweight] = casimirs[i]
+    for link_idx, iweight in enumerate(list(link_bitmap.keys())):
+        casimirs_dict[iweight] = casimirs[link_idx]
 
     evalue = 0.0
-    len_string = lattice_encoder.expected_link_bit_string_length
+    length_link_bit_string = lattice_encoder.expected_link_bit_string_length
 
     has_vertex_bitmap_data = not len(vertex_bitmap) == 0
     if not has_vertex_bitmap_data:
-        for i in range(0, len(global_bitstring), len_string):
-            link_bitstring_chunk = global_bitstring[i:i + len_string]
-            link_state = lattice_encoder.decode_bit_string_to_link_state(
-                link_bitstring_chunk)
-            # Handle unphysical link state
-            if (link_state is None):
-                return _handle_electric_energy_unphysical_states(
-                    global_bitstring, link_bitstring_chunk,
-                    note_unphysical_states, stop_on_unphysical_states)
-            evalue += casimirs_dict[link_state]
+        for link_idx in range(0, len(global_lattice_bit_string), length_link_bit_string):
+            current_link_bit_string = global_lattice_bit_string[link_idx:link_idx + length_link_bit_string]
+            evalue += compute_link_bitstring_electric_evalue(
+                global_lattice_bit_string,
+                current_link_bit_string,
+                lattice_encoder,
+                note_unphysical_states=warn_on_unphysical_links,
+                stop_on_unphysical_states=error_on_unphysical_links)
     else:
-        vertex_singlet_length = lattice_encoder.expected_vertex_bit_string_length
-        # Find the spatial dimension of the lattice from vertex state
-        spatial_dim = int(len(list(vertex_bitmap.keys())[0][0]) / 2.0)
-        if (spatial_dim == 1):
-            total_length_x = vertex_singlet_length + (spatial_dim +
-                                                      1) * len_string
-            total_length_y = vertex_singlet_length + spatial_dim * len_string
-
-            chunks = [
-                global_bitstring[i:i + total_length_x + total_length_y]
-                for i in range(0, len(global_bitstring), total_length_x +
-                               total_length_y)
+        encoded_vertex_multiplicity_length = lattice_encoder.expected_vertex_bit_string_length
+        spatial_dim = lattice_encoder.lattice_def.dim
+        if (spatial_dim == 1.5):
+            # For a d = 3/2 lattice, the "top" vertices only have one positive link emanating from them.
+            # This inconsistency makes it easier to step through the lattice with a "chunk"
+            # consisting of (1) a lower vertex with its two associated positive links and (2) an
+            # upper vertex with its one associated positive link.
+            vertex_and_two_links_substring_length = encoded_vertex_multiplicity_length + 2 * length_link_bit_string
+            vertex_and_one_link_substring_length = encoded_vertex_multiplicity_length + length_link_bit_string
+            two_vertical_vertices_with_associated_links_substring_length = (
+                vertex_and_one_link_substring_length + vertex_and_two_links_substring_length
+            )
+            all_two_vertical_vertices_with_associated_links_substrings = [
+                global_lattice_bit_string[i:i + two_vertical_vertices_with_associated_links_substring_length]
+                for i in range(0, len(global_lattice_bit_string), two_vertical_vertices_with_associated_links_substring_length)
             ]
 
-            for chunk in chunks:
-                x_chunk = chunk[:total_length_x]
-                y_chunk = chunk[total_length_x:total_length_x + total_length_y]
+            # Step over the entire lattice two vertices (+ links) at a time.
+            for current_two_vertical_vertices_and_positive_links_substring in all_two_vertical_vertices_with_associated_links_substrings:
+                current_lower_vertex_with_two_positive_links_substring = \
+                    current_two_vertical_vertices_and_positive_links_substring[:vertex_and_two_links_substring_length]
+                current_upper_vertex_with_one_positive_link_substring = \
+                    current_two_vertical_vertices_and_positive_links_substring[vertex_and_two_links_substring_length:two_vertical_vertices_with_associated_links_substring_length]
 
-                for i in range(vertex_singlet_length, total_length_x,
-                               len_string):
-                    link_bitstring_chunk = x_chunk[i:i + len_string]
-                    link_state = lattice_encoder.decode_bit_string_to_link_state(
-                        link_bitstring_chunk)
-                    # Handle unphysical link state
-                    if (link_state is None):
-                        return _handle_electric_energy_unphysical_states(
-                            global_bitstring, link_bitstring_chunk,
-                            note_unphysical_states, stop_on_unphysical_states)
-                    evalue += casimirs_dict[link_state]
-                for i in range(vertex_singlet_length, total_length_y,
-                               len_string):
-                    link_bitstring_chunk = y_chunk[i:i + len_string]
-                    link_state = lattice_encoder.decode_bit_string_to_link_state(
-                        link_bitstring_chunk)
-                    # Handle unphysical link state
-                    if (link_state is None):
-                        return _handle_electric_energy_unphysical_states(
-                            global_bitstring, link_bitstring_chunk,
-                            note_unphysical_states, stop_on_unphysical_states)
-                    evalue += casimirs_dict[link_state]
+                # Extract the two links substrings connected to the lower vertex, and compute contribution to evalue.
+                for link_idx in range(encoded_vertex_multiplicity_length, vertex_and_two_links_substring_length, length_link_bit_string):
+                    current_link_bit_string = current_lower_vertex_with_two_positive_links_substring[link_idx:link_idx + length_link_bit_string]
+                    evalue += compute_link_bitstring_electric_evalue(
+                        global_lattice_bit_string,
+                        current_link_bit_string,
+                        lattice_encoder,
+                        note_unphysical_states=warn_on_unphysical_links,
+                        stop_on_unphysical_states=error_on_unphysical_links)
 
+                # Extract the one link substring connected to the upper vertex, and compute the contribution to evalue.
+                for link_idx in range(encoded_vertex_multiplicity_length, vertex_and_one_link_substring_length,
+                               length_link_bit_string):
+                    current_link_bit_string = current_upper_vertex_with_one_positive_link_substring[link_idx:link_idx + length_link_bit_string]
+                    evalue += compute_link_bitstring_electric_evalue(
+                        global_lattice_bit_string,
+                        current_link_bit_string,
+                        lattice_encoder,
+                        note_unphysical_states=warn_on_unphysical_links,
+                        stop_on_unphysical_states=error_on_unphysical_links)
         else:
-            total_length = vertex_singlet_length + spatial_dim * len_string
+            vertex_and_positive_links_substring_length = encoded_vertex_multiplicity_length + spatial_dim * length_link_bit_string
 
-            chunks = [
-                global_bitstring[i:i + total_length]
-                for i in range(0, len(global_bitstring), total_length)
+            all_vertex_and_positive_link_substrings = [
+                global_lattice_bit_string[i:i + vertex_and_positive_links_substring_length]
+                for i in range(0, len(global_lattice_bit_string), vertex_and_positive_links_substring_length)
             ]
 
-            for chunk in chunks:
-                for i in range(vertex_singlet_length, len(chunk), len_string):
-                    link_bitstring_chunk = chunk[i:i + len_string]
-                    link_state = lattice_encoder.decode_bit_string_to_link_state(
-                        link_bitstring_chunk)
-                    if (link_state is None):
-                        return _handle_electric_energy_unphysical_states(
-                            global_bitstring, link_bitstring_chunk,
-                            note_unphysical_states, stop_on_unphysical_states)
-                    evalue += casimirs_dict[link_state]
+            for current_two_vertical_vertices_and_positive_links_substring in all_vertex_and_positive_link_substrings:
+                for link_idx in range(encoded_vertex_multiplicity_length, len(current_two_vertical_vertices_and_positive_links_substring), length_link_bit_string):
+                    current_link_bit_string = current_two_vertical_vertices_and_positive_links_substring[link_idx:link_idx + length_link_bit_string]
+                    evalue += compute_link_bitstring_electric_evalue(
+                        global_lattice_bit_string,
+                        current_link_bit_string,
+                        lattice_encoder,
+                        note_unphysical_states=warn_on_unphysical_links,
+                        stop_on_unphysical_states=error_on_unphysical_links)
 
     return evalue
 
@@ -201,3 +201,24 @@ def electric_hamiltonian(link_bitmap: IrrepBitmap) -> List[float]:
     ]
 
     return [sum(x) for x in zip(*pauli_strings)]
+
+
+def compute_link_bitstring_electric_evalue(
+        global_lattice_bit_string: str,
+        link_bit_string: str,
+        lattice_encoder: LatticeStateEncoder,
+        note_unphysical_states: bool = True,
+        stop_on_unphysical_states: bool = False) -> float:
+    """
+    Compute the electric energy evalue on a link bitstring.
+
+    Options are provided to control whether to issue a warning if
+    the link encodes an unphysical state, or to raise an error.
+    """
+    link_state = lattice_encoder.decode_bit_string_to_link_state(link_bit_string)
+    if link_state is None:
+        return _handle_electric_energy_unphysical_states(
+            global_lattice_bit_string, link_bit_string,
+            note_unphysical_states, stop_on_unphysical_states)
+
+    return _gt_pattern_iweight_to_casimir(link_state)

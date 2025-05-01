@@ -1,10 +1,9 @@
 """
 A collection of utilities for building circuits.
 """
-
 from __future__ import annotations
 import copy
-from ymcirc.conventions import LatticeStateEncoder
+from ymcirc.conventions import PlaquetteState, LatticeStateEncoder, IRREP_TRUNCATION_DICT_1_3_3BAR, ONE, THREE, THREE_BAR
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import (
     givens,
@@ -15,9 +14,11 @@ from ymcirc.givens import (
     gray_to_index,
 )
 from ymcirc._abstract.lattice_data import Plaquette
+from ymcirc.utilities import _check_circuits_logically_equivalent, _flatten_circuit
 from math import ceil
 from qiskit import transpile
 from qiskit.circuit import QuantumCircuit, QuantumRegister
+from qiskit.circuit.library.standard_gates import RXGate
 from typing import List, Tuple, Set, Union, Dict
 import numpy as np
 
@@ -31,7 +32,20 @@ class LatticeCircuitManager:
     def __init__(
         self, lattice_encoder: LatticeStateEncoder, mag_hamiltonian: HamiltonianData
     ):
-        """Create via a LatticeStateEncoder instance and magnetic Hamiltonian matrix elements."""
+        """
+        Create via a LatticeStateEncoder instance and magnetic Hamiltonian matrix elements.
+
+        If the lattice defined by lattice_encoder is small and periodic, then the data in mag_hamiltonian
+        will be filtered for consistency. "Small and periodic" means that the lattice has
+        periodic boundary conditions, and is small enough that it is possible for a single
+        physical lattice link to appear as control links on two different vertices in a given
+        plaquette. In this situation, all matrix elements in the magnetic Hamiltonian
+        for which the initial or the final state have distinct link state data on one of
+        these "shared" control links are discarded, and "duplicate" control links
+        are removed from the binary encoding of the plaquette states. This duplicate
+        removal is done by removing all but the first instance of a repeated control
+        link from the plaquette state.
+        """
         # Copies to avoid inadvertently changing the behavior of the
         # LatticeCircuitManager instance.
         self._encoder = copy.deepcopy(lattice_encoder)
@@ -44,6 +58,53 @@ class LatticeCircuitManager:
             "optimize_circuits": None,
             "control_fusion": None,
         }
+
+        # Determine if lattice is small and periodic. If yes, filter out inconsistent Hamiltonian terms
+        # and drop repeated references to the same physical control link in mag_hamiltonian bit strings.
+        self._lattice_is_small = False
+        self._lattice_is_periodic = False
+        lattice_size_threshold_for_smallness = 2
+        if not lattice_encoder.lattice_def.all_boundary_conds_periodic:
+            raise NotImplementedError("Lattices with nonperiodic or mixed boundary conditions not yet supported.")
+        else:
+            self._lattice_is_periodic = True
+        match lattice_encoder.lattice_def.dim:
+            case 1.5:
+                lattice_size = lattice_encoder.lattice_def.shape[0]
+            case 2:
+                lattice_size = lattice_encoder.lattice_def.shape[0]
+                if lattice_size != lattice_encoder.lattice_def.shape[1]:
+                    raise NotImplementedError("Non-square dim 2 lattices not yet supported.")
+            case _:
+                raise NotImplementedError(f"Dim {lattice_encoder.lattice_def.dim} lattice not yet supported.")
+        self._lattice_is_small = True if lattice_size <= lattice_size_threshold_for_smallness else False
+
+    
+        if self._lattice_is_small is True and self._lattice_is_periodic is True:
+            # Filter out magnetic Hamiltonian terms which are inconsistent (repeated control links must have the same value)
+            filtered_and_trimmed_mag_hamiltonian: HamiltonianData = []
+            for matrix_element in self._mag_hamiltonian:
+                final_plaquette_state = lattice_encoder.decode_bit_string_to_plaquette_state(matrix_element[0])
+                initial_plaquette_state = lattice_encoder.decode_bit_string_to_plaquette_state(matrix_element[1])
+                final_state_has_inconsistent_controls = self._plaquette_state_has_inconsistent_controls(final_plaquette_state)
+                initial_state_has_inconsistent_controls = self._plaquette_state_has_inconsistent_controls(initial_plaquette_state)
+
+                if (final_state_has_inconsistent_controls is True) or (initial_state_has_inconsistent_controls is True):
+                    # Matrix element includes plaquette states that are nonsensical on a small, periodic lattice. Skip it.
+                    continue
+                else:
+                    # Matrix element is consistent on shared controls. Trim out duplicate control links, re-encode plaquettes as bitstring, and keep.
+                    final_plaquette_state_trimmed_c_links = self._discard_duplicate_controls_from_plaquette_state(final_plaquette_state)
+                    initial_plaquette_state_trimmed_c_links = self._discard_duplicate_controls_from_plaquette_state(initial_plaquette_state)
+                    consistent_and_trimmed_matrix_element = (
+                        lattice_encoder.encode_plaquette_state_as_bit_string(final_plaquette_state_trimmed_c_links, override_n_c_links_validation=True),
+                        lattice_encoder.encode_plaquette_state_as_bit_string(initial_plaquette_state_trimmed_c_links, override_n_c_links_validation=True),
+                        matrix_element[2]
+                    )
+                    filtered_and_trimmed_mag_hamiltonian.append(consistent_and_trimmed_matrix_element)
+
+            # Update the magnetic Hamiltonian data with the trimmed, consistent matrix elements.
+            self._mag_hamiltonian = filtered_and_trimmed_mag_hamiltonian
 
     # TODO modularize the logic for walking through a lattice.
     def create_blank_full_lattice_circuit(
@@ -186,7 +247,7 @@ class LatticeCircuitManager:
         """
         Add one magnetic Trotter step to the entire lattice circuit.
 
-        This is done by iterating over every lattice vertex.At each vertex,
+        This is done by iterating over every lattice vertex. At each vertex,
         there's an additional iteration over every "positive" plaquette.
         For each such plaquette, the plaquette-local magnetic Trotter step
         is appended to the circuit.
@@ -205,10 +266,13 @@ class LatticeCircuitManager:
                                internal givens rotation with the maximum
                                optimization level before composing with
                                master_circuit.
-          - set_of_physical_states: The set of all physical states encoded as bitstrings.
-                                    If provided, control pruning of multi-control rotation
-                                    gate inside Givens rotation subcircuits will be attempted.
-                                    If None, no control pruning is attempted.
+          - physical_states_for_control_pruning: The set of all physical states encoded as bitstrings.
+                                                 If provided, control pruning of multi-control rotation
+                                                 gate inside Givens rotation subcircuits will be attempted.
+                                                 If the lattice is small and periodic, then duplicate control
+                                                 links which are shared between vertices will be stripped
+                                                 out first.
+                                                 If None, no control pruning is attempted.
           - control_fusion: Optional boolian argument with the default set to False. If it's set
                             to be True, then LP families of givens rotations are first Gray code ordered,
                             then redundant controls are removed.
@@ -218,6 +282,27 @@ class LatticeCircuitManager:
           A new QuantumCircuit instance which is master_circuit with the
           Trotter step appended.
         """
+        # Strip out redundant control links if physical state data provided and the lattice
+        # is both small enough and periodic (so that the same physical links can be distinct controls).
+        if (physical_states_for_control_pruning is not None) and (self._lattice_is_periodic is True) and (self._lattice_is_small is True):
+            stripped_physical_states = []
+            for plaquette_string in physical_states_for_control_pruning:
+                plaquette_state = self._encoder.decode_bit_string_to_plaquette_state(plaquette_string)
+                if self._plaquette_state_has_inconsistent_controls(plaquette_state) is True:
+                    continue
+
+                plaquette_state_c_links_stripped = self._discard_duplicate_controls_from_plaquette_state(plaquette_state)
+                plaquette_state_c_links_stripped_bit_string = self._encoder.encode_plaquette_state_as_bit_string(
+                    plaquette_state_c_links_stripped,
+                    override_n_c_links_validation=True
+                )
+                stripped_physical_states.append(plaquette_state_c_links_stripped_bit_string)
+            stripped_physical_states = set(stripped_physical_states)
+            if len(stripped_physical_states) == 0:
+                physical_states_for_control_pruning = None
+            else:
+                physical_states_for_control_pruning = stripped_physical_states
+        
         # Create the magnetic Hamiltonian evolution circuit.
         mag_evol_recomputation_needed = (
             (self._cached_mag_evol_circuit is None)
@@ -276,19 +361,45 @@ class LatticeCircuitManager:
 
             # For each plaquette, apply the the local Trotter step circuit.
             for plaquette in plaquettes:
-                print("Stitching magnetic rotation onto plaquette.")
+                # Get qubits for the current plaquette.
+                
                 # Collect the local qubits for stitching purposes.
-                vertex_qubits = [
-                    qubit for register in plaquette.vertices for qubit in register
-                ]
-                link_qubits = [
-                    qubit for register in plaquette.active_links for qubit in register
-                ]
-                # Stitch the plaquette-local Givens rotation into master circuit.
+                vertex_multiplicity_qubits = []
+                a_link_qubits = []
+                c_link_qubits = []
+                for register in plaquette.vertices:
+                    for qubit in register:
+                        vertex_multiplicity_qubits.append(qubit)
+                for register in plaquette.active_links:
+                    for qubit in register:
+                        a_link_qubits.append(qubit)
+                for c_link_idx, register in enumerate(plaquette.control_links_ordered):
+                    # If lattice is small and has PBCs, skip redundant c_link registers.
+                    if (self._lattice_is_small is True) and (self._lattice_is_periodic is True):
+                        redundant_c_link_idxes_by_dim_dict = {
+                            1.5 : [1, 3],
+                            2: [3, 5, 6, 7]
+                        }
+                        try:
+                            current_c_link_is_redundant = c_link_idx in redundant_c_link_idxes_by_dim_dict[self._encoder.lattice_def.dim]
+                        except KeyError:
+                            raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
+                        if current_c_link_is_redundant is True:
+                            continue
+                    
+                    for qubit in register:
+                        c_link_qubits.append(qubit)
+                        
+                # Now that we have the qubits for the current plaquette,
+                # Stitch the local magnetic evolution circuit into master circuit.
                 master_circuit.compose(
                     plaquette_local_rotation_circuit,
-                    qubits=[*vertex_qubits, *link_qubits],
-                    inplace=True,
+                    qubits=[
+                        *vertex_multiplicity_qubits,
+                        *a_link_qubits,
+                        *c_link_qubits
+                    ],
+                    inplace=True
                 )
 
     def _build_mag_evol_circuit(
@@ -317,7 +428,7 @@ class LatticeCircuitManager:
                     key=lambda x: gray_to_index(bitstring_value_of_LP_family(x)),
                 )
             }
-        # iterate over all LP bins and apply givens rotation.
+        # Iterate over all LP bins and apply givens rotation.
         plaquette_circ_n_qubits = len(
             self._mag_hamiltonian[0][0]
         )  # TODO this is a disgusting way to get the size of the magnetic evol circuit per plaquette.
@@ -346,6 +457,66 @@ class LatticeCircuitManager:
                 )
 
         return plaquette_local_rotation_circuit
+
+    def _plaquette_state_has_inconsistent_controls(self, plaquette: PlaquetteState) -> bool:
+        """
+        True if "shared" control links have different states; False otherwise.
+
+        For d=3/2, this corresponds to c1 == c2 and c3 == c4.
+
+        For d=2, this corresponds to c1 == c4, c2 == c7, c3 == c6, and c5 == c8.
+
+        Note that this only makes sense on a small, periodic lattice, so a ValueError
+        is raised if the lattice fails those checks.
+        """
+        if (self._lattice_is_periodic is False) or (self._lattice_is_small is False):
+            raise ValueError("Plaquette state consistency check only makes sense on a small, periodic lattice.")
+
+        c_links = plaquette[2]
+        match self._encoder.lattice_def.dim:
+            case 1.5:
+                plaquette_state_has_inconsistent_controls = (
+                    (c_links[0] != c_links[1]) or
+                    (c_links[2] != c_links[3])
+                )
+            case 2:
+                plaquette_state_has_inconsistent_controls = (
+                    (c_links[0] != c_links[3]) or
+                    (c_links[1] != c_links[6]) or
+                    (c_links[2] != c_links[5]) or
+                    (c_links[4] != c_links[7])
+                )
+            case _:
+                raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
+
+        return plaquette_state_has_inconsistent_controls
+
+    def _discard_duplicate_controls_from_plaquette_state(self, plaquette: PlaquetteState) -> PlaquetteState:
+        """
+        Return a new instances of the plaquette where duplicate control link data has been discarded.
+
+        Only the first instance of a duplicate control link is kept. For example, on a 2-plaquette d=3/2
+        lattice with PBCs, only c1 and c3 are kept since c1 == c2 and c3 == c4. On a 4-plaquette d=2
+        lattice with PBCs, only c1, c2, c3, and c5 are kept since c1 == c4, c2 == c7, c3 == c6,
+        and c5 == c8.
+
+        Since this only makes sense on a small, periodic lattice, a ValueError
+        is raised if the lattice is not small and periodic.
+        """
+        if (self._lattice_is_periodic is False) or (self._lattice_is_small is False):
+            raise ValueError("Plaquette state consistency check only makes sense on a small, periodic lattice.")
+
+        vertex_multiplicities, a_links, c_links = plaquette
+        match self._encoder.lattice_def.dim:
+            case 1.5:
+                physical_c_links = (c_links[0], c_links[2])
+            case 2:
+                physical_c_links = (c_links[0], c_links[1], c_links[2], c_links[4])
+            case _:
+                raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
+
+        plaquette_with_filtered_c_links = (vertex_multiplicities, a_links, physical_c_links)
+        return plaquette_with_filtered_c_links
 
     @staticmethod
     def _sort_matrix_elements_into_lp_bins(

@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
-from ymcirc.conventions import LatticeStateEncoder
+from ymcirc._abstract import LatticeDef
+from ymcirc.conventions import LatticeStateEncoder, ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT, PlaquetteState
 from ymcirc.electric_helper import electric_hamiltonian, casimirs, convert_bitstring_to_evalue
 
 
@@ -79,126 +80,175 @@ def test_decomp_1_3_3bar_6_6bar_8():
 
     # Compare matrices
     np.testing.assert_allclose(cmpr_matrx, decomp_matrx, atol=1e-08)  # Setting atol to match defualt np.isclose behavior.
-    
 
 
-def test_convert_bitstring_to_evalue_case1():
-    """Testing if the electric energy |E|^2 is being calculated correctly for d2, T1p vacuum"""
+def _test_convert_bitstring_to_evalue_d_2_ground_state():
+    print(
+        "Testing if the electric energy |E|^2 is being calculated correctly for d = 2 with "
+        "a single multiplicity qubit in the lattice ground state."
+    )
+    T1_link_bitmap = {ONE: "00", THREE: "10", THREE_BAR: "01"}
+    physical_states: PlaquetteState = [  # The only thing this controls is the number of vertex qubits the LatticeStateEncoder infers. Garbage data otherwise.
+        (
+            (0, 0, 0, 1),  # Since 1 is the highest multiplicity, one vertex qubit.
+            (ONE, ONE, ONE, ONE),
+            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+        )
+    ]
+    lattice = LatticeDef(dimensions=2, size=2)
+    lattice_encoder = LatticeStateEncoder(T1_link_bitmap, physical_states, lattice)
 
-    # Use the T1 truncation with T1p vertex maps for ease of creating tests.
-    # Tests strings may or not physical
-    T1_map = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
-
-    vertex_d2_T1p_map = {
-        (((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0)), 1): '0',
-        (((0, 0, 0), (0, 0, 0), (1, 0, 0), (1, 1, 0)), 1): '1',
-    }
-
-    # 20 qubits in d=2, 2x2, T1p. Expect zero energy
-    example_d2_T1p_string1 = "0" * 20
-
-    lattice_encoder = LatticeStateEncoder(T1_map, vertex_d2_T1p_map)
-
+    # Ground state of the lattice.
+    global_lattice_ground_state_bit_string = "0" * 20
+    computed_energy = convert_bitstring_to_evalue(
+        global_lattice_ground_state_bit_string, lattice_encoder)
     expected_energy = 0
-    actual_energy = convert_bitstring_to_evalue(example_d2_T1p_string1,
-                                                lattice_encoder)
 
-    np.testing.assert_allclose(expected_energy, actual_energy)
+    np.testing.assert_allclose(expected_energy, computed_energy)
 
 
-def test_convert_bitstring_to_evalue_case2():
-    """Testing if the electric energy |E|^2 is being calculated correctly for d2, T1p excited state"""
+def _test_convert_bitstring_to_evalue_d_2_excited_state():
+    print(
+        "Testing if the electric energy |E|^2 is being calculated correctly for d = 2, "
+        "with 2 multiplicity qubits in a lattice state with six excited links."
+    )
+    T1_link_bitmap = {ONE: "00", THREE: "10", THREE_BAR: "01"}
+    physical_states: PlaquetteState = [  # The only thing this controls is the number of vertex qubits the LatticeStateEncoder infers. Garbage data otherwise.
+        (
+            (0, 0, 0, 3),  # Since 3 is the highest multiplicity, two vertex qubits.
+            (ONE, ONE, ONE, ONE),
+            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+        )
+    ]
+    lattice = LatticeDef(dimensions=2, size=3)
+    lattice_encoder = LatticeStateEncoder(T1_link_bitmap, physical_states, lattice)
 
-    # Use the T1 truncation with T1p vertex maps for ease of creating tests.
-    # Tests strings may or not physical
-    T1_map = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    # 9 * 2 + 18 * 2 = 54 qubits.
+    # There are 6 links with electric energy of (4/3)
+    # so the total energy should be 6*4/3 = 8.
+    ground_state_vertex_bitstring = "00" + "00" + "00"
+    vertex_three_three_bar = "10" + "10" + "01"
+    vertex_three_one = "00" + "10" + "00"
+    vertex_one_three_bar = "01" + "00" + "10"
+    global_lattice_state_bit_string = (
+        ground_state_vertex_bitstring + ground_state_vertex_bitstring + vertex_three_three_bar +
+        vertex_three_one + ground_state_vertex_bitstring + vertex_one_three_bar +
+        ground_state_vertex_bitstring + vertex_three_three_bar + ground_state_vertex_bitstring
+    )
+    computed_energy = convert_bitstring_to_evalue(global_lattice_state_bit_string, lattice_encoder)
+    expected_energy = 8
 
-    vertex_d2_T1p_map = {
-        (((0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0)), 1): '0',
-        (((0, 0, 0), (0, 0, 0), (1, 0, 0), (1, 1, 0)), 1): '1',
-    }
-
-    # 20 qubits in d=2, 2x2, T1p. There are 6 links with energy (4/3)
-    example_d2_T1p_string2 = "10001110100101001000"
-
-    lattice_encoder = LatticeStateEncoder(T1_map, vertex_d2_T1p_map)
-
-    expected_energy = ((4.0 / 3.0) * 6.0)
-    actual_energy = convert_bitstring_to_evalue(example_d2_T1p_string2, lattice_encoder)
-
-    np.testing.assert_allclose(expected_energy, actual_energy)
-
-
-def test_convert_bitstring_to_evalue_case3():
-    """Testing if the electric energy |E|^2 is being calculated correctly for d3/2, T1p excited state"""
-
-    # Use the T1 truncation with T1p vertex maps for ease of creating tests.
-    # Tests strings may or not physical
-    T1_map = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
-
-    vertex_d32_T1p_map = {
-        (((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1): '0',
-        (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1): '1',
-    }
-
-    # 16 qubits in d=3/2, 2x1, T1p. There are 4 links with energy (4/3)
-    example_d32_T1p_string1 = "1000111011010100"
-
-    lattice_encoder = LatticeStateEncoder(T1_map, vertex_d32_T1p_map)
-
-    expected_energy = ((4.0 / 3.0) * 4.0)
-    actual_energy = convert_bitstring_to_evalue(example_d32_T1p_string1, lattice_encoder)
-
-    np.testing.assert_allclose(expected_energy, actual_energy)
+    np.testing.assert_allclose(expected_energy, computed_energy)
 
 
-def test_convert_bitstring_to_evalue_case4():
-    """
-    Testing if the electric energy |E|^2 is being calculated correctly for d3/2,
-    T1p unphysical state with just noting an error.
-    """
+def _test_convert_bitstring_to_evalue_d_3_2_excited_state():
+    print(
+        "Testing if the electric energy |E|^2 is being calculated correctly for d = 3/2, "
+        "with no multiplicity qubits in a lattice state with one excited link."
+    )
+    T1_link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    physical_states: PlaquetteState = [  # The only thing this controls is the number of vertex qubits the LatticeStateEncoder infers. Garbage data otherwise.
+        (
+            (0, 0, 0, 0),  # All zeros flag that no vertex qubits needed, only trivial multiplicities.
+            (ONE, ONE, ONE, ONE),
+            (ONE, ONE, ONE, ONE)
+        )
+    ]
+    lattice = LatticeDef(dimensions=1.5, size=2)
+    lattice_encoder = LatticeStateEncoder(T1_link_bitmap, physical_states, lattice)
 
-    # Use the T1 truncation with T1p vertex maps for ease of creating tests.
-    # Tests strings may or not physical
-    T1_map = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    # 12 qubits in d=3/2, 2x1, T1p. There is one link with energy (4/3)
+    global_lattice_state_bit_string = "001000000000"
+    computed_energy = convert_bitstring_to_evalue(global_lattice_state_bit_string, lattice_encoder)
+    expected_energy = 4/3.0
 
-    vertex_d32_T1p_map = {
-        (((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1): '0',
-        (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1): '1',
-    }
-
-    # 16 qubits in d=3/2, 2x1, T1p. There is an unphysical link at ((0,0), e_y). Expecting 0.0
-    example_d32_T1p_string2 = "1001111011010100"
-
-    lattice_encoder = LatticeStateEncoder(T1_map, vertex_d32_T1p_map)
-
-    expected_energy = 0
-    actual_energy = convert_bitstring_to_evalue(example_d32_T1p_string2, lattice_encoder)
-
-    np.testing.assert_allclose(expected_energy, actual_energy)
+    np.testing.assert_allclose(expected_energy, computed_energy)
 
 
-def test_convert_bitstring_to_evalue_case5():
-    """
-    Testing if the electric energy |E|^2 is being calculated correctly for d3/2,
-    T1p unphysical state with raising an error.
-    """
+def _test_convert_bitstring_to_evalue_ignore_unphysical_links():
+    print(
+        "Testing if the electric energy |E|^2 is being calculated correctly for d = 3/2, T1 truncation "
+        "when there's a link in an unphysical state that's set to be ignored, one vertex qubit, and two excited links.")
+    T1_link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    physical_states: PlaquetteState = [  # The only thing this controls is the number of vertex qubits the LatticeStateEncoder infers. Garbage data otherwise.
+        (
+            (0, 0, 0, 1),  # One vertex qubit needed to track these multiplicities.
+            (ONE, ONE, ONE, ONE),
+            (ONE, ONE, ONE, ONE)
+        )
+    ]
+    lattice = LatticeDef(dimensions=1.5, size=2)
+    lattice_encoder = LatticeStateEncoder(T1_link_bitmap, physical_states, lattice)
 
-    # Use the T1 truncation with T1p vertex maps for ease of creating tests.
-    # Tests strings may or not physical
-    T1_map = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    # 4 + 12 = 16 qubits in d=3/2, 2x1. There is an unphysical link at ((0, 0), 2),
+    # and two excited links.
+    vertex_one_unphysical = "0" + "00" + "11"
+    vertex_three = "1" + "10"
+    vertex_one_one = "0" + "00" + "00"
+    vertex_three_bar = "0" + "01"
+    global_lattice_state_bit_string = vertex_one_unphysical + vertex_three + vertex_one_one + vertex_three_bar
+    computed_energy = convert_bitstring_to_evalue(global_lattice_state_bit_string, lattice_encoder)
+    expected_energy = 8/3.0
 
-    vertex_d32_T1p_map = {
-        (((0, 0, 0), (0, 0, 0), (0, 0, 0)), 1): '0',
-        (((0, 0, 0), (1, 0, 0), (1, 1, 0)), 1): '1',
-    }
+    np.testing.assert_allclose(expected_energy, computed_energy)
 
-    # 16 qubits in d=3/2, 2x1, T1p. There is an unphysical link at ((0,0), e_y). Expecting 0.0
-    example_d32_T1p_string2 = "1001111011010100"
 
-    lattice_encoder = LatticeStateEncoder(T1_map, vertex_d32_T1p_map)
+def _test_convert_bitstring_to_evalue_raise_error_on_unphysical_links():
+    print(
+        "Testing the option to raise an error when encountering unphysical links "
+        "for the electric energy |E|^2 calculation.")
+    T1_link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    physical_states: PlaquetteState = [  # The only thing this controls is the number of vertex qubits the LatticeStateEncoder infers. Garbage data otherwise.
+        (
+            (0, 0, 0, 1),  # One vertex qubit needed to track these multiplicities.
+            (ONE, ONE, ONE, ONE),
+            (ONE, ONE, ONE, ONE)
+        )
+    ]
+    lattice = LatticeDef(dimensions=1.5, size=2)
+    lattice_encoder = LatticeStateEncoder(T1_link_bitmap, physical_states, lattice)
+
+    # 4 + 12 = 16 qubits in d=3/2, 2x1. There is an unphysical link at ((0, 0), 2),
+    # and two excited links.
+    vertex_one_unphysical = "0" + "00" + "11"
+    vertex_three = "1" + "10"
+    vertex_one_one = "0" + "00" + "00"
+    vertex_three_bar = "0" + "01"
+    global_lattice_state_bit_string = vertex_one_unphysical + vertex_three + vertex_one_one + vertex_three_bar
 
     with pytest.raises(ValueError) as e_info:
-        convert_bitstring_to_evalue(example_d32_T1p_string2,
-                                    lattice_encoder,
-                                    stop_on_unphysical_states=True)
+        convert_bitstring_to_evalue(global_lattice_state_bit_string, lattice_encoder, error_on_unphysical_links=True)
+
+
+def _test_convert_bitstring_to_evalue_d_2_T2_truncation():
+    print(
+        "Check the electric energy calculation for the T2 truncation. "
+        "Lattice state has exactly one three, three bar, six, six bar, and four eights, "
+        "with all other links in the one irrep. Total energy should therefore be "
+        "2*(4/3) + 2*(10/3) + 4*(9/3) = 64/3"
+    )
+    T1_link_bitmap = {ONE: "000", THREE: "100", THREE_BAR: "001", SIX: "110", SIX_BAR: "011", EIGHT: "111"}
+    physical_states: PlaquetteState = [  # The only thing this controls is the number of vertex qubits the LatticeStateEncoder infers. Garbage data otherwise.
+        (
+            (0, 0, 0, 3),  # Since 3 is the highest multiplicity, two vertex qubits.
+            (ONE, ONE, ONE, ONE),
+            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+        )
+    ]
+    lattice = LatticeDef(dimensions=2, size=3)
+    lattice_encoder = LatticeStateEncoder(T1_link_bitmap, physical_states, lattice)
+
+    ground_state_vertex_bitstring = "00" + "000" + "000"
+    vertex_three_three_bar = "00" + "100" + "001"
+    vertex_one_six = "00" + "000" + "110"
+    vertex_eight_one = "00" + "111" + "000"
+    vertex_six_bar_one = "00" + "011" + "000"
+    global_lattice_state_bit_string = (
+        ground_state_vertex_bitstring + vertex_eight_one + vertex_three_three_bar +
+        vertex_one_six + ground_state_vertex_bitstring + vertex_eight_one +
+        vertex_eight_one + vertex_six_bar_one + vertex_eight_one
+    )
+    computed_energy = convert_bitstring_to_evalue(global_lattice_state_bit_string, lattice_encoder)
+    expected_energy = 64/3.0
+
+    np.testing.assert_allclose(expected_energy, computed_energy)

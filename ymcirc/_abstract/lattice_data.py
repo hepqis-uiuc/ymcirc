@@ -20,6 +20,8 @@ VERTICAL_NUM_VERTICES_D_THREE_HALVES: int = 2
 T = TypeVar('T')
 
 
+# TODO should this have distinct typevars for vertex nad link data? They can be the same but are not
+# necessarily.
 class Plaquette(Generic[T]):
     """
     Class for working with elementary plaquette data associated with a hypercubic lattice.
@@ -61,6 +63,11 @@ class Plaquette(Generic[T]):
             Retrieve a length-2 tuple of lattice unit vectors defining the plane of the lattice.
     """
 
+    _CONTROL_LINK_DIRS_PER_VERTEX_MAP: dict[DimensionalitySpecifier, Tuple[Tuple[int, ...], ...]] = {
+            1.5: ((-1,), (1,), (1,), (-1,)),
+            2: ((-1, -2), (-2, 1), (1, 2), (2, -1))
+        }
+
     def __init__(
             self,
             lattice: LatticeData,
@@ -87,9 +94,11 @@ class Plaquette(Generic[T]):
             vertices_ccw.append(lattice.add_unit_vector_to_vertex_vector(vertices_ccw[-1], step))
         link_steps_ccw = [e1, e2, -e1, -e2]
         self._vertices = tuple([lattice.get_vertex(v) for v in vertices_ccw])
+        self._ordered_vertex_vectors = vertices_ccw
         self._active_links = tuple([lattice.get_link(link_address) for link_address in zip(vertices_ccw, link_steps_ccw)])
+        self._lattice = lattice  # DO NOT MUTATE THIS.
 
-        # Construct the control link dict.
+        # Construct the control link dict, and ordered control link tuple.
         all_pos_and_neg_link_dirs = set(lattice_direction_labels + [(-1)*dir for dir in lattice_direction_labels])
         active_link_dirs_per_vertex = {
             vertices_ccw[0]: [e1, e2],
@@ -118,18 +127,60 @@ class Plaquette(Generic[T]):
 
     @property
     def active_links(self) -> tuple[T, T, T, T]:
-        """Retrieve the data on the active links."""
+        """Retrieve the data on the active links in counter-clockwise order."""
         return self._active_links
 
     @property
     def vertices(self) -> tuple[T, T, T, T]:
-        """Retrieve the data on the vertices."""
+        """Retrieve the data on the vertices in counter-clockwise order."""
         return self._vertices
 
     @property
     def control_links(self) -> dict[LatticeVector, dict[LinkAddress, T]]:
         """Retrieve the address dictionary for all the control links."""
         return self._control_links
+
+    @property
+    def control_links_ordered(self) -> tuple[T, ...]:
+        """
+        Retrieve the data on the control links in "standard" order.
+
+        A "counter-clockwise" convention is used to order the control links
+        stating with the bottom-left vertex.
+
+        In d=3/2, a length-4 tuple is returned
+        with the following order:
+
+        4 ------------- 3
+              |   |
+        1 ------------- 2
+
+        In d=2, a length-eight tuple is returned with the following
+        order:
+
+              7   6
+              |   |
+        8 ------------- 5
+              |   |
+        1 ------------- 4
+              |   |
+              2   3
+
+        In d=3, a length-16 tuple is returned where items 1-8 follow d=2 ordering.
+        Items 9-12 are the links "above" the plaquette as determined by the right
+        hand rule, going counter-clockwise starting from the bottom left vertex.
+        Items 13-16 are analogously the links "below" the plaquette.
+        """
+        control_links_ordered = []
+        try:
+            control_link_dirs_per_vertex = Plaquette._CONTROL_LINK_DIRS_PER_VERTEX_MAP[self._lattice.dim]
+        except KeyError:
+            raise NotImplementedError(f"Control link ordering for dim-{self._lattice.dim} plaquettes not yet implemented")
+        for vertex_idx, vertex_vector in enumerate(self._ordered_vertex_vectors):
+            for link_dir in control_link_dirs_per_vertex[vertex_idx]:
+                control_links_ordered.append(self._lattice.get_link((vertex_vector, link_dir)))
+
+        return tuple(control_links_ordered)
 
     @property
     def bottom_left_vertex(self) -> LatticeVector:
@@ -142,16 +193,8 @@ class Plaquette(Generic[T]):
         return self._plane
 
 
-class LatticeData(ABC, Generic[T]):
-    """
-    Abstract base class for working with data associated with a hypercubic lattice.
-
-    This class defines an interface for handling various kinds of data that are 
-    associated with a hypercubic lattice structure, which includes link and vertex 
-    degrees of freedom. Subclasses should implement all abstractmethods defined in this 
-    interface to provide specific functionality for manipulating and analyzing 
-    lattice data.
-    """
+class LatticeDef:
+    """A class that defines a particular lattice geometry."""
 
     def __init__(
             self,
@@ -191,7 +234,7 @@ class LatticeData(ABC, Generic[T]):
             raise NotImplementedError("Tuples for boundary conditions not yet supported.")
 
         if not isinstance(size, int) and (dim == "3/2" or isclose(float(dim), 1.5)):
-            raise ValueError("The size of a d=3/2 lattice must be specified by an int.")
+            raise ValueError(f"The size of a d=3/2 lattice must be specified by an int. Encountered: {size}.")
 
         if isinstance(size, int) and size < 2:
             raise ValueError("Lattice must have at least two vertices in each "
@@ -265,84 +308,6 @@ class LatticeData(ABC, Generic[T]):
         normalized_link_address = (lattice_vector, unit_vector_label)
         return normalized_link_address
 
-    @abstractmethod
-    def get_vertex(self, lattice_vector: LatticeVector) -> T:
-        """Retrieve data associated with a specific vertex in the lattice."""
-        pass
-
-    @abstractmethod
-    def get_link(self, link_address: LinkAddress) -> T:
-        """Retrieve data associated with a specific link in the lattice.
-
-        The argument link_address consists of a lattice vector with a
-        positive unit_vector_label specifies the link which is in the
-        positive direction along the dimension specified by unit_vector_label
-        from the vertex given by lattice vector. A negative unit_vector_label
-        specifies the opposite link.
-
-        Example (d=3/2 with periodic boundary conditions):
-
-        (0, 1) ----- (1, 1) ----- (pbc)
-          |            |
-          |            |
-        (0, 0) ----- (1, 0) ----- (pbc)
-
-        unit_vector_label = 1 labels the positive horizontal direction.
-        unit_vector_label = 2 labels the positive vertical direction.
-        We can address the bottom-middle link via either of the following:
-            - lattice_vector = (0, 0), unit_vector_label = 1
-            - lattice_vector = (1, 0), unit_vector_label = -1
-        """
-        pass
-
-    def get_plaquettes(self,
-                       lattice_vector: LatticeVector,
-                       e1: Union[LinkUnitVectorLabel, None] = None,
-                       e2: Union[LinkUnitVectorLabel, None] = None
-                       ) -> Plaquette[T] | List[Plaquette[T]]:
-        """
-        Retrieve plaquette(s) assocaited with a specific bottom-left vertex.
-
-        Optionally, provide two lattice unit vectors defining a plane to retrieve
-        only one plaquette.
-        """
-        """
-        Return the list of all "positive" Plaquettes associated with the vertex lattice_vector.
-
-        The "positivity" convention is that the list of returned plaquettes corresponds to those
-        defined by all pairs of orthogonal positive unit vectors at the vertex lattice_vector.
-        Conventionally, the "lower" dimension labels the first element of the tuples
-        representing planes, and the plaquettes are sorted.
-
-        Examples:
-          - d = 3 has planes labeled by (1, 2), (1, 3), and (2, 3).
-          - d = 4 has planes labeled by (1, 2), (1, 3), (1, 4), (2, 3), (2, 4), and (3, 4).
-
-        If a particular plaquette is desired, this can be specified by either providing the
-        link unit vector directions e1 and e2 to defining a plane. Sign is ignored when
-        manually specifying the plane of a specific plaquette.
-
-        Return plaquettes will all have lattice_vector as the "bottom-left" vertex.
-        """
-        # A definition of convenience.
-        only_one_link_given = (e1 is None or e2 is None) and (e1 != e2)
-
-        if isinstance(e1, int) and isinstance(e2, int):  # Case where both link directions are provided.
-            return Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=(e1, e2))
-        elif only_one_link_given:  # Nonsense case.
-            raise ValueError(
-                "Provide no link directions to get all Plaquettes at a vertex, or exactly two link directions "
-                f"to get one particular Plaquette. Received e1={e1} and e2={e2}."
-            )
-        else:  # Case where no link directions provided, need to construct ALL plaquettes.
-            if (self.dim == 1.5 or self.dim == 2):  # Only one plaquette for these geometries.
-                return Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=(1, 2))
-            elif self.dim > 2:  # Generic case with multiple planes.
-                set_of_planes = set((i, j) if i < j else None for i, j in product(range(1, ceil(self.dim + 1)), range(1, ceil(self.dim + 1))))
-                not_none_lambda = lambda x: x is not None
-                all_planes = sorted(list(filter(not_none_lambda, set_of_planes)))  # Need to strip out a spurious None
-                return [Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=plane) for plane in all_planes]
-
     @property
     def n_plaquettes(self) -> int:
         """Retrieve the total number of unique plaquettes in the entire lattice."""
@@ -368,6 +333,22 @@ class LatticeData(ABC, Generic[T]):
     def n_links(self) -> int:
         """Retrieve the total number of unique links in the entire lattice."""
         return len(self.link_addresses)
+
+    @property
+    def n_control_links_per_plaquette(self) -> int:
+        """
+        Retrieve the total number of control links per plaquette.
+
+        Note that the same physical link can appear as multiple controls
+        for periodic boundary conditions on small lattices. This number is
+        NOT necessarily the same as the number of physically unique links
+        controlling a plaquette.
+        """
+        if self.all_boundary_conds_periodic is False:
+            raise NotImplementedError("Only periodic boundary conditions have been implemented.")
+        else:
+            n_controls_per_vertex = int(2 * (self.dim - 1))
+            return 4 * n_controls_per_vertex
 
     @property
     def vertex_addresses(self) -> list[LatticeVector]:
@@ -453,3 +434,114 @@ class LatticeData(ABC, Generic[T]):
             return True
         else:
             return False
+
+
+class LatticeData(ABC, LatticeDef, Generic[T]):
+    """
+    Abstract base class for storing data on a hypercubic lattice.
+
+    This class defines an interface for handling various kinds of data that are 
+    associated with a hypercubic lattice structure, which includes link and vertex 
+    degrees of freedom. Subclasses should implement all abstractmethods defined in this 
+    interface to provide specific functionality for manipulating and analyzing 
+    lattice data.
+    """
+
+    def __init__(
+            self,
+            dimensions: DimensionalitySpecifier,
+            size: int | tuple[int, ...],
+            periodic_boundary_conds: bool | tuple[bool, ...] = True
+    ):
+        """
+        Initialize a lattice with specified dimensionality, size, and boundary conditions.
+
+        Arguments:
+            dimensions:
+                An integer, float, or string specifying the dimensionality of the lattice.
+            size:
+                If an int, the number of unique vertices in every lattice direction. If
+                a tuple, the number of unique vertices in each lattice direction.
+            periodic_boundary_conds:
+                If a bool, controls boundary counds in every lattice direction. If a tuple,
+                controls boundary conditions in each lattice direction.
+        """
+        super().__init__(dimensions, size, periodic_boundary_conds)
+
+    @abstractmethod
+    def get_vertex(self, lattice_vector: LatticeVector) -> T:
+        """Retrieve data associated with a specific vertex in the lattice."""
+        pass
+
+    @abstractmethod
+    def get_link(self, link_address: LinkAddress) -> T:
+        """Retrieve data associated with a specific link in the lattice.
+
+        The argument link_address consists of a lattice vector with a
+        positive unit_vector_label specifies the link which is in the
+        positive direction along the dimension specified by unit_vector_label
+        from the vertex given by lattice vector. A negative unit_vector_label
+        specifies the opposite link.
+
+        Example (d=3/2 with periodic boundary conditions):
+
+        (0, 1) ----- (1, 1) ----- (pbc)
+          |            |
+          |            |
+        (0, 0) ----- (1, 0) ----- (pbc)
+
+        unit_vector_label = 1 labels the positive horizontal direction.
+        unit_vector_label = 2 labels the positive vertical direction.
+        We can address the bottom-middle link via either of the following:
+            - lattice_vector = (0, 0), unit_vector_label = 1
+            - lattice_vector = (1, 0), unit_vector_label = -1
+        """
+        pass
+
+    def get_plaquettes(self,
+                       lattice_vector: LatticeVector,
+                       e1: Union[LinkUnitVectorLabel, None] = None,
+                       e2: Union[LinkUnitVectorLabel, None] = None
+                       ) -> Plaquette[T] | List[Plaquette[T]]:
+        """
+        Retrieve plaquette(s) assocaited with a specific bottom-left vertex.
+
+        Optionally, provide two lattice unit vectors defining a plane to retrieve
+        only one plaquette.
+        """
+        """
+        Return the list of all "positive" Plaquettes associated with the vertex lattice_vector.
+
+        The "positivity" convention is that the list of returned plaquettes corresponds to those
+        defined by all pairs of orthogonal positive unit vectors at the vertex lattice_vector.
+        Conventionally, the "lower" dimension labels the first element of the tuples
+        representing planes, and the plaquettes are sorted.
+
+        Examples:
+          - d = 3 has planes labeled by (1, 2), (1, 3), and (2, 3).
+          - d = 4 has planes labeled by (1, 2), (1, 3), (1, 4), (2, 3), (2, 4), and (3, 4).
+
+        If a particular plaquette is desired, this can be specified by either providing the
+        link unit vector directions e1 and e2 to defining a plane. Sign is ignored when
+        manually specifying the plane of a specific plaquette.
+
+        Return plaquettes will all have lattice_vector as the "bottom-left" vertex.
+        """
+        # A definition of convenience.
+        only_one_link_given = (e1 is None or e2 is None) and (e1 != e2)
+
+        if isinstance(e1, int) and isinstance(e2, int):  # Case where both link directions are provided.
+            return Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=(e1, e2))
+        elif only_one_link_given:  # Nonsense case.
+            raise ValueError(
+                "Provide no link directions to get all Plaquettes at a vertex, or exactly two link directions "
+                f"to get one particular Plaquette. Received e1={e1} and e2={e2}."
+            )
+        else:  # Case where no link directions provided, need to construct ALL plaquettes.
+            if (self.dim == 1.5 or self.dim == 2):  # Only one plaquette for these geometries.
+                return Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=(1, 2))
+            elif self.dim > 2:  # Generic case with multiple planes.
+                set_of_planes = set((i, j) if i < j else None for i, j in product(range(1, ceil(self.dim + 1)), range(1, ceil(self.dim + 1))))
+                not_none_lambda = lambda x: x is not None
+                all_planes = sorted(list(filter(not_none_lambda, set_of_planes)))  # Need to strip out a spurious None
+                return [Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=plane) for plane in all_planes]
