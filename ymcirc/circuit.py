@@ -794,6 +794,7 @@ def _test_apply_magnetic_trotter_step_d_3_2_large_lattice():
                 control_qubit=rotation_data["pivot"],
                 target_qubit=target
             )
+
         pivot_qubit = [rotation_data["pivot"]]
         angle = expected_rotation_gates["angle"]
         ctrls = rotation_data["MCU ctrls"]
@@ -910,6 +911,7 @@ def _test_apply_magnetic_trotter_step_d_3_2_small_lattice():
                 control_qubit=rotation_data["pivot"],
                 target_qubit=target
             )
+
         pivot_qubit = [rotation_data["pivot"]]
         angle = expected_rotation_gates["angle"]
         ctrls = rotation_data["MCU ctrls"]
@@ -1054,6 +1056,7 @@ def _test_apply_magnetic_trotter_step_d_2_large_lattice():
                 control_qubit=rotation_data["pivot"],
                 target_qubit=target
             )
+
         pivot_qubit = [rotation_data["pivot"]]
         angle = expected_rotation_gates["angle"]
         ctrls = rotation_data["MCU ctrls"]
@@ -1174,6 +1177,7 @@ def _test_apply_magnetic_trotter_step_d_2_small_lattice():
                 control_qubit=rotation_data["pivot"],
                 target_qubit=target
             )
+
         pivot_qubit = [rotation_data["pivot"]]
         angle = expected_rotation_gates["angle"]
         ctrls = rotation_data["MCU ctrls"]
