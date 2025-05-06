@@ -1,5 +1,6 @@
 from dataclasses import FrozenInstanceError
 import numpy as np
+import pytest
 from random import random
 from qiskit import QuantumCircuit
 from qiskit.circuit.library.standard_gates import RXGate
@@ -224,12 +225,8 @@ def test_compute_LP_family_fails_on_bad_input():
     bs2 = "00"
     print(f"Checking that computing LP family of {bs1} and {bs2} raises IndexError.")
 
-    try:
+    with pytest.raises(IndexError) as e_info:
         compute_LP_family(bs1, bs2)
-    except IndexError as e:
-        print(f"Test passed. Raised error: {e}\n")
-    else:
-        assert False, "IndexError not raised."
 
 
 def test_compute_LP_family_fails_for_non_bitstrings():
@@ -238,12 +235,8 @@ def test_compute_LP_family_fails_for_non_bitstrings():
     bs2 = "1011"
     print(f"Checking that expected_LP_family({bs1}, {bs2}) raises a ValueError.")
 
-    try:
+    with pytest.raises(ValueError) as e_info:
         compute_LP_family(bs1, bs2)
-    except ValueError as e:
-        print(f"Test passed. Raised error: {e}\n")
-    else:
-        assert False, "ValueError not raised."
 
 
 def test_prune_controls_acts_as_expected():
@@ -419,10 +412,8 @@ def test_eliminate_phys_states_that_differ_from_rep_at_Q_idx():
 def test_control_fusion_fails_for_inconsistent_lp_bin():
     bin_value = "10110101"
     bitstring_list = [("0000", "1111", 1.0)]
-    try:
+    with pytest.raises(ValueError) as e_info:
         fuse_controls(bin_value, bitstring_list)
-    except ValueError as e:
-        print(f"Test passed. Raised error: {e}")
 
 
 def test_control_fusion():
@@ -608,21 +599,13 @@ def test_LPOperator_works():
         print("Test passed.")
 
     print(f"Check that {incorrect_val} causes a ValueError.")
-    try:
+    with pytest.raises(ValueError) as e_info:
         LPOperator(incorrect_val)
-    except ValueError as e:
-        print(f"Test passed. Raised error: {e}")
-    else:
-        raise AssertionError("ValueError not raised.")
 
     print("Check that LPOperator is immutable.")
     lp_op = LPOperator("L")
-    try:
+    with pytest.raises(FrozenInstanceError) as e_info:
         lp_op.value = "P"
-    except FrozenInstanceError as e:
-        print(f"Test passed. Raised error: {e}")
-    else:
-        raise AssertionError("FrozenInstanceError not raised.")
 
 
 def test_LPFamily_works():
@@ -641,19 +624,11 @@ def test_LPFamily_works():
     # Test that creation with bad strings fails.
     bad_lp_family = ("L", "Q")
     print(f"Checking {bad_lp_family} causes ValueError.")
-    try:
+    with pytest.raises(ValueError) as e_info:
         LPFamily(bad_lp_family)
-    except ValueError as e:
-        print(f"Test passed. Raised error: {e}")
-    else:
-        raise AssertionError("ValueError not raised.")
 
     # Test immutability.
     print("Checking that LPFamily instances are immutable.")
     lp_fam = LPFamily(lp_family_str)
-    try:
+    with pytest.raises(FrozenInstanceError) as e_info:
         lp_fam.value = LPFamily(("P", "L"))
-    except FrozenInstanceError as e:
-        print(f"Test passed. Raised error: {e}")
-    else:
-        raise AssertionError("FrozenInstanceError not raised.")

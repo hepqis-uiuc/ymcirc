@@ -1,3 +1,4 @@
+import pytest
 from ymcirc._abstract import LatticeDef
 from ymcirc.conventions import (
     PHYSICAL_PLAQUETTE_STATES, IRREP_TRUNCATION_DICT_1_3_3BAR,
@@ -121,16 +122,11 @@ def test_lattice_encoder_type_error_for_bad_lattice_arg():
         )
     ]
     bad_lattice_arg = None
-    try:
+    with pytest.raises(TypeError) as e_info:
         LatticeStateEncoder(
             link_bitmap=link_bitmap,
             physical_plaquette_states=physical_states,
             lattice=bad_lattice_arg)
-    except TypeError as e:
-        print(f"Test passed. Raised TypeError: {e}")
-        pass
-    else:
-        raise AssertionError("Failed to raise TypeError.")
 
 
 def test_lattice_encoder_fails_if_plaquette_states_have_wrong_number_of_controls():
@@ -162,13 +158,9 @@ def test_lattice_encoder_fails_if_plaquette_states_have_wrong_number_of_controls
     ]
     lattice_d_2 = LatticeDef(2, 3)
     assert lattice_d_2.n_control_links_per_plaquette == 8
-    try:
+
+    with pytest.raises(ValueError) as e_info:
         LatticeStateEncoder(link_bitmap, physical_states, lattice_d_2)
-    except ValueError as e:
-        print(f"Test passed. Raised ValueError: {e}")
-        pass
-    else:
-        raise AssertionError("Failed to raise ValueError")
 
 
 def test_lattice_encoder_infers_correct_vertex_bitmaps():
@@ -624,12 +616,8 @@ def test_lattice_encoder_fails_on_bad_creation_args():
         )
     ]
     lattice_d_3_2 = LatticeDef(1.5, 2)
-    try:
+    with pytest.raises(ValueError) as e_info:
         LatticeStateEncoder(good_link_bitmap, physical_states_inconsistent_control_lengths, lattice_d_3_2)
-    except ValueError as e:
-        print(f"Test passed. Raised ValueError: {e}")
-    else:
-        raise AssertionError("No ValueError raised.")
 
 
     print("Checking that repeated physical plaquette states cause a ValueError.")
@@ -650,16 +638,12 @@ def test_lattice_encoder_fails_on_bad_creation_args():
             (ONE, ONE, ONE, ONE)
         )
     ]
-    try:
+    with pytest.raises(ValueError) as e_info:
         LatticeStateEncoder(
             link_bitmap=good_link_bitmap,
             physical_plaquette_states=non_unique_physical_states,
             lattice=lattice_d_3_2
         )
-    except ValueError as e:
-        print(f"Test passed. Raised ValueError: {e}")
-    else:
-        raise AssertionError("No ValueError raised.")
 
     print("Checking that a link bitmap with non-unique bit string values causes ValueError.")
     non_unique_link_bitmap: IrrepBitmap = {
@@ -684,12 +668,8 @@ def test_lattice_encoder_fails_on_bad_creation_args():
             (ONE, ONE, ONE, ONE)
         )
     ]
-    try:
+    with pytest.raises(ValueError) as e_info:
         LatticeStateEncoder(non_unique_link_bitmap, good_physical_states, lattice_d_3_2)
-    except ValueError as e:
-        print(f"Test passed. Raised ValueError: {e}")
-    else:
-        raise AssertionError("No ValueError raised.")
 
     print("Checking that a link bitmap with bit strings of different lengths causes ValueError.")
     link_bitmap_different_string_lengths = {
@@ -697,12 +677,8 @@ def test_lattice_encoder_fails_on_bad_creation_args():
         THREE: "10",
         THREE_BAR: "010"
     }
-    try:
+    with pytest.raises(ValueError) as e_info:
         LatticeStateEncoder(link_bitmap_different_string_lengths, good_physical_states, lattice_d_3_2)
-    except ValueError as e:
-        print(f"Test passed. Raised ValueError: {e}")
-    else:
-        raise AssertionError("No ValueError raised.")
 
 
 def test_encode_decode_various_links():
@@ -807,12 +783,8 @@ def test_encoding_malformed_plaquette_fails():
         (ONE, ONE, ONE, ONE),
         (ONE, ONE, ONE, SIX)
     )
-    try:
+    with pytest.raises(ValueError) as e_info:
         lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_wrong_length)
-    except ValueError as e:
-        print(f"Test passed. Raised ValueError:\n{e}")
-    else:
-        raise AssertionError("Test failed. No ValueError raised.")
 
     print("Checking that encoding a plaquette with the wrong data types for vertices, active links, or control links fails.")
     plaquette_bad_vertex_data: PlaquetteState = (
@@ -836,12 +808,8 @@ def test_encoding_malformed_plaquette_fails():
         "Control link test": plaquette_bad_c_link_data
     }
     for test_name, test_data in cases.items():
-        try:
+        with pytest.raises(ValueError) as e_info:
             lattice_encoder.encode_plaquette_state_as_bit_string(test_data)
-        except ValueError as e:
-            print(f"{test_name} passed. Raised ValueError:\n{e}")
-        else:
-            raise AssertionError("Test failed. No ValueError raised.")
 
     print("Checking that encoding a plaquette which has too many vertices, active links, or control links fails.")
     plaquette_too_many_vertices: PlaquetteState = (
@@ -865,12 +833,8 @@ def test_encoding_malformed_plaquette_fails():
         "Control link test": plaquette_too_many_c_links
     }
     for test_name, test_data in cases.items():
-        try:
+        with pytest.raises(ValueError) as e_info:
             lattice_encoder.encode_plaquette_state_as_bit_string(test_data)
-        except ValueError as e:
-            print(f"{test_name} passed. Raised ValueError:\n{e}")
-        else:
-            raise AssertionError("Test failed. No ValueError raised.")
 
 
 def test_encoding_good_plaquette():
@@ -1127,7 +1091,7 @@ def test_decoding_fails_when_len_bit_string_doesnt_match_bitmaps():
     lattice = LatticeDef(2, 2)
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice)
 
-    print("Testing that decoding links/vertices/plaquettes fails with wrong length bit string.")
+    print("Testing that decoding links/vertices/plaquettes fails with wrong length bit string (ValueError).")
     print(f"Using link bitmap: {link_bitmap}")
     print(f"Using vertex bitmap: {lattice_encoder.vertex_bitmap}")
 
@@ -1143,25 +1107,13 @@ def test_decoding_fails_when_len_bit_string_doesnt_match_bitmaps():
     assert len(bad_length_plaquette_bit_string) != expected_plaquette_bit_string_length
 
     print(f"Checking link bit string {bad_length_link_bit_string} fails to decode.")
-    try:
+    with pytest.raises(ValueError) as e_info:
         lattice_encoder.decode_bit_string_to_link_state(bad_length_link_bit_string)
-    except ValueError as e:
-        print(f"Test passed. Raised ValueError: {e}")
-    else:
-        raise AssertionError("ValueError not raised.")
 
     print(f"Checking vertex bit string {bad_length_vertex_bit_string} fails to decode.")
-    try:
+    with pytest.raises(ValueError) as e_info:
         lattice_encoder.decode_bit_string_to_vertex_state(bad_length_vertex_bit_string)
-    except ValueError as e:
-        print(f"Test passed. Raised ValueError: {e}")
-    else:
-        raise AssertionError("ValueError not raised.")
 
     print(f"Checking plaquette bit string {bad_length_plaquette_bit_string} fails to decode.")
-    try:
+    with pytest.raises(ValueError) as e_info:
         lattice_encoder.decode_bit_string_to_plaquette_state(bad_length_plaquette_bit_string)
-    except ValueError as e:
-        print(f"Test passed. Raised ValueError: {e}")
-    else:
-        raise AssertionError("ValueError not raised.")

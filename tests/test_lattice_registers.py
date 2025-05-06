@@ -70,13 +70,8 @@ def test_d_3_lattice_initialization():
 def test_bad_lattice_dim_fails():
     """Check that a bad dim causes a ValueError."""
     print("Checking that dim = 0.5 causes a ValueError.")
-    try:
+    with pytest.raises(ValueError) as e_info:
         LatticeRegisters(dimensions=0.5, size=7)
-    except ValueError as e:
-        print(f"It does! Error message: {e}")
-    else:
-        assert False
-    print("Test passed.")
 
 
 @pytest.mark.parametrize("dims", [3/2, 2, 3])
@@ -142,25 +137,15 @@ def test_link_and_vertex_register_initialization(dims: DimensionalitySpecifier):
                 # or above the lattice.
                 is_lower_vertex = lattice_vector[1] == 0
                 if is_lower_vertex:
-                    try:
+                    with pytest.raises(KeyError) as e_info:
                         print("Checking there's no link register below the chain at "
-                              f"vertex (x={lattice_vector[0]}, y={lattice_vector[1]})...")
+                              f"vertex (x={lattice_vector[0]}, y={lattice_vector[1]}) (should cause KeyError)")
                         lattice.get_link((lattice_vector, -link_unit_vector_label))
-                    except KeyError as e:
-                        print(f"Test passed. Raised KeyError: {e}")
-                        pass
-                    else:
-                        assert False  # Should have raised an KeyError.
                 else:
-                    try:
+                    with pytest.raises(KeyError) as e_info:
                         print("Checking there's no link register above the chain at "
-                              f"vertex (x={lattice_vector[0]}, y={lattice_vector[1]})...")
+                              f"vertex (x={lattice_vector[0]}, y={lattice_vector[1]}) (should cause KeyError)")
                         lattice.get_link((lattice_vector, link_unit_vector_label))
-                    except KeyError as e:
-                        print(f"Test passed. Raised KeyError: {e}")
-                        pass
-                    else:
-                        assert False  # Should have raised an KeyError.
 
 
 @pytest.mark.parametrize(("dims", "size"), [
@@ -518,13 +503,9 @@ def test_get_vertex_pbc():
     print("Checking that Vertex (-3, 1) fetches the register v:(3, 1) on a 1.5D lattice of size 6....")
     assert lattice.get_vertex(lattice_vector=(-3, 1)).name == "v:(3, 1)"
 
-    print("Checking that Vertex (1, 2) still raises a KeyError on a 1.5D lattice because of no pbc in the vertical direction...")
-    try:
+    print("Checking that Vertex (1, 2) still raises a KeyError on a 1.5D lattice because of no pbc in the vertical direction.")
+    with pytest.raises(KeyError) as e_info:
         lattice.get_vertex(lattice_vector=(1, 2))
-    except KeyError:
-        pass
-    else:
-        assert False
 
     print("Tests of vertex indexing under periodic boundary conditions passed.")
 
@@ -583,12 +564,8 @@ def test_lattice_init_fails_when_vertex_bitmap_has_wrong_num_links():
         (((2, 1, 0,), (2, 1, 0), (2, 1, 0)), 2): "1"
     }
     print(f"Checking for TypeError when creating a dim-2 lattice with a bitmap that has 3 links per vertex:\nvertex bitmap = {vertex_multiplicity_bitmap}")
-    try:
+    with pytest.raises(TypeError) as e_info:
         LatticeRegisters(2, 2, vertex_bitmap=vertex_multiplicity_bitmap)
-    except TypeError as e:
-        print(f"Test passed. Raised error: {e}")
-    else:
-        assert False, "TypeError not raised."
 
 
 def test_value_error_for_link_bitmap_with_different_lengths():
@@ -601,12 +578,8 @@ def test_value_error_for_link_bitmap_with_different_lengths():
         (1, 0, 0): "10",
         (0, 1, 0): "01"
     }
-    try:
+    with pytest.raises(ValueError) as e_info:
         LatticeRegisters(dimensions=2, size=3, link_bitmap=bad_irrep_trunc_dict)
-    except ValueError as e:
-        print(f"Test passed. Raised error: {e}")
-    else:
-        assert False, "ValueError not raised."
 
 
 def test_value_error_for_vertex_bitmap_with_different_lengths():
@@ -619,12 +592,8 @@ def test_value_error_for_vertex_bitmap_with_different_lengths():
         0: "0",
         1: "01"
     }
-    try:
+    with pytest.raises(ValueError) as e_info:
         LatticeRegisters(dimensions=1.5, size=3, vertex_bitmap=bad_vertex_bitmap)
-    except ValueError as e:
-        print(f"Test passed. Raised error: {e}")
-    else:
-        assert False
 
 
 def test_type_error_for_bad_vertex_and_link_bitmap_keys():
@@ -642,19 +611,11 @@ def test_type_error_for_bad_vertex_and_link_bitmap_keys():
         (((2, 1, 0,), (2, 1, 0), (2, 1, 0))): "1"  # Will fail because missing multiplicity int.
     }
 
-    try:
+    with pytest.raises(TypeError) as e_info:
         LatticeRegisters(dimensions=2, size=3, link_bitmap=bad_irrep_trunc_dict)
-    except TypeError as e:
-        print(f"Link test passed. Raised error: {e}")
-    else:
-        assert False
 
-    try:
+    with pytest.raises(TypeError) as e_info:
         LatticeRegisters(dimensions=2, size=3, vertex_bitmap=bad_vertex_bitmap)
-    except TypeError as e:
-        print(f"Vertex test passed. Raised error: {e}")
-    else:
-        assert False
 
 
 def test_get_bitmaps_from_lattice():
