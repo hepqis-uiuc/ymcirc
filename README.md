@@ -34,7 +34,7 @@ If you want to run all tests in the `test` directory, activate the virtual envir
 ```
 pytest -v
 ```
-The `-v` flag is optional and simply outputs additional debug info.
+The `-v` flag is optional and simply outputs additional debug info. Another useful flag is `-s`, which enables displaying all print statements generated while tests are running.
 
 If you want to run all tests in a specific file:
 ```
