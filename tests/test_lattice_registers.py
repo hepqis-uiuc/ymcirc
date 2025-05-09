@@ -42,7 +42,6 @@ def test_d_3_2_lattice_initialization():
             assert lattice.dim == expected_dim
             assert lattice.n_qubits_per_link == 1  # Default
             assert lattice.n_qubits_per_vertex == 0  # Default
-            print("Test passed.")
 
 
 def test_d_2_lattice_initialization():
@@ -53,7 +52,6 @@ def test_d_2_lattice_initialization():
     assert lattice.dim == 2
     assert lattice.n_qubits_per_link == 3
     assert lattice.n_qubits_per_vertex == 4
-    print("Test passed.")
 
 
 def test_d_3_lattice_initialization():
@@ -64,7 +62,6 @@ def test_d_3_lattice_initialization():
     assert lattice.dim == 3
     assert lattice.n_qubits_per_link == 5
     assert lattice.n_qubits_per_vertex == 1
-    print("Test passed.")
 
 
 def test_bad_lattice_dim_fails():
@@ -91,18 +88,19 @@ def test_link_and_vertex_register_initialization(dims: DimensionalitySpecifier):
 
     # Check vertex and link indexing data.
     expected_vertex_vectors = set(product(*[[i for i in range(axis_length)] for axis_length in lattice.shape]))
+
     assert not isinstance(dims, str)  # Test ignores possibility of string dimensionality specifier.
     expected_lattice_unit_vector_labels = [i + 1 for i in range(ceil(dims))]
     print("Checking that correct set of vertex vectors was obtained...")
     print(f"\texpected = {expected_vertex_vectors}")
     print(f"\tobtained = {lattice._all_vertex_vectors}")
+
     assert expected_vertex_vectors == lattice._all_vertex_vectors
-    print("Test passed.")
     print("Checking that correct set of lattice unit vector labels was obtained,..")
     print(f"\texpected = {expected_lattice_unit_vector_labels}")
     print(f"\tobtained = {lattice._lattice_unit_vector_labels}")
+
     assert expected_lattice_unit_vector_labels == lattice._lattice_unit_vector_labels
-    print("Test passed.")
 
     # Check that expected registers are initialized.
     # This means for dim = 1.5 checking there aren't links above
@@ -114,7 +112,7 @@ def test_link_and_vertex_register_initialization(dims: DimensionalitySpecifier):
         print(f"Expected {lattice.n_qubits_per_vertex} qubits.")
         print(f"Encountered {len(current_vertex_register)} qubits.")
         assert len(current_vertex_register) == lattice.n_qubits_per_vertex
-        print("Test passed.")
+        
         for link_unit_vector_label in expected_lattice_unit_vector_labels:
             if dims != 1.5 or link_unit_vector_label != VERTICAL_DIR_LABEL:
                 # No special handling for d=3/2 required.
@@ -123,14 +121,12 @@ def test_link_and_vertex_register_initialization(dims: DimensionalitySpecifier):
                 print(f"Expected {lattice.n_qubits_per_link} qubits.")
                 print(f"Encountered {len(current_link_register)} qubits.")
                 assert len(lattice.get_link((lattice_vector, link_unit_vector_label))) == lattice.n_qubits_per_link
-                print("Test passed.")
 
                 print(f"Checking that the link with start vertex=({lattice_vector}), link dir={link_unit_vector_label}) "
                       f"== link wit start vertex=({lattice_vector} + link dir), link dir={-link_unit_vector_label})...")
                 unit_vector = tuple(0 if component != (link_unit_vector_label - 1) else 1 for component in range(ceil(dims)))
                 shifted_lattice_vector = tuple(lattice_vec_comp + unit_vec_comp for lattice_vec_comp, unit_vec_comp in zip(lattice_vector, unit_vector))
                 assert current_link_register == lattice.get_link((shifted_lattice_vector, -link_unit_vector_label))
-                print("Test passed.")
             else:
                 # Special handling required for d=3/2 to check
                 # that there's no link register "below"
@@ -175,7 +171,6 @@ def test_get_vertex_keys(dims: DimensionalitySpecifier, size: int):
     assert lattice.vertex_addresses == expected_vertices
     for vertex_register_key in lattice.vertex_addresses:
         assert lattice.get_vertex(vertex_register_key).name == f"v:{vertex_register_key}"
-    print("Test passed.")
 
 
 @pytest.mark.parametrize(("dims", "size"), [
@@ -221,7 +216,6 @@ def test_get_link_keys(dims: DimensionalitySpecifier, size: int):
         vertex_vector = link_register_key[0]
         link_dir = link_register_key[1]
         assert lattice.get_link((vertex_vector, link_dir)).name == f"l:{link_register_key}"
-    print("Test passed.")
 
 
 @pytest.mark.parametrize(("dims", "size"), [
@@ -314,10 +308,9 @@ def test_get_plaquettes(dims: DimensionalitySpecifier, size: int):
         f"Testing grabbing the origin plaquette spanned by e_x=1 and e_y=2 for dim={lattice.dim}"
         " didn't duplicate registers."
     )
-    pass_lst = _helper_test_plaquettes_have_same_registers(expected_plaquette, plaquette_origin_xy)
-    print(f"The truth list looks like this {pass_lst}\n")
-    assert len(pass_lst) == 1
-    print("Test passed!")
+    plaquette_nonduplication_test_boolean_mask = _helper_test_plaquettes_have_same_registers(expected_plaquette, plaquette_origin_xy)
+    print(f"Plaquette nonduplication test checks: {plaquette_nonduplication_test_boolean_mask}\n")
+    assert len(plaquette_nonduplication_test_boolean_mask) == 1
 
     # Link and vertex data test.
     print("Checking that we got the expected vertex, active, and control link registers.")
@@ -335,10 +328,9 @@ def test_get_plaquettes(dims: DimensionalitySpecifier, size: int):
     print(f"Testing grabbing all positive plaquettes for dim={lattice.dim}")
     if lattice.dim == 3:
         expected_pos_plaqs = [lattice.get_plaquettes(origin, 1, 2), lattice.get_plaquettes(origin, 1, 3), lattice.get_plaquettes(origin, 2, 3)]
-        pass_lst = list(map(_helper_test_plaquettes_have_same_registers, lattice.get_plaquettes(origin), expected_pos_plaqs))
-        print(f"The truth list looks like this {pass_lst}\n")
-        assert len(pass_lst[0]) == 1
-        print("Test passed!")
+        plaquette_nonduplication_test_boolean_mask = list(map(_helper_test_plaquettes_have_same_registers, lattice.get_plaquettes(origin), expected_pos_plaqs))
+        print(f"Plaquette nonduplication test checks: {plaquette_nonduplication_test_boolean_mask}\n")
+        assert len(plaquette_nonduplication_test_boolean_mask[0]) == 1
 
     # Now we check that we don't miss any registers when building plaquettes for the whole lattice.
     print(f"Testing grabbing all the lattice plaquettes for dim={lattice.dim} and size={size}.")
@@ -362,7 +354,6 @@ def test_get_plaquettes(dims: DimensionalitySpecifier, size: int):
             assert vertex_reg.name in lattice_all_vertex_names
         for link_reg in plaquette.active_links:
             assert link_reg.name in lattice_all_link_names
-    print("Test passed!")
 
 
 def test_get_registers_in_local_hamiltonian_order():
@@ -389,28 +380,24 @@ def test_get_registers_in_local_hamiltonian_order():
     # The actual tests start here.
     print("Checking that we got the right number of registers...")
     assert expected_num_total_regs == len(result_register_list), f"Expected {expected_num_total_regs}, encountered {len(result_register_list)}."
-    print("Test passed.")
 
     print("Scanning through individual result registers...")
     for idx, reg in enumerate(result_register_list[:4]):
         print(f"Vertex: {reg} == {plaquette.vertices[idx]}?")
         assert reg == plaquette.vertices[idx], f"Register mismatch, {reg} != {plaquette.vertices[idx]}"
-        print("Check.")
+
     for idx, reg in enumerate(result_register_list[4:8]):
         print(f"Active link: {reg} == {plaquette.active_links[idx]}?")
         assert reg == plaquette.active_links[idx], f"Register mismatch, {reg} != {plaquette.active_links[idx]}"
-        print("Check.")
+
     print("Expecting controls:", expected_control_regs)
     for idx, reg in enumerate(result_register_list[8:]):
         # TODO should check ordering of control registers.
         print(f"Control link {reg} in list of controls?")
         assert reg in expected_control_regs, f"Register mismatch, {reg} not found in {expected_control_regs}."
-        print("Check.")
 
     print("Total number of control links matches expectation?")
     assert actual_num_controls == expected_num_controls
-    print("Check.")
-    print("Tests passed.")
 
 
 def test_all_plaquettes_are_indexed_only_one_time():
@@ -447,7 +434,6 @@ def test_all_plaquettes_are_indexed_only_one_time():
                 links_equal, vertices_equal, bottom_left_equal, plane_equal =  _helper_test_plaquettes_have_same_registers(plaquette_one, plaquette_two)
                 assert links_equal is False and vertices_equal is False
 
-        print("Test passed.")
 
 def test_len_0_vertices_ok_for_d_3_2():
     """
@@ -462,8 +448,6 @@ def test_len_0_vertices_ok_for_d_3_2():
         current_reg = lattice.get_vertex(vertex_vector)
         assert current_reg.size == 0
         print(f"Confirmed len({current_reg}) == 0.")
-
-    print("Test passed.")
 
 
 def test_add_unit_vector_to_vertex_vector():
@@ -490,7 +474,6 @@ def test_add_unit_vector_to_vertex_vector():
                 expected_vector = tuple((v + u) % size for v, u in zip(vertex_vector, negative_unit_vector))
                 print(f"Checking {vertex_vector} - dir-{link_dir} unit vector == {expected_vector}")
                 assert lattice.add_unit_vector_to_vertex_vector(vertex_vector, -link_dir) == expected_vector
-        print("Test passed.")
 
 
 def test_get_vertex_pbc():
@@ -506,8 +489,6 @@ def test_get_vertex_pbc():
     print("Checking that Vertex (1, 2) still raises a KeyError on a 1.5D lattice because of no pbc in the vertical direction.")
     with pytest.raises(KeyError) as e_info:
         lattice.get_vertex(lattice_vector=(1, 2))
-
-    print("Tests of vertex indexing under periodic boundary conditions passed.")
 
 
 def test_num_qubits_automatic_when_dicts_provided_to_lattice():
@@ -530,7 +511,6 @@ def test_num_qubits_automatic_when_dicts_provided_to_lattice():
     for vertex, edge_dir in lattice.link_addresses:
         assert len(lattice.get_link((vertex, edge_dir))) == 2
         assert len(lattice.get_vertex(vertex)) == 0  # Default value
-    print("Test passed.")
 
     # Case of vertex bitmap but no link bitmap.
     # 3 iweights implies lattice dim=3/2.
@@ -549,7 +529,6 @@ def test_num_qubits_automatic_when_dicts_provided_to_lattice():
     for vertex, edge_dir in lattice.link_addresses:
         assert len(lattice.get_link((vertex, edge_dir))) == 5
         assert len(lattice.get_vertex(vertex)) == 1
-    print("Test passed.")
 
 
 def test_lattice_init_fails_when_vertex_bitmap_has_wrong_num_links():
@@ -622,7 +601,6 @@ def test_get_bitmaps_from_lattice():
     print("Checking return 'None' when not defined...")
     assert LatticeRegisters(2, 3).link_bitmap is None
     assert LatticeRegisters(2, 3).vertex_bitmap is None
-    print("Test passed.")
 
     print("Checking that a copy of the bitmaps are returned when they are defined...")
     irrep_trunc_dict: IrrepBitmap = {
@@ -648,7 +626,6 @@ def test_get_bitmaps_from_lattice():
         lattice._link_bitmap is not lattice.link_bitmap
     assert lattice._vertex_bitmap == lattice.vertex_bitmap and \
         lattice._vertex_bitmap is not lattice.vertex_bitmap
-    print("Test passed.")
 
 
 def test_d_equals_2_lattice_from_bitmaps():
@@ -672,7 +649,6 @@ def test_d_equals_2_lattice_from_bitmaps():
     print(f"Created a dim-{lattice.dim} lattice with bitmaps:\nvertex = {lattice.vertex_bitmap}\nlink = {lattice.link_bitmap}.")
     assert lattice.vertex_bitmap == vertex_bitmap
     assert lattice.link_bitmap == link_bitmap
-    print("Test passed.")
 
 
 def test_n_qubits_whole_lattice():
@@ -691,7 +667,6 @@ def test_n_qubits_whole_lattice():
         )
         lattice = LatticeRegisters(dimensions=dims, size=size, n_qubits_per_link=n_qubits_per_link, n_qubits_per_vertex=n_qubits_per_vertex)
         assert lattice.n_total_qubits == expected_qubits_in_lattice, f"Test failed: lattice has {lattice.n_total_qubits} qubits, expected {expected_qubits_in_lattice} qubits."
-        print("Test passed.")
 
 
 def test_n_plaquettes_whole_lattice():
@@ -711,7 +686,6 @@ def test_n_plaquettes_whole_lattice():
         )
         lattice = LatticeRegisters(dimensions=dims, size=size)
         assert lattice.n_plaquettes == expected_n_plaquettes, f"Test failed: lattice has {lattice.n_plaquettes} unique plaquettes, expected {expected_n_plaquettes} unique plaquettes."
-        print("Test passed.")
 
 
 # TODO there need to be tests for control link ordering in higher dimensions.
@@ -779,8 +753,7 @@ def test_control_link_registers_have_correct_ordering():
         result_control_link_registers_ordered = result_plaquette.control_links_ordered
         print(f"Examining plaquette with bottom-left vertex {result_plaquette.bottom_left_vertex} in the {result_plaquette.plane}-plane.")
         assert len(result_control_link_registers_ordered) == len(case_data["expected control link names ordered"]), "Length mismatch in number of control link registers."
+
         for control_link_register, expected_register_name in zip(result_control_link_registers_ordered, case_data["expected control link names ordered"]):
             print(f"Expected register {expected_register_name}, encountered {control_link_register.name}.")
             assert control_link_register.name == expected_register_name, "Link mismatch occured."
-
-        print("Test passed.\n")

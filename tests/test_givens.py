@@ -16,6 +16,8 @@ from ymcirc.givens import (
 )
 
 
+# TODO these are old tests which are grouped into a class to
+# denote that they either need to be refactored or removed.
 class BasicTests:
     @staticmethod
     def helper_make_random_bitstring(length):
@@ -33,7 +35,6 @@ class BasicTests:
         op_test = Operator(test_circ)
         op_given = givens("01", "10", 1)
         assert op_test.equiv(op_given), "Failed non-random test."
-        print("Givens non-random test satisfied.")
 
         N = int(random() * 5 + 2)
         str1 = BasicTests.helper_make_random_bitstring()(N)
@@ -55,7 +56,6 @@ class BasicTests:
         assert np.isclose(
             a=actual_givens_circuit_as_operator, b=expected_givens_operator
         ).all(), f"Failed random test. Constructed and expected givens operators not close. Largest difference = {np.max(actual_givens_circuit_as_operator-expected_givens_operator)}"
-        print("Givens random test satisfied.")
 
     # TODO: Fix nondeterministic behavior in this test
     def test_givens2():
@@ -102,13 +102,10 @@ def test_Xcirc():
     lp_fam = compute_LP_family(bs1, bs2)
     Xcirc = _build_Xcirc(lp_fam, control_qubit)
 
-    assert Xcirc_expected == Xcirc, (
-        "Encountered inequivalent circuits. Expected:\n"
-        f"{Xcirc_expected.draw()}\nObtained:\n"
-        f"{Xcirc.draw()}"
-    )
+    print(f"Expected circuit:\n{Xcirc_expected}")
+    print(f"Obtained circuit:\n{Xcirc}")
 
-    print(f"Test passed. Obtained circuit:\n{Xcirc.draw()}\n")
+    assert Xcirc_expected == Xcirc, "Encountered equivalent circuits."
 
     # Case 2
     bs1 = "00000111111"
@@ -122,13 +119,10 @@ def test_Xcirc():
     lp_fam = compute_LP_family(bs1, bs2)
     Xcirc = _build_Xcirc(lp_fam, control_qubit)
 
-    assert Xcirc_expected == Xcirc, (
-        "Encountered inequivalent circuits. Expected:\n"
-        f"{Xcirc_expected.draw()}\nObtained:\n"
-        f"{Xcirc.draw()}"
-    )
+    print(f"Expected circuit:\n{Xcirc_expected}")
+    print(f"Obtained circuit:\n{Xcirc}")
 
-    print(f"Test passed. Obtained circuit:\n{Xcirc.draw()}\n")
+    assert Xcirc_expected == Xcirc, "Encountered equivalent circuits."
 
 
 def test_building_MCRX_gate():
@@ -160,13 +154,10 @@ def test_building_MCRX_gate():
     multiRX_actual = _CRXGate(len(actual_ctrls), actual_ctrl_state, angle)
     actual_circ.append(multiRX_actual, actual_ctrls + [control_qubit])
 
-    assert expected_circ == actual_circ, (
-        "Encountered inequivalent circuits. Expected:\n"
-        f"{expected_circ.draw()}\nObtained:\n"
-        f"{actual_circ.draw()}"
-    )
+    print(f"Expected circuit:\n{expected_circ}")
+    print(f"Obtained circuit:\n{actual_circ}")
 
-    print(f"Test passed. Obtained circuit:\n{actual_circ.draw()}\n")
+    assert expected_circ == actual_circ, "Encountered equivalent circuits."
 
     # Case 2
     bs1 = "001100010011"
@@ -194,13 +185,10 @@ def test_building_MCRX_gate():
     multiRX_actual = _CRXGate(len(actual_ctrls), actual_ctrl_state, angle)
     actual_circ.append(multiRX_actual, actual_ctrls + [control_qubit])
 
-    assert expected_circ == actual_circ, (
-        "Encountered inequivalent circuits. Expected:\n"
-        f"{expected_circ.draw()}\nObtained:\n"
-        f"{actual_circ.draw()}"
-    )
+    print(f"Expected circuit:\n{expected_circ}")
+    print(f"Obtained circuit:\n{actual_circ}")
 
-    print(f"Test passed. Obtained circuit:\n{actual_circ.draw()}\n")
+    assert expected_circ == actual_circ, "Encountered equivalent circuits."
 
 
 def test_compute_LP_family():
@@ -216,7 +204,6 @@ def test_compute_LP_family():
     assert (
         compute_LP_family(bs1, bs2) == expected_LP_family
     ), f"Unexpected LP family result: {compute_LP_family(bs1, bs2)}"
-    print("Test passed.\n")
 
 
 def test_compute_LP_family_fails_on_bad_input():
@@ -292,7 +279,6 @@ def test_prune_controls_acts_as_expected():
     assert (
         result_pruned_ctrl_state == expected_pruned_ctrl_state
     ), f"result pruned_ctrl_state = {result_pruned_ctrl_state}"
-    print("Test passed.")
 
     # Case 2, two controls needed.
     bs1 = "11000011"
@@ -346,7 +332,6 @@ def test_prune_controls_acts_as_expected():
     assert (
         result_pruned_ctrl_state == expected_pruned_ctrl_state
     ), f"result pruned_ctrl_state = {result_pruned_ctrl_state}"
-    print("Test passed.")
 
 
 def test_apply_LP_family():
@@ -369,7 +354,6 @@ def test_apply_LP_family():
     assert (
         actual_result_active_control == expected_result_bs_with_active_control
     ), f"Unexpected result: {actual_result_active_control}."
-    print("Test passed.")
 
     # Case 2
     bs_with_inactive_control = "011101"
@@ -384,7 +368,6 @@ def test_apply_LP_family():
     assert (
         actual_result_inactive_control == expected_result_bs_with_inactive_control
     ), f"Unexpected result: {actual_result_inactive_control}."
-    print("Test passed.")
 
 
 def test_eliminate_phys_states_that_differ_from_rep_at_Q_idx():
@@ -406,8 +389,6 @@ def test_eliminate_phys_states_that_differ_from_rep_at_Q_idx():
         actual_phys_states == expected_phys_states
     ), f"Unexpected result set: {actual_phys_states}."
 
-    print("Test passed.")
-
 
 def test_control_fusion_fails_for_inconsistent_lp_bin():
     bin_value = "10110101"
@@ -416,6 +397,8 @@ def test_control_fusion_fails_for_inconsistent_lp_bin():
         fuse_controls(bin_value, bitstring_list)
 
 
+# TODO some logging or explanation of what this test does
+# would be nice.
 def test_control_fusion():
     bitstring_list = [
         ("00000000", "01001010", 1.0),
@@ -431,7 +414,6 @@ def test_control_fusion():
     bin_value = LPFamily(("P", "L", "P", "P", "L", "P", "L", "P"))
     code_generated_fusion = fuse_controls(bin_value, bitstring_list)
     assert code_generated_fusion[1.0] == expected_control_fused_gates
-    print("Control fusion test passed.")
 
 
 def test_gray_to_index():
@@ -503,13 +485,10 @@ def test_gray_to_index():
         "10001",
         "10000",
     ]
-    # expected_gray_code_order = ["0000", "0001", "0011", "0010","0110", "0101","0100", "1000"]
     code_generated_gray_order = sorted(
         bitstring_to_be_gray_ordered, key=lambda x: gray_to_index(x)
     )
-    # print(code_generated_gray_order)
     assert expected_gray_order == code_generated_gray_order
-    print("Binary to Gray Order passed.")
 
 
 def test_gray_to_index_for_larger_bitstrings():
@@ -541,7 +520,6 @@ def test_gray_to_index_for_larger_bitstrings():
         bitstrings_to_be_gray_ordered, key=lambda x: gray_to_index(x)
     )
     assert expected_gray_order == code_generated_gray_order
-    print("Gray to index for bitstrings of length 20 passed.")
 
 
 def test_givens_fused_controls():
@@ -576,14 +554,12 @@ def test_givens_fused_controls():
     expected_circuit.cx(1, 4)
     expected_circuit.cx(1, 6)
     assert expected_circuit == generated_circuit
-    print("givens with fused controls test passed.")
 
 
 def test_bitstring_value_of_LP_fam():
     lp_fam = ("L", "P", "L", "L", "P", "P")
     expected_bitstring = "010011"
     assert expected_bitstring == bitstring_value_of_LP_family(lp_fam)
-    print("bitstring_value_of_LP_fam passed.")
 
 
 def test_LPOperator_works():
@@ -596,7 +572,6 @@ def test_LPOperator_works():
     for val in correct_vals:
         print("Checking creation with value:", val)
         assert LPOperator(val).value == val
-        print("Test passed.")
 
     print(f"Check that {incorrect_val} causes a ValueError.")
     with pytest.raises(ValueError) as e_info:
@@ -619,7 +594,7 @@ def test_LPFamily_works():
     assert (
         LPFamily(lp_family_str).value == lp_family_str
     ), f"Encountered value: {LPFamily(lp_family_str).value}, expected: {lp_family_str}."
-    print(f"Test passed, LPFamily.value == {lp_family_str}.")
+    print(f"LPFamily.value == {lp_family_str}.")
 
     # Test that creation with bad strings fails.
     bad_lp_family = ("L", "Q")

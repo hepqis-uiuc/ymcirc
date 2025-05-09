@@ -16,7 +16,6 @@ def test_no_duplicate_physical_plaquette_states():
             - len(set(PHYSICAL_PLAQUETTE_STATES[dim_trunc_case]))
         has_no_duplicates = num_duplicates == 0
         assert has_no_duplicates, f"Detected {num_duplicates} duplicate entries."
-        print("Test passed.")
 
 
 def test_no_duplicate_matrix_elements():
@@ -28,7 +27,6 @@ def test_no_duplicate_matrix_elements():
         num_duplicates = len(state_indices) - len(set(state_indices))
         has_no_duplicates = num_duplicates == 0
         assert has_no_duplicates, f"Detected {num_duplicates} duplicate entries."
-        print("Test passed.")
 
 
 def test_physical_plaquette_state_data_are_valid():
@@ -49,7 +47,7 @@ def test_physical_plaquette_state_data_are_valid():
             case _:
                 raise NotImplementedError(f"Test not implemented for dimension {dim}.")
         for state in PHYSICAL_PLAQUETTE_STATES[dim_trunc_case]:
-            assert len(state) == 3,\
+            assert len(state) == 3, \
                 "States should be length-3 tuples of tuples (vertices, a-links, c-links)." \
                 f" Encountered state: {state}"
             vertices = state[0]
@@ -64,12 +62,12 @@ def test_physical_plaquette_state_data_are_valid():
                 and all(isinstance(a_link, tuple) and len(a_link) == expected_iweight_length for a_link in a_links) \
                 and all(isinstance(iweight_elem, int) for a_link in a_links for iweight_elem in a_link)
             assert a_links_are_valid is True, f"Encountered state with invalid active links: {a_links}."
+
             c_links_are_valid = len(c_links) == expected_num_c_links \
                 and all(isinstance(c_link, tuple) and len(c_link) == expected_iweight_length for c_link in c_links) \
                 and all(isinstance(iweight_elem, int) for c_link in c_links for iweight_elem in c_link)
             assert c_links_are_valid is True, f"Encountered state with invalid control links: {c_links}."
 
-        print("Test passed.")
 
 # TODO: handle slow tests differently.
 def test_matrix_element_data_are_valid():
@@ -94,7 +92,7 @@ def test_matrix_element_data_are_valid():
             assert isinstance(mat_elem_val, (float, int)), f"Non-numeric matrix element: {mat_elem_val}."
 
         if dim_trunc_case != "d=3/2, T2" and dim_trunc_case != "d=2, T1":
-            print("\nTest passed.")
+            print("\nTest passed.")  # TODO this isn't the right way to handle this case.
 
 
 def test_lattice_encoder_type_error_for_bad_lattice_arg():
@@ -212,7 +210,6 @@ def test_lattice_encoder_infers_correct_vertex_bitmaps():
 
     assert lattice_encoder.expected_vertex_bit_string_length == expected_num_vertex_bits, f"Actual num vertex bits = {lattice_encoder.expected_vertex_bit_string_length}"
     assert lattice_encoder.vertex_bitmap == expected_vertex_bitmap, f"Actual vertex bitmap = {lattice_encoder.vertex_bitmap}"
-    print("Test passed.")
 
     # Case 2, d=2
     lattice_d_2 = LatticeDef(2, 2)
@@ -263,7 +260,6 @@ def test_lattice_encoder_infers_correct_vertex_bitmaps():
 
     assert lattice_encoder.expected_vertex_bit_string_length == expected_num_vertex_bits, f"Actual num vertex bits = {lattice_encoder.expected_vertex_bit_string_length}"
     assert lattice_encoder.vertex_bitmap == expected_vertex_bitmap, f"Actual vertex bitmap = {lattice_encoder.vertex_bitmap}"
-    print("Test passed.")
 
     # Case 3, d=2
     good_link_bitmap: IrrepBitmap = {
@@ -344,7 +340,6 @@ def test_lattice_encoder_infers_correct_vertex_bitmaps():
 
     assert lattice_encoder.expected_vertex_bit_string_length == expected_num_vertex_bits, f"Actual num vertex bits = {lattice_encoder.expected_vertex_bit_string_length}"
     assert lattice_encoder.vertex_bitmap == expected_vertex_bitmap, f"Actual vertex bitmap = {lattice_encoder.vertex_bitmap}"
-    print("Test passed.")
 
     # Case 4, d=3/2,
     # since all vertex singlets are trivial.
@@ -386,7 +381,6 @@ def test_lattice_encoder_infers_correct_vertex_bitmaps():
 
     assert lattice_encoder.expected_vertex_bit_string_length == expected_num_vertex_bits, f"Actual num vertex bits = {lattice_encoder.expected_vertex_bit_string_length}"
     assert lattice_encoder.vertex_bitmap == expected_vertex_bitmap, f"Actual vertex bitmap = {lattice_encoder.vertex_bitmap}"
-    print("Test passed.")
 
 
 def test_lattice_encoder_infers_correct_plaquette_length():
@@ -433,7 +427,6 @@ def test_lattice_encoder_infers_correct_plaquette_length():
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_d_3_2)
     assert lattice_encoder.expected_plaquette_bit_string_length == expected_qubits_per_plaquette, \
         f"Wrong actual plaquette qubit count inferred: {lattice_encoder.expected_plaquette_bit_string_length}"
-    print("Test passed.")
 
     # Case: d=3/2, nontrivial multiplicities
     physical_states = [
@@ -479,7 +472,6 @@ def test_lattice_encoder_infers_correct_plaquette_length():
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_d_3_2)
     assert lattice_encoder.expected_plaquette_bit_string_length == expected_qubits_per_plaquette, \
         f"Wrong actual plaquette qubit count inferred: {lattice_encoder.expected_plaquette_bit_string_length}"
-    print("Test passed.")
 
     # Case: d=2, nontrivial multiplicites
     physical_states = [
@@ -536,7 +528,6 @@ def test_lattice_encoder_infers_correct_plaquette_length():
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_d_2)
     assert lattice_encoder.expected_plaquette_bit_string_length == expected_qubits_per_plaquette, \
         f"Wrong actual plaquette qubit count inferred: {lattice_encoder.expected_plaquette_bit_string_length}"
-    print("Test passed.")
 
     # Case: d=3, nontrivial multiplicities
     physical_states = [
@@ -593,7 +584,6 @@ def test_lattice_encoder_infers_correct_plaquette_length():
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_d_3)
     assert lattice_encoder.expected_plaquette_bit_string_length == expected_qubits_per_plaquette, \
         f"Wrong actual plaquette qubit count inferred: {lattice_encoder.expected_plaquette_bit_string_length}"
-    print("Test passed.")
 
 
 def test_lattice_encoder_fails_on_bad_creation_args():
@@ -710,11 +700,10 @@ def test_encode_decode_various_links():
         result_decoding = lattice_encoder.decode_bit_string_to_link_state(bit_string_encoding)
         assert result_encoding == bit_string_encoding, f"(result != expected): {result_encoding} != {bit_string_encoding}"
         assert result_decoding == link_state, f"(result != expected): {result_decoding} != {link_state}"
-        print(f"Test passed. Validated {bit_string_encoding} <-> {link_state}")
+        print(f"Validated {bit_string_encoding} <-> {link_state}")
 
     print("Verifying that unknown bit string is decoded to None.")
     assert lattice_encoder.decode_bit_string_to_link_state("01") is None
-    print("Test passed.")
 
 
 def test_encode_decode_various_vertices():
@@ -761,11 +750,10 @@ def test_encode_decode_various_vertices():
         result_decoding = lattice_encoder.decode_bit_string_to_vertex_state(bit_string_encoding)
         assert result_encoding == bit_string_encoding, f"(result != expected): {result_encoding} != {bit_string_encoding}"
         assert result_decoding == multiplicity_index, f"(result != expected): {result_decoding} != {multiplicity_index}"
-        print(f"Test passed. Validated {bit_string_encoding} <-> {multiplicity_index}")
+        print(f"Validated {bit_string_encoding} <-> {multiplicity_index}")
 
     print("Verifying that unknown bit string is decoded to None.")
     assert lattice_encoder.decode_bit_string_to_vertex_state("11") is None
-    print("Test passed.")
 
 
 def test_encoding_malformed_plaquette_fails():
@@ -878,7 +866,6 @@ def test_encoding_good_plaquette():
         assert actual_bit_string_encoding == expected_bit_string_encoding, "Encoding error. " \
             f"The state {input_plaquette_state} should encode as {expected_bit_string_encoding}. " \
             f"Instead obtained: {actual_bit_string_encoding}."
-        print("Test passed.")
 
 
 # This test is a little bit slow.
@@ -913,7 +900,7 @@ def test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding():
                 trunc_str == "T1" else IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
         lattice_encoder = LatticeStateEncoder(
             link_bitmap, PHYSICAL_PLAQUETTE_STATES[current_dim_trunc_str], lattice=current_lattice)
-        
+
         print(f"Case {current_dim_trunc_str}.\nConfirming all initial and final states "
               "appearing in the physical plaquette states list can be succesfully encoded. Using the bitmaps:\n"
               f"Link bitmap =  {lattice_encoder.link_bitmap}\n"
@@ -933,8 +920,6 @@ def test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding():
             all_encoded_plaquette_bit_strings.append(plaquette_state_bit_string)
         n_unique_plaquette_encodings = len(set(all_encoded_plaquette_bit_strings))
         assert n_unique_plaquette_encodings == len(all_plaquette_states), f"Encountered {n_unique_plaquette_encodings} unique bit strings encoding {len(all_plaquette_states)} unique plaquette states."
-
-        print("Test passed.")
 
 
 def test_bit_string_decoding_to_plaquette():
@@ -990,7 +975,7 @@ def test_bit_string_decoding_to_plaquette():
         )
         resulting_decoded_plaquette = lattice_encoder.decode_bit_string_to_plaquette_state(encoded_plaquette)
         assert resulting_decoded_plaquette == expected_decoded_plaquette, f"Expected: {expected_decoded_plaquette}\nEncountered: {resulting_decoded_plaquette}"
-        print(f"Test passed.\n{encoded_plaquette} successfully decoded to {resulting_decoded_plaquette}.")
+        print(f"\n{encoded_plaquette} successfully decoded to {resulting_decoded_plaquette}.")
 
 
 def test_decoding_garbage_bit_strings_result_in_none():
@@ -1044,16 +1029,13 @@ def test_decoding_garbage_bit_strings_result_in_none():
 
     print(f"Checking {bad_encoded_link} decodes to None using the link bitmap: {link_bitmap}")
     assert lattice_encoder.decode_bit_string_to_link_state(bad_encoded_link) is None
-    print("Test passed.")
 
     print(f"Checking {bad_encoded_vertex} decodes to None using the vertex bitmap: {lattice_encoder.vertex_bitmap}")
     assert lattice_encoder.decode_bit_string_to_vertex_state(bad_encoded_vertex) is None
-    print("Test passed.")
 
     print(f"Checking {encoded_plaquette_some_links_and_vertices_good_others_bad} decodes to the plaquette:\n {expected_decoded_plaquette_some_links_and_vertices_good_others_bad}")
     decoded_plaquette = lattice_encoder.decode_bit_string_to_plaquette_state(encoded_plaquette_some_links_and_vertices_good_others_bad)
-    assert decoded_plaquette  == expected_decoded_plaquette_some_links_and_vertices_good_others_bad, f"(decoded != expected): {decoded_plaquette}\n!=\n{expected_decoded_plaquette_some_links_and_vertices_good_others_bad}"
-    print("Test passed.")
+    assert decoded_plaquette == expected_decoded_plaquette_some_links_and_vertices_good_others_bad, f"(decoded != expected): {decoded_plaquette}\n!=\n{expected_decoded_plaquette_some_links_and_vertices_good_others_bad}"
 
 
 def test_decoding_fails_when_len_bit_string_doesnt_match_bitmaps():

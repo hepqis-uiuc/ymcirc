@@ -177,8 +177,6 @@ def test_create_blank_full_lattice_circuit_has_promised_register_order():
             ), f"Expected: {expected_name}, encountered: {reg.name}"
             print(f"Verified location of the register for {expected_name}.")
 
-    print("Register order tests passed.")
-
 
 def test_apply_magnetic_trotter_step_d_3_2_large_lattice():
     print(
@@ -252,7 +250,7 @@ def test_apply_magnetic_trotter_step_d_3_2_large_lattice():
         expected_master_circuit.compose(Xcirc, inplace=True)
 
     print("Expected circuit:")
-    print(expected_master_circuit.draw())
+    print(expected_master_circuit)
 
     # Create master circuit via the magnetic trotter step code.
     lattice_def = LatticeDef(1.5, 3)
@@ -271,15 +269,12 @@ def test_apply_magnetic_trotter_step_d_3_2_large_lattice():
         optimize_circuits=False
     )
     print("Obtained circuit:")
-    print(master_circuit.draw())
+    print(master_circuit)
 
     # Checking equivalence via helper methods for
     # (1) flattening a circuit down to a single register and (2) comparing
     # logical equivalence of two circuits.
-    assert _check_circuits_logically_equivalent(_flatten_circuit(master_circuit), expected_master_circuit), "Encountered inequivalent circuits. Expected:\n" \
-        f"{expected_master_circuit.draw()}\nObtained:\n" \
-        f"{master_circuit.draw()}"
-    print("Test passed.")
+    assert _check_circuits_logically_equivalent(_flatten_circuit(master_circuit), expected_master_circuit), "Encountered inequivalent circuits."
 
 
 def test_apply_magnetic_trotter_step_d_3_2_small_lattice():
@@ -356,7 +351,7 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice():
         expected_master_circuit.compose(Xcirc, inplace=True)
 
     print("Expected circuit:")
-    print(expected_master_circuit.draw())
+    print(expected_master_circuit)
 
     # Create master circuit via the magnetic trotter step code.
     lattice_def = LatticeDef(1.5, 2)
@@ -375,15 +370,12 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice():
         optimize_circuits=False
     )
     print("Obtained circuit:")
-    print(master_circuit.draw())
+    print(master_circuit)
 
     # Checking equivalence via helper methods for
     # (1) flattening a circuit down to a single register and (2) comparing
     # logical equivalence of two circuits.
-    assert _check_circuits_logically_equivalent(_flatten_circuit(master_circuit), expected_master_circuit), "Encountered inequivalent circuits. Expected:\n" \
-        f"{expected_master_circuit.draw()}\nObtained:\n" \
-        f"{master_circuit.draw()}"
-    print("Test passed.")
+    assert _check_circuits_logically_equivalent(_flatten_circuit(master_circuit), expected_master_circuit), "Encountered inequivalent circuits."
 
 
 def test_apply_magnetic_trotter_step_d_2_large_lattice():
@@ -488,7 +480,7 @@ def test_apply_magnetic_trotter_step_d_2_large_lattice():
         expected_master_circuit.compose(Xcirc, inplace=True)
 
     print("Expected circuit:")
-    print(expected_master_circuit.draw())
+    print(expected_master_circuit)
 
     # Create master circuit via the magnetic trotter step code.
     lattice_def = LatticeDef(2, 3)
@@ -507,15 +499,12 @@ def test_apply_magnetic_trotter_step_d_2_large_lattice():
         optimize_circuits=False
     )
     print("Obtained circuit:")
-    print(master_circuit.draw())
+    print(master_circuit)
 
     # Checking equivalence via helper methods for
     # (1) flattening a circuit down to a single register and (2) comparing
     # logical equivalence of two circuits.
-    assert _check_circuits_logically_equivalent(_flatten_circuit(master_circuit), expected_master_circuit), "Encountered inequivalent circuits. Expected:\n" \
-        f"{expected_master_circuit.draw()}\nObtained:\n" \
-        f"{master_circuit.draw()}"
-    print("Test passed.")
+    assert _check_circuits_logically_equivalent(_flatten_circuit(master_circuit), expected_master_circuit), "Encountered inequivalent circuits."
 
 
 def test_apply_magnetic_trotter_step_d_2_small_lattice():
@@ -596,7 +585,7 @@ def test_apply_magnetic_trotter_step_d_2_small_lattice():
         expected_master_circuit.compose(Xcirc, inplace=True)
 
     print("Expected circuit:")
-    print(expected_master_circuit.draw())
+    print(expected_master_circuit)
 
     # Create master circuit via the magnetic trotter step code.
     lattice_def = LatticeDef(2, 2)
@@ -615,12 +604,9 @@ def test_apply_magnetic_trotter_step_d_2_small_lattice():
         optimize_circuits=False
     )
     print("Obtained circuit:")
-    print(master_circuit.draw())
+    print(master_circuit)
 
     # Checking equivalence via helper methods for
     # (1) flattening a circuit down to a single register and (2) comparing
     # logical equivalence of two circuits.
-    assert _check_circuits_logically_equivalent(_flatten_circuit(master_circuit), expected_master_circuit), "Encountered inequivalent circuits. Expected:\n" \
-        f"{expected_master_circuit.draw()}\nObtained:\n" \
-        f"{master_circuit.draw()}"
-    print("Test passed.")
+    assert _check_circuits_logically_equivalent(_flatten_circuit(master_circuit), expected_master_circuit), "Encountered inequivalent circuits."
