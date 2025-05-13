@@ -47,3 +47,16 @@ pytest tests/test_mod.py::test_func.
 ```
 
 There's also more complete documentation on [how to invoke pytest](https://docs.pytest.org/en/stable/how-to/usage.html) which presents some additional features.
+
+### Slow tests
+Tests which take a long time to run can be skipped by default. To do this, use the following decorator:
+```
+@pytest.mark.slow
+def test_this_is_some_slow_test():
+    [test logic here]
+```
+
+`conftest.py` is set up so that any test marked this way will be skipped by default. To include slow tests in a test run:
+```
+pytest --runslow
+```

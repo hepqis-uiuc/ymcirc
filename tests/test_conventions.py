@@ -69,30 +69,67 @@ def test_physical_plaquette_state_data_are_valid():
             assert c_links_are_valid is True, f"Encountered state with invalid control links: {c_links}."
 
 
-# TODO: handle slow tests differently.
-def test_matrix_element_data_are_valid():
-    print("Checking that matrix element data are valid. WARNING: this can be slow.")
-    for dim_trunc_case in HAMILTONIAN_BOX_TERMS.keys():
-        print(f"Case: {dim_trunc_case}")
-        dim, trunc = dim_trunc_case.split(",")
-        trunc = trunc.strip()
-        current_iter = 0
-        for (state_f, state_i), mat_elem_val in HAMILTONIAN_BOX_TERMS[dim_trunc_case].items():
-            current_iter += 1
-            percent_done = current_iter/len(HAMILTONIAN_BOX_TERMS[dim_trunc_case])
-            # These cases are very slow because the data are large.
-            if dim_trunc_case == "d=3/2, T2" or dim_trunc_case == "d=2, T1":
-                print("Skipping slow test.")
-                break
-            print(f"Current status: {percent_done:.4%}", end='\r')
-            assert state_f in PHYSICAL_PLAQUETTE_STATES[dim_trunc_case], "Encountered state not in physical" \
-                f" plaquette state list: {state_f}."
-            assert state_i in PHYSICAL_PLAQUETTE_STATES[dim_trunc_case], "Encountered state not in physical" \
-                f" plaquette state list: {state_i}."
-            assert isinstance(mat_elem_val, (float, int)), f"Non-numeric matrix element: {mat_elem_val}."
+def test_hamiltonian_box_terms_no_unexpected_cases():
+    set_of_expected_box_term_dim_trunc_cases = set(['d=3/2, T1', 'd=3/2, T2', 'd=2, T1'])
+    print(
+        "Checking that the following dimension/truncation cases have matrix element data:\n"
+        f"{set_of_expected_box_term_dim_trunc_cases}"
+    )
+    set_of_actual_box_term_dim_trunc_cases = set(HAMILTONIAN_BOX_TERMS.keys())
+    assert set_of_actual_box_term_dim_trunc_cases == set_of_expected_box_term_dim_trunc_cases
 
-        if dim_trunc_case != "d=3/2, T2" and dim_trunc_case != "d=2, T1":
-            print("\nTest passed.")  # TODO this isn't the right way to handle this case.
+
+def test_matrix_element_data_are_valid_d_3_2_T1():
+    dim_trunc_case = "d=3/2, T1"
+    print(f"Checking that matrix element data are valid for {dim_trunc_case}.")
+    current_iter = 0
+    for (state_f, state_i), mat_elem_val in HAMILTONIAN_BOX_TERMS[dim_trunc_case].items():
+        # Log test progress
+        current_iter += 1
+        percent_done = current_iter/len(HAMILTONIAN_BOX_TERMS[dim_trunc_case])
+        print(f"Current status: {percent_done:.4%}", end='\r')
+
+        assert state_f in PHYSICAL_PLAQUETTE_STATES[dim_trunc_case], "Encountered state not in physical" \
+            f" plaquette state list: {state_f}."
+        assert state_i in PHYSICAL_PLAQUETTE_STATES[dim_trunc_case], "Encountered state not in physical" \
+            f" plaquette state list: {state_i}."
+        assert isinstance(mat_elem_val, (float, int)), f"Non-numeric matrix element: {mat_elem_val}."
+
+
+@pytest.mark.slow
+def test_matrix_element_data_are_valid_d_3_2_T2():
+    dim_trunc_case = "d=3/2, T2"
+    print(f"Checking that matrix element data are valid for {dim_trunc_case}. WARNING: this can be slow.")
+    current_iter = 0
+    for (state_f, state_i), mat_elem_val in HAMILTONIAN_BOX_TERMS[dim_trunc_case].items():
+        # Log test progress
+        current_iter += 1
+        percent_done = current_iter/len(HAMILTONIAN_BOX_TERMS[dim_trunc_case])
+        print(f"Current status: {percent_done:.4%}", end='\r')
+
+        assert state_f in PHYSICAL_PLAQUETTE_STATES[dim_trunc_case], "Encountered state not in physical" \
+            f" plaquette state list: {state_f}."
+        assert state_i in PHYSICAL_PLAQUETTE_STATES[dim_trunc_case], "Encountered state not in physical" \
+            f" plaquette state list: {state_i}."
+        assert isinstance(mat_elem_val, (float, int)), f"Non-numeric matrix element: {mat_elem_val}."
+
+
+@pytest.mark.slow
+def test_matrix_element_data_are_valid_d_2_T1():
+    dim_trunc_case = "d=2, T1"
+    print(f"Checking that matrix element data are valid for {dim_trunc_case}. WARNING: this can be slow.")
+    current_iter = 0
+    for (state_f, state_i), mat_elem_val in HAMILTONIAN_BOX_TERMS[dim_trunc_case].items():
+        # Log test progress
+        current_iter += 1
+        percent_done = current_iter/len(HAMILTONIAN_BOX_TERMS[dim_trunc_case])
+        print(f"Current status: {percent_done:.4%}", end='\r')
+
+        assert state_f in PHYSICAL_PLAQUETTE_STATES[dim_trunc_case], "Encountered state not in physical" \
+            f" plaquette state list: {state_f}."
+        assert state_i in PHYSICAL_PLAQUETTE_STATES[dim_trunc_case], "Encountered state not in physical" \
+            f" plaquette state list: {state_i}."
+        assert isinstance(mat_elem_val, (float, int)), f"Non-numeric matrix element: {mat_elem_val}."
 
 
 def test_lattice_encoder_type_error_for_bad_lattice_arg():
@@ -868,14 +905,14 @@ def test_encoding_good_plaquette():
             f"Instead obtained: {actual_bit_string_encoding}."
 
 
-# This test is a little bit slow.
+# TODO decide whether this test is slow enough to merit skipping by default.
+#@pytest.mark.slow
 def test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding():
     """
     Check that all plaquette states have unique bitstring encodings.
 
     Attempts encoding the following cases:
     - d=3/2, T1
-    - d=3/2, T1p
     - d=3/2, T2
     - d=2, T1
     """
@@ -914,7 +951,13 @@ def test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding():
 
         # Attempt encodings and check for uniqueness.
         all_encoded_plaquette_bit_strings = []
+        current_iter = 0
         for plaquette_state in all_plaquette_states:
+            # Log test progress
+            current_iter += 1
+            percent_done = current_iter/len(all_plaquette_states)
+            print(f"Current status: {percent_done:.4%}", end='\r')
+
             plaquette_state_bit_string = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state)
             assert len(plaquette_state_bit_string) == current_expected_bitlength, f"len(plaquette_state_bit_string) == {len(plaquette_state_bit_string)}; expected len == {current_expected_bitlength}."
             all_encoded_plaquette_bit_strings.append(plaquette_state_bit_string)
