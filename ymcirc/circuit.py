@@ -548,7 +548,7 @@ class LatticeCircuitManager:
             bit_string_2,
             matrix_elem,
         ) in bitstrings_w_matrix_element:
-            angle = -matrix_elem * (1 / (2 * (coupling_g**2))) * dt
+            angle = -matrix_elem * (1 /  (coupling_g**2)) * dt
             lp_fam = compute_LP_family(bit_string_1, bit_string_2)
             if lp_fam not in lp_bin.keys():
                 lp_bin[lp_fam] = []
