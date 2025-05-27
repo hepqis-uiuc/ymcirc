@@ -186,7 +186,7 @@ if __name__ == "__main__":
 
             master_circuit.measure_all()
             print("Transpiling circuit...")
-            master_circuit = transpile(master_circuit, optimization_level=1)
+            master_circuit = transpile(master_circuit, optimization_level=3)
             print("Gate counts:\n", master_circuit.count_ops())
 
             breakpoint()
