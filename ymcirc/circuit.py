@@ -79,7 +79,6 @@ class LatticeCircuitManager:
                 raise NotImplementedError(f"Dim {lattice_encoder.lattice_def.dim} lattice not yet supported.")
         self._lattice_is_small = True if lattice_size <= lattice_size_threshold_for_smallness else False
 
-    
         if self._lattice_is_small is True and self._lattice_is_periodic is True:
             # Filter out magnetic Hamiltonian terms which are inconsistent (repeated control links must have the same value)
             filtered_and_trimmed_mag_hamiltonian: HamiltonianData = []
@@ -181,6 +180,7 @@ class LatticeCircuitManager:
         hamiltonian: list[float],
         coupling_g: float = 1.0,
         dt: float = 1.0,
+        electric_gray_order = False
     ) -> None:
         """
         Perform an electric Trotter step.
@@ -211,17 +211,22 @@ class LatticeCircuitManager:
         angle_mod = ((coupling_g**2) / 2) * dt
         local_circuit = QuantumCircuit(N)
 
+        pauli_bitstring_list = [str("{0:0" + str(N) + "b}").format(i) for i in range(len(hamiltonian))]
+        pauli_decomposed_hamiltonian = zip(pauli_bitstring_list,hamiltonian)
+        if electric_gray_order == True:
+            pauli_decomposed_hamiltonian = sorted(pauli_decomposed_hamiltonian,key=lambda x: gray_to_index(x[0]))
+
         # The parity circuit primitive of CXs and Zs.
-        for i in range(len(hamiltonian)):
+        for pauli_bitstring, coeff in pauli_decomposed_hamiltonian:
             locs = [
                 loc
-                for loc, bit in enumerate(str("{0:0" + str(N) + "b}").format(i))
+                for loc, bit in enumerate(pauli_bitstring)
                 if bit == "1"
             ]
             for j in locs[:-1]:
                 local_circuit.cx(j, locs[-1])
             if len(locs) != 0:
-                local_circuit.rz(2 * angle_mod * hamiltonian[i], locs[-1])
+                local_circuit.rz(2 * angle_mod * coeff, locs[-1])
             for j in locs[:-1]:
                 local_circuit.cx(j, locs[-1])
 
@@ -302,7 +307,7 @@ class LatticeCircuitManager:
                 physical_states_for_control_pruning = None
             else:
                 physical_states_for_control_pruning = stripped_physical_states
-        
+
         # Create the magnetic Hamiltonian evolution circuit.
         mag_evol_recomputation_needed = (
             (self._cached_mag_evol_circuit is None)
@@ -362,7 +367,7 @@ class LatticeCircuitManager:
             # For each plaquette, apply the the local Trotter step circuit.
             for plaquette in plaquettes:
                 # Get qubits for the current plaquette.
-                
+
                 # Collect the local qubits for stitching purposes.
                 vertex_multiplicity_qubits = []
                 a_link_qubits = []
@@ -386,10 +391,10 @@ class LatticeCircuitManager:
                             raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
                         if current_c_link_is_redundant is True:
                             continue
-                    
+
                     for qubit in register:
                         c_link_qubits.append(qubit)
-                        
+
                 # Now that we have the qubits for the current plaquette,
                 # Stitch the local magnetic evolution circuit into master circuit.
                 master_circuit.compose(
@@ -476,9 +481,8 @@ class LatticeCircuitManager:
         match self._encoder.lattice_def.dim:
             case 1.5:
                 plaquette_state_has_inconsistent_controls = (
-                    (c_links[0] != c_links[1]) or
-                    (c_links[2] != c_links[3])
-                )
+                    c_links[0] != c_links[1]
+                ) or (c_links[2] != c_links[3])
             case 2:
                 plaquette_state_has_inconsistent_controls = (
                     (c_links[0] != c_links[3]) or

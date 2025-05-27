@@ -72,6 +72,7 @@ warn_on_unphysical_links = True  # Emit warning when decoding unphysical plaquet
 error_on_unphysical_links = False  # Raise an error when decoding unphysical unphysical states. Terminate simulation.
 prune_controls = True
 control_fusion = True
+electric_gray_order = True
 n_shots = 10000
 
 # Specify plotting options if desired, and whether to save plots/circuits/data to disk
@@ -175,7 +176,7 @@ if __name__ == "__main__":
 
                 if do_electric_evolution is True:
                     circ_mgr.apply_electric_trotter_step(master_circuit, lattice_registers, electric_hamiltonian(link_bitmap), coupling_g=coupling_g,
-                        dt=dt)
+                        dt=dt, electric_gray_order=electric_gray_order)
 
             # Now optionally save circuit diagram/qasm, and log gate counts.
             if save_circuits_diagrams is True:
@@ -185,7 +186,7 @@ if __name__ == "__main__":
 
             master_circuit.measure_all()
             print("Transpiling circuit...")
-            master_circuit = transpile(master_circuit, optimization_level=3)
+            master_circuit = transpile(master_circuit, optimization_level=1)
             print("Gate counts:\n", master_circuit.count_ops())
 
             breakpoint()
