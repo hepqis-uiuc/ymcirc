@@ -216,7 +216,7 @@ class LatticeCircuitManager:
         angle_mod = ((coupling_g**2) / 2) * dt
         local_circuit = QuantumCircuit(N)
 
-        # Use the index of the local Pauli-decomposed electric hamiltonian to calculate the Pauli bitstrings.
+        # Use the index of the local Pauli-decomposed electric hamiltonian to generate the Pauli bitstrings.
         pauli_bitstring_list = [str("{0:0" + str(N) + "b}").format(i) for i in range(len(hamiltonian))]
         pauli_decomposed_hamiltonian = zip(pauli_bitstring_list,hamiltonian)
         # Gray-Order the Pauli-bitstrings if electric_gray_order == True.
@@ -234,7 +234,7 @@ class LatticeCircuitManager:
                 local_circuit.cx(j, locs[-1])
             if len(locs) != 0:
                 local_circuit.rz(2 * angle_mod * coeff, locs[-1])
-            for j in locs[:-1]:
+            for j in locs[:-1][::-1]:
                 local_circuit.cx(j, locs[-1])
 
         # Loop over links for electric Hamiltonian
