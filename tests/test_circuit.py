@@ -1,10 +1,3 @@
-import sys
-import os
-
-# Add the module's directory to sys.path
-module_directory = "/home/drishti/PhD/ymcirc"
-sys.path.append(module_directory)
-
 from ymcirc._abstract import LatticeDef
 from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.conventions import LatticeStateEncoder, ONE, THREE, THREE_BAR, IRREP_TRUNCATION_DICT_1_3_3BAR
@@ -680,4 +673,3 @@ def test_apply_electric_trotter_step_d_3_2_lattice():
     assert _check_circuits_logically_equivalent(_flatten_circuit(master_circuit), expected_master_circuit), "Encountered inequivalent circuits."
     print("Test for electric trotter step passed.")
 
-test_apply_electric_trotter_step_d_3_2_lattice()
