@@ -180,7 +180,7 @@ class LatticeCircuitManager:
         hamiltonian: list[float],
         coupling_g: float = 1.0,
         dt: float = 1.0,
-        electric_gray_order = False
+        electric_gray_order: bool = False
     ) -> None:
         """
         Perform an electric Trotter step.
@@ -195,13 +195,18 @@ class LatticeCircuitManager:
                               the QuantumRegister instances in lattice.
             - lattice: A LatticeRegisters instance which keeps track of all the
                        QuantumRegisters.
-            - hamilonian: Pauli decompositon of the single link electric
+            - hamiltonian: Pauli decompositon of the single link electric
                           Hamiltonian. The list hamiltonian is contains
                           coefficients s.t. for hamiltonian[i] = coeff, coeff
-                          is coeff of bistring(i) with 'Z'=1 and 'I'=0 in the
+                          is coeff of bitstring(i) with 'Z'=1 and 'I'=0 in the
                           bitstring.
             - coupling_g: The value of the strong coupling constant.
             - dt: The size of the Trotter time step.
+            - electric_gray_order: The Pauli bitstrings corresponding to the Pauli
+                                    decomposition of the electric hamiltonian will 
+                                    be gray-code ordered if this option is set to be
+                                    True. This option is False by default.
+
 
         Returns:
             A new QuantumCircuit instance which is master_circuit with the
@@ -211,8 +216,10 @@ class LatticeCircuitManager:
         angle_mod = ((coupling_g**2) / 2) * dt
         local_circuit = QuantumCircuit(N)
 
+        # Use the index of the local Pauli-decomposed electric hamiltonian to calculate the Pauli bitstrings.
         pauli_bitstring_list = [str("{0:0" + str(N) + "b}").format(i) for i in range(len(hamiltonian))]
         pauli_decomposed_hamiltonian = zip(pauli_bitstring_list,hamiltonian)
+        # Gray-Order the Pauli-bitstrings if electric_gray_order == True.
         if electric_gray_order == True:
             pauli_decomposed_hamiltonian = sorted(pauli_decomposed_hamiltonian,key=lambda x: gray_to_index(x[0]))
 
@@ -481,8 +488,9 @@ class LatticeCircuitManager:
         match self._encoder.lattice_def.dim:
             case 1.5:
                 plaquette_state_has_inconsistent_controls = (
-                    c_links[0] != c_links[1]
-                ) or (c_links[2] != c_links[3])
+                    (c_links[0] != c_links[1]) or
+                    (c_links[2] != c_links[3])
+                    )
             case 2:
                 plaquette_state_has_inconsistent_controls = (
                     (c_links[0] != c_links[3]) or
