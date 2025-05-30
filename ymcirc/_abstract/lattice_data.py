@@ -545,3 +545,88 @@ class LatticeData(ABC, LatticeDef, Generic[T]):
                 not_none_lambda = lambda x: x is not None
                 all_planes = sorted(list(filter(not_none_lambda, set_of_planes)))  # Need to strip out a spurious None
                 return [Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=plane) for plane in all_planes]
+
+    def get_traversal_order(self) -> List[List[LatticeVector, List[LinkAddress]]]:
+        """
+        Walk through all the vertex and link addresses in the lattice in a conventional order.
+
+        The convention for this can be thought of as consisting of two nested for loops.
+        The first for loop is over the vertices of the lattice. Then,
+        for each vertex, another for loop iterates over all the "positive" links
+        leaving that vertex. The iteration over vertices is by ordering on the tuples denoting
+        lattice coordinates.
+
+        Example for d = 2 with periodic boundary conditions:
+
+        (pbc)        (pbc)        (pbc)
+          |            |            |
+          |            |            |
+          l16          l17          l18
+          |            |            |
+          |            |            |
+        (0,2)--l13---(1,2)--l14---(2,2)--l15---- (pbc)
+          |            |            |
+          |            |            |
+          l10          l11          l12
+          |            |            |
+          |            |            |
+        (0,1)---l7---(1,1)---l8---(2,1)---l9---- (pbc)
+          |            |            |
+          |            |            |
+          l4           l5           l6
+          |            |            |
+          |            |            |
+        (0,0)---l1---(1,0)---l2---(2,0)---l3---- (pbc)
+
+
+        This will return a nested list of vertex and link addresses
+        of the following form:
+
+        [
+            [(0,0) [l1, l4]],
+            [(0,1) [l7, l10]],
+            [(0,2) [l13, l16]],
+            [(1,0) [l2, l5]],
+            ...
+        ]
+
+        Note that the link addresses take the form of (for example):
+        l4 == ((0, 0), 2)
+
+        That is: "(vertex vector, positive direction index)".
+
+        In d=3/2, the "top" pbc links in the above diagram are omitted
+        because they do not exist on that lattice.
+        """
+        if self.all_boundary_conds_periodic is False:
+            raise NotImplementedError("Iteration through nonperiodic lattices not yet supported.")
+
+        all_vertex_addresses_sorted = sorted(self.vertex_addresses)
+        all_addresses_traversal_order = []
+        for current_vertex_address in all_vertex_addresses_sorted:
+            link_addresses_following_current_vertex_address = []
+            for positive_direction in range(1, ceil(self.dim) + 1):
+                has_no_vertical_periodic_link_three_halves_case = (
+                    self.dim == 1.5
+                    and positive_direction > 1
+                    and current_vertex_address[1] == 1
+                )
+                if has_no_vertical_periodic_link_three_halves_case:
+                    continue
+
+                current_link_address = (current_vertex_address, positive_direction)
+                link_addresses_following_current_vertex_address.append(current_link_address)
+
+            all_addresses_traversal_order.append([current_vertex_address, link_addresses_following_current_vertex_address])
+
+        return all_addresses_traversal_order
+
+    def __iter__(self):
+        """Use get_traversal_order method for iteration over lattice data."""
+        all_lattice_data: List[T] = []
+        for current_vertex_address, connected_link_addresses in self.get_traversal_order():
+            all_lattice_data.append(self.get_vertex(current_vertex_address))
+            for current_link_address in connected_link_addresses:
+                all_lattice_data.append(self.get_link(current_link_address))
+
+        yield from all_lattice_data
