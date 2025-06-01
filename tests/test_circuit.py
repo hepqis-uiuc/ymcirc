@@ -657,9 +657,7 @@ def test_apply_electric_trotter_step_d_3_2_lattice():
     expected_local_circuit.cx(1,2)
     expected_local_circuit.rz(0.33,2)
     expected_local_circuit.cx(1,2)
-    expected_local_circuit.cx(0,2)
-
-    expected_local_circuit.cx(0,2)
+    
     expected_local_circuit.rz(0.99,2)
     expected_local_circuit.cx(0,2)
 

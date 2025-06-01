@@ -18,7 +18,9 @@ from ymcirc.utilities import _check_circuits_logically_equivalent, _flatten_circ
 from math import ceil
 from qiskit import transpile
 from qiskit.circuit import QuantumCircuit, QuantumRegister
-from qiskit.circuit.library.standard_gates import RXGate
+from qiskit.circuit.library.standard_gates import RXGate, CXGate
+from qiskit.transpiler import PassManager
+from qiskit.transpiler.passes import InverseCancellation
 from typing import List, Tuple, Set, Union, Dict
 import numpy as np
 
@@ -236,6 +238,9 @@ class LatticeCircuitManager:
                 local_circuit.rz(2 * angle_mod * coeff, locs[-1])
             for j in locs[:-1][::-1]:
                 local_circuit.cx(j, locs[-1])
+
+        cancel_cx = PassManager([InverseCancellation([CXGate()])])
+        local_circuit = cancel_cx.run(local_circuit)
 
         # Loop over links for electric Hamiltonian
         for link_address in lattice.link_addresses:
