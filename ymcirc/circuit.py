@@ -106,72 +106,18 @@ class LatticeCircuitManager:
             # Update the magnetic Hamiltonian data with the trimmed, consistent matrix elements.
             self._mag_hamiltonian = filtered_and_trimmed_mag_hamiltonian
 
-    # TODO modularize the logic for walking through a lattice.
     def create_blank_full_lattice_circuit(
         self, lattice: LatticeRegisters
     ) -> QuantumCircuit:
         """
         Return a blank quantum circuit with all link and vertex registers in lattice.
 
-        Length-zero registers are skipped (relevant for d=3/2, T1 vertex registers.)
-
-        The convention is to construct the circuit by iterating over all vertices,
-        then for each vertex, to iterate over all the "positive" links leaving the vertex.
-        The iteration over vertices is by ordering on the tuples denoting
-        lattice coordinates.
-
-        Example for d = 2 with periodic boundary conditions:
-
-        (pbc)        (pbc)        (pbc)
-          |            |            |
-          |            |            |
-          l16          l17          l18
-          |            |            |
-          |            |            |
-        (0,2)--l13---(1,2)--l14---(2,2)--l15---- (pbc)
-          |            |            |
-          |            |            |
-          l10          l11          l12
-          |            |            |
-          |            |            |
-        (0,1)---l7---(1,1)---l8---(2,1)---l9---- (pbc)
-          |            |            |
-          |            |            |
-          l4           l5           l6
-          |            |            |
-          |            |            |
-        (0,0)---l1---(1,0)---l2---(2,0)---l3---- (pbc)
-
-
-        Will be mapped to the ket
-
-        |(0,0) l1 l4 (0,1) l7 l10 (0,2) l13 l16 (1,0) l2 l5 ...>
-
-        where the left-most tensor factor is the top line in the circuit.
-
-        In d=3/2, the "top" pbc links in the above diagram are omitted
-        because they do not exist on that lattice.
+        This uses an ordering which is specified in the LatticeData class which is
+        a parent class of LatticeRegisters. See the documentation on LatticeData
+        for details
         """
-        all_lattice_registers: List[QuantumRegister] = []
-        for vertex_address in lattice.vertex_addresses:
-            # Add the current vertex, and the positive links connected to it.
-            # Skip "top" in d = 3/2.
-            current_vertex_reg = lattice.get_vertex(vertex_address)
-            all_lattice_registers.append(current_vertex_reg)
-            for positive_direction in range(1, ceil(lattice.dim) + 1):
-                has_no_vertical_periodic_link_three_halves_case = (
-                    lattice.dim == 1.5
-                    and positive_direction > 1
-                    and vertex_address[1] == 1
-                )
-                if has_no_vertical_periodic_link_three_halves_case:
-                    continue
-
-                current_link_reg = lattice.get_link(
-                    (vertex_address, positive_direction)
-                )
-                all_lattice_registers.append(current_link_reg)
-
+        all_lattice_registers: List[QuantumRegister] = [reg for reg in lattice]
+        
         return QuantumCircuit(*all_lattice_registers)
 
     def apply_electric_trotter_step(
