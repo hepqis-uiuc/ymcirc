@@ -232,12 +232,12 @@ class LatticeCircuitManager:
                 for loc, bit in enumerate(pauli_bitstring)
                 if bit == "1"
             ]
-            for j in locs[:-1]:
-                local_circuit.cx(j, locs[-1])
+            for j in locs[1:]:
+                local_circuit.cx(j, locs[0])
             if len(locs) != 0:
-                local_circuit.rz(2 * angle_mod * coeff, locs[-1])
-            for j in locs[:-1][::-1]:
-                local_circuit.cx(j, locs[-1])
+                local_circuit.rz(2 * angle_mod * coeff, locs[0])
+            for j in locs[1:]:
+                local_circuit.cx(j, locs[0])
 
         cancel_cx = PassManager([InverseCancellation([CXGate()])])
         local_circuit = cancel_cx.run(local_circuit)

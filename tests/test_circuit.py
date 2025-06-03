@@ -643,23 +643,21 @@ def test_apply_electric_trotter_step_d_3_2_lattice():
     expected_local_circuit = QuantumCircuit(3)
     expected_local_circuit.rz(0.66,2)
 
-    expected_local_circuit.cx(1,2)
-    expected_local_circuit.rz(0.99,2)
-    expected_local_circuit.cx(1,2)
+    expected_local_circuit.cx(2,1)
+    expected_local_circuit.rz(0.99,1)
+    expected_local_circuit.cx(2,1)
 
     expected_local_circuit.rz(0.66,1)
 
-    expected_local_circuit.cx(0,1)
-    expected_local_circuit.rz(0.99,1)
-    expected_local_circuit.cx(0,1)
-
-    expected_local_circuit.cx(0,2)
-    expected_local_circuit.cx(1,2)
-    expected_local_circuit.rz(0.33,2)
-    expected_local_circuit.cx(1,2)
+    expected_local_circuit.cx(1,0)
+    expected_local_circuit.rz(0.99,0)
     
-    expected_local_circuit.rz(0.99,2)
-    expected_local_circuit.cx(0,2)
+    expected_local_circuit.cx(2,0)
+    expected_local_circuit.rz(0.33,0)
+    expected_local_circuit.cx(1,0)
+    
+    expected_local_circuit.rz(0.99,0)
+    expected_local_circuit.cx(2,0)
 
     expected_local_circuit.rz(0.66,0)
 
@@ -670,4 +668,3 @@ def test_apply_electric_trotter_step_d_3_2_lattice():
     
     assert _check_circuits_logically_equivalent(_flatten_circuit(master_circuit), expected_master_circuit), "Encountered inequivalent circuits."
     print("Test for electric trotter step passed.")
-
