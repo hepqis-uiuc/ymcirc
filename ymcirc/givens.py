@@ -13,7 +13,10 @@ from qiskit import QuantumCircuit
 from qiskit.circuit import Qubit
 from qiskit.circuit import ControlledGate
 from qiskit.circuit.library.standard_gates import RXGate, RZGate, RYGate, MCXGate
+<<<<<<< Updated upstream
 from qiskit.quantum_info import Operator, Statevector
+=======
+>>>>>>> Stashed changes
 from random import random
 from math import isclose
 import numpy as np
@@ -124,7 +127,10 @@ def givens(
             lp_fam, ctrls, ctrl_state, encoded_physical_states
         )
         Xcirc = _build_Xcirc(lp_fam, control=target)
+<<<<<<< Updated upstream
 
+=======
+>>>>>>> Stashed changes
         circ = _CRXCircuit_with_MCX([pruned_ctrl_state, pruned_ctrls], 
             angle, target, num_qubits)
 
@@ -256,7 +262,11 @@ def _compute_ctrls_and_state_for_givens_MCRX(
     # HYPOTHESIS: The Endianness issue arises from the RXGate applying ctrl_state
     # in reverse. So, the output ctrl_state shouldn't be reversed because it has the
     # right Endiannesss. This correction has been implemented in the helper function
+<<<<<<< Updated upstream
     # _CRXCircuit.
+=======
+    # _CRXCircuit_with_MCX.
+>>>>>>> Stashed changes
 
     # Return the controls and the control state.
     return (ctrls, ctrl_state)
@@ -741,6 +751,33 @@ def _CRXCircuit_with_MCX(ctr_list: List[Union[str, List[int]]],
     angle: float, target: int, num_qubits: int) -> QuantumCircuit:
     """Returns the circuit decomposition of the RXGate into MCXs using the ABC decomposition (Corollary 4.2, Nielsen and Chaung)"""
     ctrl_state, ctrls = ctr_list
+    num_ctrls = len(ctrl_state)
+    circ_with_mcx = QuantumCircuit(num_qubits)
+    circ_with_mcx.append(RZGate(-1.0*np.pi/2.0), [target])
+    circ_with_mcx.append(RYGate(-1.0*angle/2.0), [target])
+    circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state[::-1]), ctrls + [target])
+    circ_with_mcx.append(RYGate(1.0*angle/2.0), [target])
+    circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state[::-1]), ctrls + [target])
+    circ_with_mcx.append(RZGate(1.0*np.pi/2.0), [target])
+    return circ_with_mcx
+
+
+def _CRXCircuit_with_MCX(ctrl_list: List[Union[str, List[int]]], 
+    angle: float, target: int, num_qubits: int) -> QuantumCircuit:
+    """
+    Input:
+        - ctrl_List: [ctrls_state, ctrls], where ctrl_list corresponds to the control qubit indices and 
+        ctrl_state corresponds to the state the controls are in.
+        - angle: The rotation angle for the MCU
+        - ctrl_state: The target qubit index for the rotation
+        - num_qubits: The total qubits in the local rotation
+    Output:
+        - a QuantumCircuit with the circuit decomposition of the RXGate into MCXs 
+        using the ABC decomposition (Corollary 4.2, Nielsen and Chuang)
+
+    Note: Qubit indices are in little-endian notation
+    """
+    ctrl_state, ctrls = ctrl_list
     num_ctrls = len(ctrl_state)
     circ_with_mcx = QuantumCircuit(num_qubits)
     circ_with_mcx.append(RZGate(-1.0*np.pi/2.0), [target])
