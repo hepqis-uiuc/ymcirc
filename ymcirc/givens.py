@@ -8,9 +8,8 @@ two multi-qubit states into each other.
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, FrozenInstanceError
+from dataclasses import dataclass
 from qiskit import QuantumCircuit
-from qiskit.circuit import Qubit
 from qiskit.circuit import ControlledGate
 from qiskit.circuit.library.standard_gates import RXGate, RZGate, RYGate, MCXGate
 from qiskit.quantum_info import Operator, Statevector
@@ -18,7 +17,6 @@ from random import random
 from math import isclose
 import numpy as np
 import copy
-from scipy.linalg import expm
 from typing import Tuple, List, Set, Dict, Union
 
 
@@ -736,6 +734,11 @@ def _fuse_ctrls_of_ctrls_list(
     return sorted_ctrls_list
 
 
+def _CRXGate(num_ctrls: int, ctrl_state: str, angle: float) -> ControlledGate:
+    """Returns a RXGate given num_ctrls and ctrl_state"""
+    return RXGate(angle).control(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state[::-1])
+    
+
 def _CRXCircuit_with_MCX(ctrl_list: List[Union[str, List[int]]], 
     angle: float, target: int, num_qubits: int) -> QuantumCircuit:
     """
@@ -859,8 +862,3 @@ def _find_pruned_ctrl_list_from_Q_set(
             pruned_ctrls.append(ctrls[idx])
             pruned_ctrl_state += ctrl_state[idx]
     return (pruned_ctrls, pruned_ctrl_state)
-
-
-def _make_bitstring(length):
-    # Helper for testing purposes.
-    return "".join(f"{int(random()>0.5)}" for _ in range(length))

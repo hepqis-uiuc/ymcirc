@@ -3,7 +3,6 @@ A collection of utilities for building circuits.
 """
 from __future__ import annotations
 import copy
-from ymcirc._abstract import LatticeDef
 from ymcirc.conventions import PlaquetteState, LatticeStateEncoder, IRREP_TRUNCATION_DICT_1_3_3BAR, ONE, THREE, THREE_BAR
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import (
@@ -29,6 +28,7 @@ HamiltonianData = List[Tuple[str, str, float]]
 
 class LatticeCircuitManager:
     """Class for creating quantum simulation circuits from LatticeRegister instances."""
+
     def __init__(
         self, lattice_encoder: LatticeStateEncoder, mag_hamiltonian: HamiltonianData
     ):
@@ -79,7 +79,7 @@ class LatticeCircuitManager:
                 raise NotImplementedError(f"Dim {lattice_encoder.lattice_def.dim} lattice not yet supported.")
         self._lattice_is_small = True if lattice_size <= lattice_size_threshold_for_smallness else False
 
-        
+    
         if self._lattice_is_small is True and self._lattice_is_periodic is True:
             # Filter out magnetic Hamiltonian terms which are inconsistent (repeated control links must have the same value)
             filtered_and_trimmed_mag_hamiltonian: HamiltonianData = []
@@ -88,7 +88,7 @@ class LatticeCircuitManager:
                 initial_plaquette_state = lattice_encoder.decode_bit_string_to_plaquette_state(matrix_element[1])
                 final_state_has_inconsistent_controls = self._plaquette_state_has_inconsistent_controls(final_plaquette_state)
                 initial_state_has_inconsistent_controls = self._plaquette_state_has_inconsistent_controls(initial_plaquette_state)
-                
+
                 if (final_state_has_inconsistent_controls is True) or (initial_state_has_inconsistent_controls is True):
                     # Matrix element includes plaquette states that are nonsensical on a small, periodic lattice. Skip it.
                     continue
@@ -106,72 +106,18 @@ class LatticeCircuitManager:
             # Update the magnetic Hamiltonian data with the trimmed, consistent matrix elements.
             self._mag_hamiltonian = filtered_and_trimmed_mag_hamiltonian
 
-    # TODO modularize the logic for walking through a lattice.
     def create_blank_full_lattice_circuit(
         self, lattice: LatticeRegisters
     ) -> QuantumCircuit:
         """
         Return a blank quantum circuit with all link and vertex registers in lattice.
 
-        Length-zero registers are skipped (relevant for d=3/2, T1 vertex registers.)
-
-        The convention is to construct the circuit by iterating over all vertices,
-        then for each vertex, to iterate over all the "positive" links leaving the vertex.
-        The iteration over vertices is by ordering on the tuples denoting
-        lattice coordinates.
-
-        Example for d = 2 with periodic boundary conditions:
-
-        (pbc)        (pbc)        (pbc)
-          |            |            |
-          |            |            |
-          l16          l17          l18
-          |            |            |
-          |            |            |
-        (0,2)--l13---(1,2)--l14---(2,2)--l15---- (pbc)
-          |            |            |
-          |            |            |
-          l10          l11          l12
-          |            |            |
-          |            |            |
-        (0,1)---l7---(1,1)---l8---(2,1)---l9---- (pbc)
-          |            |            |
-          |            |            |
-          l4           l5           l6
-          |            |            |
-          |            |            |
-        (0,0)---l1---(1,0)---l2---(2,0)---l3---- (pbc)
-
-
-        Will be mapped to the ket
-
-        |(0,0) l1 l4 (0,1) l7 l10 (0,2) l13 l16 (1,0) l2 l5 ...>
-
-        where the left-most tensor factor is the top line in the circuit.
-
-        In d=3/2, the "top" pbc links in the above diagram are omitted
-        because they do not exist on that lattice.
+        This uses an ordering which is specified in the LatticeData class which is
+        a parent class of LatticeRegisters. See the documentation on LatticeData
+        for details
         """
-        all_lattice_registers: List[QuantumRegister] = []
-        for vertex_address in lattice.vertex_addresses:
-            # Add the current vertex, and the positive links connected to it.
-            # Skip "top" in d = 3/2.
-            current_vertex_reg = lattice.get_vertex(vertex_address)
-            all_lattice_registers.append(current_vertex_reg)
-            for positive_direction in range(1, ceil(lattice.dim) + 1):
-                has_no_vertical_periodic_link_three_halves_case = (
-                    lattice.dim == 1.5
-                    and positive_direction > 1
-                    and vertex_address[1] == 1
-                )
-                if has_no_vertical_periodic_link_three_halves_case:
-                    continue
-
-                current_link_reg = lattice.get_link(
-                    (vertex_address, positive_direction)
-                )
-                all_lattice_registers.append(current_link_reg)
-
+        all_lattice_registers: List[QuantumRegister] = [reg for reg in lattice]
+        
         return QuantumCircuit(*all_lattice_registers)
 
     def apply_electric_trotter_step(
@@ -465,7 +411,7 @@ class LatticeCircuitManager:
         For d=3/2, this corresponds to c1 == c2 and c3 == c4.
 
         For d=2, this corresponds to c1 == c4, c2 == c7, c3 == c6, and c5 == c8.
-        
+
         Note that this only makes sense on a small, periodic lattice, so a ValueError
         is raised if the lattice fails those checks.
         """
@@ -514,10 +460,9 @@ class LatticeCircuitManager:
                 physical_c_links = (c_links[0], c_links[1], c_links[2], c_links[4])
             case _:
                 raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
-            
+
         plaquette_with_filtered_c_links = (vertex_multiplicities, a_links, physical_c_links)
         return plaquette_with_filtered_c_links
-        
 
     @staticmethod
     def _sort_matrix_elements_into_lp_bins(
@@ -549,7 +494,7 @@ class LatticeCircuitManager:
             bit_string_2,
             matrix_elem,
         ) in bitstrings_w_matrix_element:
-            angle = -matrix_elem * (1 / (2 * (coupling_g**2))) * dt
+            angle = -matrix_elem * (1 /  (coupling_g**2)) * dt
             lp_fam = compute_LP_family(bit_string_1, bit_string_2)
             if lp_fam not in lp_bin.keys():
                 lp_bin[lp_fam] = []
