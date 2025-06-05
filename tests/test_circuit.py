@@ -1,6 +1,7 @@
 from ymcirc._abstract import LatticeDef
 from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.conventions import LatticeStateEncoder, ONE, THREE, THREE_BAR, IRREP_TRUNCATION_DICT_1_3_3BAR
+from ymcirc.conventions import SIX, SIX_BAR, EIGHT, IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.utilities import _flatten_circuit, _check_circuits_logically_equivalent
 from qiskit.circuit import QuantumCircuit
@@ -659,3 +660,60 @@ def test_apply_magnetic_trotter_step_d_2_small_lattice():
     # (1) flattening a circuit down to a single register and (2) comparing
     # logical equivalence of two circuits.
     assert _check_circuits_logically_equivalent(_flatten_circuit(master_circuit), expected_master_circuit), "Encountered inequivalent circuits."
+
+def test_apply_electric_trotter_step_d_3_2_lattice():
+    print("Checking that the electric trotter step acts as expected on a T2 3x1 lattice.")
+    dummy_electric_hamiltonian = [0.33,0.66,0.66,0.99,0.66,0.99,0.99,0.33]
+    dummy_mag_hamiltonian = []
+    dummy_phys_states = [
+        (
+            (0,0,0,0),
+            (ONE, THREE, ONE, THREE_BAR),
+            (THREE_BAR, THREE_BAR, THREE, THREE)
+        ),
+        (
+            (0,0,0,0),
+            (EIGHT,SIX,EIGHT,SIX_BAR),
+            (SIX_BAR,SIX_BAR,SIX,SIX)
+        )
+    ]
+    lattice_def = LatticeDef(1.5,3)
+    lattice_encoder = LatticeStateEncoder(
+    IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8,
+    dummy_phys_states,
+    lattice=lattice_def)
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager(lattice_encoder,
+                                 dummy_mag_hamiltonian)
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(
+    lattice_registers)
+    circ_mgr.apply_electric_trotter_step(master_circuit,lattice_registers,dummy_electric_hamiltonian,electric_gray_order=True)
+
+    expected_local_circuit = QuantumCircuit(3)
+    expected_local_circuit.rz(0.66,2)
+
+    expected_local_circuit.cx(2,1)
+    expected_local_circuit.rz(0.99,1)
+    expected_local_circuit.cx(2,1)
+
+    expected_local_circuit.rz(0.66,1)
+
+    expected_local_circuit.cx(1,0)
+    expected_local_circuit.rz(0.99,0)
+    
+    expected_local_circuit.cx(2,0)
+    expected_local_circuit.rz(0.33,0)
+    expected_local_circuit.cx(1,0)
+    
+    expected_local_circuit.rz(0.99,0)
+    expected_local_circuit.cx(2,0)
+
+    expected_local_circuit.rz(0.66,0)
+
+    expected_master_circuit = QuantumCircuit(27)
+    for i in range(9):
+        link_qubits = [3*i,3*i + 1, 3*i+2]
+        expected_master_circuit.compose(expected_local_circuit,link_qubits,inplace=True)
+    
+    assert _check_circuits_logically_equivalent(_flatten_circuit(master_circuit), expected_master_circuit), "Encountered inequivalent circuits."
+    print("Test for electric trotter step passed.")
