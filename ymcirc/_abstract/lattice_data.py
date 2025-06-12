@@ -546,7 +546,7 @@ class LatticeData(ABC, LatticeDef, Generic[T]):
                 all_planes = sorted(list(filter(not_none_lambda, set_of_planes)))  # Need to strip out a spurious None
                 return [Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=plane) for plane in all_planes]
 
-    def get_traversal_order(self) -> List[List[LatticeVector, List[LinkAddress]]]:
+    def get_traversal_order(self) -> List[Tuple[LatticeVector, List[LinkAddress]]]:
         """
         Walk through all the vertex and link addresses in the lattice in a conventional order.
 
@@ -583,10 +583,10 @@ class LatticeData(ABC, LatticeDef, Generic[T]):
         of the following form:
 
         [
-            [(0,0) [l1, l4]],
-            [(0,1) [l7, l10]],
-            [(0,2) [l13, l16]],
-            [(1,0) [l2, l5]],
+            ((0,0), [l1, l4]),
+            ((0,1), [l7, l10]),
+            ((0,2), [l13, l16]),
+            ((1,0), [l2, l5]),
             ...
         ]
 
@@ -617,7 +617,7 @@ class LatticeData(ABC, LatticeDef, Generic[T]):
                 current_link_address = (current_vertex_address, positive_direction)
                 link_addresses_following_current_vertex_address.append(current_link_address)
 
-            all_addresses_traversal_order.append([current_vertex_address, link_addresses_following_current_vertex_address])
+            all_addresses_traversal_order.append((current_vertex_address, link_addresses_following_current_vertex_address))
 
         return all_addresses_traversal_order
 
