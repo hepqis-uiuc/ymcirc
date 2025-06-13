@@ -228,6 +228,13 @@ class LatticeDef:
         self._periodic_boundary_conds = periodic_boundary_conds
         self._configure_lattice(dimensions, size)
 
+    def __eq__(self, o) -> bool:
+        """Equality check based on being the same class and having all the same property values."""
+        if isinstance(o, LatticeDef):
+            return o.__dict__ == self.__dict__
+        else:
+            return False
+
     def _validate_lattice_params(self,
                                  dim: DimensionalitySpecifier,
                                  size: int | tuple[int, ...],

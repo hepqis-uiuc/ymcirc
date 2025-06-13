@@ -1,11 +1,11 @@
 """Wrapper for parsing bit strings obtained from measuring all the registers in a LatticeRegisters instance."""
 from __future__ import annotations
+import copy
 from typing import Dict, List, Union
 from ymcirc._abstract.lattice_data import (
-    LatticeData, Plaquette, DimensionalitySpecifier, LatticeVector,
+    LatticeData, LatticeDef, Plaquette, DimensionalitySpecifier, LatticeVector,
     LinkUnitVectorLabel, LinkAddress)
 from ymcirc.conventions import LatticeStateEncoder, IrrepWeight, MultiplicityIndex
-from ymcirc.lattice_registers import LatticeRegisters
 
 # Type alias to deal with the fact that underlying measurement results
 # are bit strings, and parsed measurement results are either IrrepWeight
@@ -14,8 +14,6 @@ from ymcirc.lattice_registers import LatticeRegisters
 MeasurementData = Union[str, IrrepWeight, MultiplicityIndex, None]
 
 
-# TODO implement __hash__ method based on the global bit string
-# so that this class can be used as a key in a "counts" dictionary.
 class ParsedLatticeResult(LatticeData[MeasurementData]):
     """
     Wrapper for string resulting when all qubits in a LatticeRegisters instance are measured.
@@ -43,6 +41,19 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
             ):
         """Parse through global_lattice_measurement_bitstring and convert to i-weights."""
         super().__init__(dimensions, size, periodic_boundary_conds)
+
+        # Do some validation.
+        expected_num_bits = self.n_links * lattice_encoder.expected_link_bit_string_length + self.n_vertices * lattice_encoder.expected_vertex_bit_string_length
+        has_non_binary_char = any(char not in ['0', '1'] for char in global_lattice_measurement_bit_string)
+        if expected_num_bits != len(global_lattice_measurement_bit_string):
+            raise ValueError(f"Expecting length-{expected_num_bits} measurement bit string. Encountered length-{len(global_lattice_measurement_bit_string)} bit string.")
+        if self.dim != lattice_encoder.lattice_def.dim:
+            raise ValueError(f"Specified a dim-{self.dim} lattice, but using a {LatticeStateEncoder.__name__} with dim-{lattice_encoder.lattice_def.dim}.")
+        if self.shape != lattice_encoder.lattice_def.shape:
+            raise ValueError(f"Specified a lattice with shape {self.shape}, but using a {LatticeStateEncoder.__name__} for a lattice with shape {lattice_encoder.lattice_def.shape}.")
+        if has_non_binary_char is True:
+            raise TypeError(f"Measurement bit string {global_lattice_measurement_bit_string} contains one or more non-binary characters.")
+
         # Initialize dicts to hold measurement data.
         self._decoded_links: Dict[LinkAddress, IrrepWeight | None] = {}
         self._decoded_vertices: Dict[LatticeVector, MultiplicityIndex | None] = {}
@@ -76,6 +87,20 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
                 self._decoded_links[current_link_address] = lattice_encoder.decode_bit_string_to_link_state(self._bit_strings_links[current_link_address])
 
             start_current_vertex_and_links_substring_idx += len_current_vertex_and_links_substring
+
+        # Let's keep these around too. They're handy to have.
+        self._global_lattice_measurement_bit_string = global_lattice_measurement_bit_string
+        self._lattice_def = lattice_encoder.lattice_def
+
+    @property
+    def lattice_def(self) -> LatticeDef:
+        """Return copy of LatticeDef instance describing the lattice for the global measurement bit string."""
+        return copy.deepcopy(self._lattice_def)
+
+    @property
+    def global_lattice_measurement_bit_string(self) -> str:
+        """Return the global lattice measurement bit string used to initialize the ParsedLatticeResult instance."""
+        return self._global_lattice_measurement_bit_string
 
     def get_vertex(self, lattice_vector: LatticeVector, get_bit_string: bool = False) -> MeasurementData:
         """
@@ -173,3 +198,10 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         and vertices when iterating over the entire lattice!
         """
         return super().get_plaquettes(lattice_vector, e1, e2, get_bit_string=get_bit_string)
+
+    def __hash__(self):
+        """Hash based on measurement string, and data that uniquely specifies lattice geometry."""
+        return hash((self.global_lattice_measurement_bit_string, self.lattice_def.dim, self.lattice_def.shape, self.lattice_def.periodic_boundary_conds))
+    
+    def __str__(self):
+        return f"{self.__class__.__name__}(dim={self.dim},shape={self.shape},pbcs={self.periodic_boundary_conds},bs={self._global_lattice_measurement_bit_string})"
