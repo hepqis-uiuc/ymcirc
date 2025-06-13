@@ -19,6 +19,7 @@ import io
 import base64
 
 
+# TODO adapt the image generation and file-writing functionality back into ymcirc?
 class ParsedData:
     """
     This class can be used to parse raw bitstrings from simulations, store the parsed data, and generate lattice images corresponding to the bitstrings.

@@ -202,6 +202,6 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
     def __hash__(self):
         """Hash based on measurement string, and data that uniquely specifies lattice geometry."""
         return hash((self.global_lattice_measurement_bit_string, self.lattice_def.dim, self.lattice_def.shape, self.lattice_def.periodic_boundary_conds))
-    
+
     def __str__(self):
         return f"{self.__class__.__name__}(dim={self.dim},shape={self.shape},pbcs={self.periodic_boundary_conds},bs={self._global_lattice_measurement_bit_string})"
