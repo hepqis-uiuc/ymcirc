@@ -173,15 +173,3 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         and vertices when iterating over the entire lattice!
         """
         return super().get_plaquettes(lattice_vector, e1, e2, get_bit_string=get_bit_string)
-
-
-    # TODO this might actually not be needed since traversal order moved to lattice def inside LatticeStateEncoder
-    @classmethod
-    def from_lattice_registers(
-            cls,
-            lattice_registers: LatticeRegisters,
-            global_lattice_measurement_bit_string: str,
-            lattice_encoder: LatticeStateEncoder
-    ) -> ParsedLatticeResult:
-        """Initialize from a LatticeRegisters instance and a measurement bitstring corresponding to that instance."""
-        raise NotImplementedError("Method not yet implemented.")

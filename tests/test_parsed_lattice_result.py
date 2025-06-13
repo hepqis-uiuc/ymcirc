@@ -120,11 +120,6 @@ def test_parse_d_3_2_lattice_with_vertex_data():
     raise NotImplementedError("Test not yet written.")
 
 
-def test_from_lattice_registers():
-    """Check parsing from a LatticeRegisters instance."""
-    # TODO check that the parse result is the same as if directly using the class constructor.
-    raise NotImplementedError("Test not yet written.")
-
 # TODO test a global_bitstring method and compare it to reconstructing by iterating over the lattice.
 
 # TODO test d = 2 and maybe d = 3.
