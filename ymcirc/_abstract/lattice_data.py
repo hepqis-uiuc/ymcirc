@@ -72,7 +72,8 @@ class Plaquette(Generic[T]):
             self,
             lattice: LatticeData,
             bottom_left_vertex: LatticeVector,
-            plane: tuple[LinkUnitVectorLabel, LinkUnitVectorLabel]
+            plane: tuple[LinkUnitVectorLabel, LinkUnitVectorLabel],
+            **kwargs
     ):
         """Initialize a plaquette from a given LatticeData instance, and data to uniquely specify the plaquette."""
         # Sanity checks.
@@ -93,9 +94,9 @@ class Plaquette(Generic[T]):
         for step in [e1, e2, -e1]:
             vertices_ccw.append(lattice.add_unit_vector_to_vertex_vector(vertices_ccw[-1], step))
         link_steps_ccw = [e1, e2, -e1, -e2]
-        self._vertices = tuple([lattice.get_vertex(v) for v in vertices_ccw])
+        self._vertices = tuple([lattice.get_vertex(v, **kwargs) for v in vertices_ccw])
         self._ordered_vertex_vectors = vertices_ccw
-        self._active_links = tuple([lattice.get_link(link_address) for link_address in zip(vertices_ccw, link_steps_ccw)])
+        self._active_links = tuple([lattice.get_link(link_address, **kwargs) for link_address in zip(vertices_ccw, link_steps_ccw)])
         self._lattice = lattice  # DO NOT MUTATE THIS.
 
         # Construct the control link dict, and ordered control link tuple.
@@ -117,13 +118,16 @@ class Plaquette(Generic[T]):
                 if link_dir in active_link_dirs_per_vertex[v]:
                     continue
                 try:
-                    self._control_links[v][(v, link_dir)] = lattice.get_link((v, link_dir))
+                    self._control_links[v][(v, link_dir)] = lattice.get_link((v, link_dir), **kwargs)
                 except KeyError:  # Depending on boundary conditions, KeyErrors can happen that can be skipped.
                     continue
 
         # Remaining properties are simply set from init args.
         self._plane = plane
         self._bottom_left_vertex = bottom_left_vertex
+
+        # Store any kwargs for later use.
+        self._init_kwargs = kwargs
 
     @property
     def active_links(self) -> tuple[T, T, T, T]:
@@ -178,7 +182,7 @@ class Plaquette(Generic[T]):
             raise NotImplementedError(f"Control link ordering for dim-{self._lattice.dim} plaquettes not yet implemented")
         for vertex_idx, vertex_vector in enumerate(self._ordered_vertex_vectors):
             for link_dir in control_link_dirs_per_vertex[vertex_idx]:
-                control_links_ordered.append(self._lattice.get_link((vertex_vector, link_dir)))
+                control_links_ordered.append(self._lattice.get_link((vertex_vector, link_dir), **self._init_kwargs))
 
         return tuple(control_links_ordered)
 
@@ -576,7 +580,8 @@ class LatticeData(ABC, LatticeDef, Generic[T]):
     def get_plaquettes(self,
                        lattice_vector: LatticeVector,
                        e1: Union[LinkUnitVectorLabel, None] = None,
-                       e2: Union[LinkUnitVectorLabel, None] = None
+                       e2: Union[LinkUnitVectorLabel, None] = None,
+                       **kwargs
                        ) -> Plaquette[T] | List[Plaquette[T]]:
         """
         Retrieve plaquette(s) assocaited with a specific bottom-left vertex.
@@ -606,7 +611,7 @@ class LatticeData(ABC, LatticeDef, Generic[T]):
         only_one_link_given = (e1 is None or e2 is None) and (e1 != e2)
 
         if isinstance(e1, int) and isinstance(e2, int):  # Case where both link directions are provided.
-            return Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=(e1, e2))
+            return Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=(e1, e2), **kwargs)
         elif only_one_link_given:  # Nonsense case.
             raise ValueError(
                 "Provide no link directions to get all Plaquettes at a vertex, or exactly two link directions "
@@ -614,12 +619,12 @@ class LatticeData(ABC, LatticeDef, Generic[T]):
             )
         else:  # Case where no link directions provided, need to construct ALL plaquettes.
             if (self.dim == 1.5 or self.dim == 2):  # Only one plaquette for these geometries.
-                return Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=(1, 2))
+                return Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=(1, 2), **kwargs)
             elif self.dim > 2:  # Generic case with multiple planes.
                 set_of_planes = set((i, j) if i < j else None for i, j in product(range(1, ceil(self.dim + 1)), range(1, ceil(self.dim + 1))))
                 not_none_lambda = lambda x: x is not None
                 all_planes = sorted(list(filter(not_none_lambda, set_of_planes)))  # Need to strip out a spurious None
-                return [Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=plane) for plane in all_planes]
+                return [Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=plane, **kwargs) for plane in all_planes]
 
     def __iter__(self):
         """Use get_traversal_order method for iteration over lattice data."""

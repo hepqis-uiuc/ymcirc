@@ -1,6 +1,6 @@
 """Wrapper for parsing bit strings obtained from measuring all the registers in a LatticeRegisters instance."""
 from __future__ import annotations
-from typing import List, Union
+from typing import Dict, List, Union
 from ymcirc._abstract.lattice_data import (
     LatticeData, Plaquette, DimensionalitySpecifier, LatticeVector,
     LinkUnitVectorLabel, LinkAddress)
@@ -43,7 +43,39 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
             ):
         """Parse through global_lattice_measurement_bitstring and convert to i-weights."""
         super().__init__(dimensions, size, periodic_boundary_conds)
-        raise NotImplementedError("Method not yet implemented.")
+        # Initialize dicts to hold measurement data.
+        self._decoded_links: Dict[LinkAddress, IrrepWeight | None] = {}
+        self._decoded_vertices: Dict[LatticeVector, MultiplicityIndex | None] = {}
+        self._bit_strings_links: Dict[LinkAddress, str] = {}
+        self._bit_strings_vertices: Dict[LatticeVector, str] = {}
+
+        # Walk through lattice, decoding each DoF using the encoder.
+        start_current_vertex_and_links_substring_idx = 0
+        for (lattice_traversal_idx, (current_vertex_address, current_connected_link_addresses)) in enumerate(lattice_encoder.lattice_def.get_traversal_order()):
+            # Extract substring for current vertex and connected links.
+            num_connected_links = len(current_connected_link_addresses)            
+            len_current_vertex_and_links_substring = (
+                lattice_encoder.expected_vertex_bit_string_length +
+                num_connected_links*lattice_encoder.expected_link_bit_string_length
+            )
+            end_current_vertex_and_links_substring_idx = start_current_vertex_and_links_substring_idx + len_current_vertex_and_links_substring
+            current_vertex_and_links_substring = global_lattice_measurement_bit_string[start_current_vertex_and_links_substring_idx:end_current_vertex_and_links_substring_idx]
+
+            # Store vertex bit string and decoded value.
+            vertex_start_idx = 0
+            vertex_end_idx = vertex_start_idx + lattice_encoder.expected_vertex_bit_string_length
+            self._bit_strings_vertices[current_vertex_address] = current_vertex_and_links_substring[vertex_start_idx:vertex_end_idx]
+            self._decoded_vertices[current_vertex_address] = lattice_encoder.decode_bit_string_to_vertex_state(self._bit_strings_vertices[current_vertex_address])
+
+            # Store link bit strings and decoded values.
+            current_links_substring = current_vertex_and_links_substring[vertex_end_idx:]
+            for current_link_number_idx, current_link_address in enumerate(current_connected_link_addresses):
+                current_link_start_idx = current_link_number_idx * lattice_encoder.expected_link_bit_string_length
+                current_link_end_idx = current_link_start_idx + lattice_encoder.expected_link_bit_string_length
+                self._bit_strings_links[current_link_address] = current_links_substring[current_link_start_idx:current_link_end_idx]
+                self._decoded_links[current_link_address] = lattice_encoder.decode_bit_string_to_link_state(self._bit_strings_links[current_link_address])
+
+            start_current_vertex_and_links_substring_idx += len_current_vertex_and_links_substring
 
     def get_vertex(self, lattice_vector: LatticeVector, get_bit_string: bool = False) -> MeasurementData:
         """
@@ -56,7 +88,10 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         the multiplicity of the singlet at that vertex, or None if the bit string
         at the vertex fails to decode.
         """
-        raise NotImplementedError("Method not yet implemented.")
+        if get_bit_string is False:
+            return self._decoded_vertices[lattice_vector]
+        else:
+            return self._bit_strings_vertices[lattice_vector]
 
     def get_link(self, link_address: LinkAddress, get_bit_string: bool = False) -> MeasurementData:
         """
@@ -91,7 +126,11 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         the irrep on the link, or None if the bit string
         at the link fails to decode.
         """
-        raise NotImplementedError("Method not yet implemented.")
+        normalized_link_address = self._normalize_link_address(link_address)
+        if get_bit_string is False:
+            return self._decoded_links[normalized_link_address]
+        else:
+            return self._bit_strings_links[normalized_link_address]
 
     def get_plaquettes(self,
                        lattice_vector: LatticeVector,
@@ -133,8 +172,10 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         Note that this ordering of data DOES NOT match the ordering of links
         and vertices when iterating over the entire lattice!
         """
-        raise NotImplementedError("Method not yet implemented.")
+        return super().get_plaquettes(lattice_vector, e1, e2, get_bit_string=get_bit_string)
 
+
+    # TODO this might actually not be needed since traversal order moved to lattice def inside LatticeStateEncoder
     @classmethod
     def from_lattice_registers(
             cls,
