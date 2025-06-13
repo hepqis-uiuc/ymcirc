@@ -29,6 +29,7 @@ from ymcirc.conventions import (
 from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.conventions import LatticeStateEncoder
+from ymcirc.parsed_lattice_result import ParsedLatticeResult
 from qiskit import transpile
 from qiskit_aer.primitives import SamplerV2
 from typing import Set
@@ -221,6 +222,12 @@ if __name__ == "__main__":
                 avg_electric_energy = 0
                 for state, counts in counts_dict_big_endian.items():
                     print("Encoded state:", state)
+                    print("Decoded state:")
+                    parsed_state = ParsedLatticeResult(dimensions, linear_size, state, lattice_encoder)
+                    for (vertex_address, attached_link_addresses) in parsed_state.get_traversal_order():
+                        print(f"v {vertex_address} == {parsed_state.get_vertex(vertex_address)}")
+                        for link_address in attached_link_addresses:
+                            print(f"l {link_address} == {parsed_state.get_link(link_address)}")
                     avg_electric_energy += convert_bitstring_to_evalue(state, lattice_encoder, warn_on_unphysical_links, error_on_unphysical_links) * (counts / n_shots) / lattice_registers.n_links
                 df_job_results.loc[current_sim_idx, "electric_energy"] = avg_electric_energy
 
