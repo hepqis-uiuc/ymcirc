@@ -504,12 +504,6 @@ class LatticeData(ABC, LatticeDef, Generic[T]):
                        e2: Union[LinkUnitVectorLabel, None] = None
                        ) -> Plaquette[T] | List[Plaquette[T]]:
         """
-        Retrieve plaquette(s) assocaited with a specific bottom-left vertex.
-
-        Optionally, provide two lattice unit vectors defining a plane to retrieve
-        only one plaquette.
-        """
-        """
         Return the list of all "positive" Plaquettes associated with the vertex lattice_vector.
 
         The "positivity" convention is that the list of returned plaquettes corresponds to those
