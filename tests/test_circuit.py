@@ -1,11 +1,12 @@
 from ymcirc._abstract import LatticeDef
 from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.conventions import LatticeStateEncoder, ONE, THREE, THREE_BAR, IRREP_TRUNCATION_DICT_1_3_3BAR
-from ymcirc.conventions import SIX, SIX_BAR, EIGHT, IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
+from ymcirc.conventions import SIX, SIX_BAR, EIGHT, IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8, PHYSICAL_PLAQUETTE_STATES, load_magnetic_hamiltonian
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.utilities import _flatten_circuit, _check_circuits_logically_equivalent
-from qiskit.circuit import QuantumCircuit
+from qiskit.circuit import QuantumCircuit, AncillaRegister
 from qiskit.circuit.library.standard_gates import RXGate, RZGate, RYGate, MCXGate
+from qiskit.quantum_info import Operator, Statevector, DensityMatrix, partial_trace
 import numpy as np
 
 
@@ -661,6 +662,7 @@ def test_apply_magnetic_trotter_step_d_2_small_lattice():
     # logical equivalence of two circuits.
     assert _check_circuits_logically_equivalent(_flatten_circuit(master_circuit), expected_master_circuit), "Encountered inequivalent circuits."
 
+
 def test_apply_electric_trotter_step_d_3_2_lattice():
     print("Checking that the electric trotter step acts as expected on a T2 3x1 lattice.")
     dummy_electric_hamiltonian = [0.33,0.66,0.66,0.99,0.66,0.99,0.99,0.33]
@@ -717,3 +719,225 @@ def test_apply_electric_trotter_step_d_3_2_lattice():
     
     assert _check_circuits_logically_equivalent(_flatten_circuit(master_circuit), expected_master_circuit), "Encountered inequivalent circuits."
     print("Test for electric trotter step passed.")
+
+
+def test_creating_correct_ancilla_register_for_d_3_2_T1_small():
+    print("Checking if an ancilla register with the correct number of ancillas are added for d=3/2, T1, 1x2")
+
+    dimensionality_and_truncation_string = "d=3/2, T1"
+    lattice_def = LatticeDef(1.5, 2)
+
+    lattice_encoder = LatticeStateEncoder(
+        IRREP_TRUNCATION_DICT_1_3_3BAR,
+        PHYSICAL_PLAQUETTE_STATES[dimensionality_and_truncation_string],
+        lattice=lattice_def)
+
+    physical_plaquette_states = set(lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in PHYSICAL_PLAQUETTE_STATES[dimensionality_and_truncation_string])
+
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    magnetic_hamiltonian = load_magnetic_hamiltonian(
+        dimensionality_and_truncation_string,
+        lattice_encoder)
+
+    circ_mgr = LatticeCircuitManager(lattice_encoder, magnetic_hamiltonian)
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(
+        lattice_registers)
+
+    circ_mgr.add_ancillas_register_to_lattice_registers(master_circuit, lattice_registers, control_fusion=True, 
+        physical_states_for_control_pruning=physical_plaquette_states,
+        optimize_circuits=False)
+
+    # Number of ancillas for d=3/2, T1, 1x2 with control pruning and fusing found in arXiv:2503.08866
+    assert (len(master_circuit.ancillas) == 3), "Ancilla register for d=3/2, T1 with control pruning and fusion is improperly initiated"
+    print("Test for ancilla register count passed")
+
+
+def test_creating_correct_ancilla_register_for_d_2_T1_small():
+    print("Checking if an ancilla register with the correct number of ancillas are added are added for d=2, T1, 2x2")
+
+    dimensionality_and_truncation_string = "d=2, T1"
+    lattice_def = LatticeDef(2, 2)
+
+    lattice_encoder = LatticeStateEncoder(
+        IRREP_TRUNCATION_DICT_1_3_3BAR,
+        PHYSICAL_PLAQUETTE_STATES[dimensionality_and_truncation_string],
+        lattice=lattice_def)
+
+    physical_plaquette_states = set(lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in PHYSICAL_PLAQUETTE_STATES[dimensionality_and_truncation_string])
+
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    magnetic_hamiltonian = load_magnetic_hamiltonian(
+        dimensionality_and_truncation_string,
+        lattice_encoder)
+
+    circ_mgr = LatticeCircuitManager(lattice_encoder, magnetic_hamiltonian)
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(
+        lattice_registers)
+
+    circ_mgr.add_ancillas_register_to_lattice_registers(master_circuit, lattice_registers, control_fusion=True, 
+        physical_states_for_control_pruning=physical_plaquette_states,
+        optimize_circuits=False)
+
+    # Number of ancillas for d=2, T1, 2x2 with control pruning and fusing found in arXiv:2503.08866
+    assert (len(master_circuit.ancillas) == 7), "Ancilla register for d=2, T1 with control pruning and fusion is improperly initiated"
+    print("Test for ancilla register count passed")
+
+
+def test_magnetic_with_ancilla_has_no_MCX():
+    print("Checking that the MCX gates are properly decomposed in the magnetic trotter step")
+
+    dimensionality_and_truncation_string = "d=3/2, T1"
+    lattice_def = LatticeDef(1.5, 2)
+
+    lattice_encoder = LatticeStateEncoder(
+        IRREP_TRUNCATION_DICT_1_3_3BAR,
+        PHYSICAL_PLAQUETTE_STATES[dimensionality_and_truncation_string],
+        lattice=lattice_def)
+
+    physical_plaquette_states = set(lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in PHYSICAL_PLAQUETTE_STATES[dimensionality_and_truncation_string])
+
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    magnetic_hamiltonian = load_magnetic_hamiltonian(
+        dimensionality_and_truncation_string,
+        lattice_encoder)
+
+    circ_mgr = LatticeCircuitManager(lattice_encoder, magnetic_hamiltonian)
+    master_circuit_with_ancillas = circ_mgr.create_blank_full_lattice_circuit(
+        lattice_registers)
+
+    circ_mgr.add_ancillas_register_to_lattice_registers(master_circuit_with_ancillas, lattice_registers, control_fusion=True, 
+        physical_states_for_control_pruning=physical_plaquette_states,
+        optimize_circuits=False)
+
+    circ_mgr.apply_magnetic_trotter_step(master_circuit_with_ancillas, lattice_registers, physical_states_for_control_pruning=physical_plaquette_states, control_fusion=True)
+
+    print(master_circuit_with_ancillas)
+
+    mcx_count = 0
+
+    for circuit_instruction in master_circuit_with_ancillas.data:
+        if len(circuit_instruction.operation.name) >= 3 and circuit_instruction.operation.name[:3] == "mcx":
+            mcx_count += 1
+
+    assert (mcx_count == 0), "MCX count for magnetic circuit with ancillas is not 0"
+    print("Test for MCX count in magnetic circuit has passed")
+
+
+def test_apply_magnetic_trotter_step_d_3_2_small_lattice_with_ancillas():
+    print(
+        "Checking that application of magnetic Trotter step works for d=3/2 "
+        "on a small lattice with ancilla qubits"
+    )
+    # DO NOT CHANGE THE "DUMMY" DATA UNLESS YOU ARE WILLING TO WORK OUT
+    # WHAT THE CORRECT "EXPECTED" CIRCUITS ARE. THERE IS
+    # STRONG DEPENDENCE BETWEEN THAT AND THESE DUMMY
+    # TEST DATA.
+    # If you need to make more test data, follow the following process:
+    #    1. Come up with a dummy hamiltonian matrix element of the form (plaquette bitstring, plaquette bitstring, mat elem value).
+    #    2. Come up with the corresponding physical states which get encoded to these bit strings.
+    #    3. For each matrix element * plaquette in the lattice, there will be ONE givens rotation circuit. For each such givens rotation:
+    #      3a. Determine which registers are involved in the circuit following conventional ordering of vertices, then active links, then control links.
+    #      3b. Determine what the "X" circuit prefix is by comparing the state bitstrings for the matrix element, determining the LP family, and then
+    #          mapping each substring in the plaquette encoding onto actual registers in the lattice.
+    #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or projector operator involved determines the control states (raising to get to final state is on, projector onto 1 is on).
+    # Ask yourself if you REALLY feel like doing all that before mucking about with this test data.
+    dummy_mag_hamiltonian = [
+        ("00100001" + "00000000", "01010110" + "10011010", 0.33),  # One matrix element, plaquette only has a_link and c_link substrings. Should get filtered out based on c_link consistency.
+        ("00100001" + "00000000", "01010110" + "10100000", 0.33)  # One matrix element, plaquette only has a_link and c_link substrings. Should not get filtered out based on c_link consistency.
+    ]
+    dummy_phys_states = [
+        (  # Matches the first encoded state in the dummy magnetic hamiltonian.
+            (0, 0, 0, 0),
+            (ONE, THREE, ONE, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (  # Matches the second encoded state in the dummy magnetic hamiltonian.
+            (0, 0, 0, 0),
+            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+            (THREE, THREE_BAR, THREE, THREE)
+        ),
+        (  # Matches the third encoded state in the dummy magnetic hamiltonian.
+            (0, 0, 0, 0),
+            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+            (THREE, THREE, ONE, ONE)
+        )
+    ]
+    expected_master_circuit = QuantumCircuit(12)
+    plaquette_ancilla_qubits = AncillaRegister(9)
+    expected_master_circuit.add_register(plaquette_ancilla_qubits)
+    # Only expecting one rotation per plaquette, yielding two total Givens rotations.
+    expected_rotation_gates = {  # Data for constructing the expected circuit.
+        "angle": -0.165,
+        "MCU ctrl state": "00000000011",  # Little endian per qiskit convention.
+        "givens rotations": [
+            {
+                "pivot": 1,
+                "CX targets": [8, 9, 5, 2, 3, 6],
+                "MCU ctrls": [8, 3, 0, 2, 4, 5, 6, 7, 9, 10, 11] # on ctrls first, followed by off, with pivot skipped.
+            },
+            {
+                "pivot": 7,
+                "CX targets": [2, 3, 11, 8, 9, 0],
+                "MCU ctrls": [2, 9, 0, 1, 3, 4, 5, 6, 8, 10, 11]
+            },
+        ]
+    }
+    for rotation_data in expected_rotation_gates["givens rotations"]:
+        # Build subcircuits.
+        Xcirc = QuantumCircuit(12)
+        for target in rotation_data["CX targets"]:
+            Xcirc.cx(
+                control_qubit=rotation_data["pivot"],
+                target_qubit=target
+            )
+        pivot_qubit = [rotation_data["pivot"]]
+        angle = expected_rotation_gates["angle"]
+        ctrls = rotation_data["MCU ctrls"]
+        num_ctrls = len(rotation_data["MCU ctrls"])
+        ctrl_state = expected_rotation_gates["MCU ctrl state"]
+
+        # Givens rotation with ancilla qubits 
+        circ_with_mcx = QuantumCircuit(12);
+        circ_with_mcx.add_register(AncillaRegister(9, "anc"))
+        circ_with_mcx.append(RZGate(-1.0*np.pi/2.0), pivot_qubit)
+        circ_with_mcx.append(RYGate(-1.0*angle), pivot_qubit)
+        circ_with_mcx.mcx(ctrls, pivot_qubit, ancilla_qubits=list(range(12,21)), ctrl_state = ctrl_state, mode='v-chain')
+        circ_with_mcx.append(RYGate(1.0*angle), pivot_qubit)
+        circ_with_mcx.mcx(ctrls, pivot_qubit, ancilla_qubits=list(range(12,21)), ctrl_state = ctrl_state, mode='v-chain')
+        circ_with_mcx.append(RZGate(1.0*np.pi/2.0), pivot_qubit)
+
+        # Construct current expected givens rotation.
+        expected_master_circuit.compose(Xcirc, inplace=True)
+        expected_master_circuit.compose(circ_with_mcx, inplace=True)
+        expected_master_circuit.compose(Xcirc, inplace=True)
+
+    print("Expected circuit:")
+    print(expected_master_circuit)
+
+    # Create master circuit via the magnetic trotter step code.
+    lattice_def = LatticeDef(1.5, 2)
+    lattice_encoder = LatticeStateEncoder(
+        IRREP_TRUNCATION_DICT_1_3_3BAR,
+        dummy_phys_states,
+        lattice=lattice_def)
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager(lattice_encoder,
+                                     dummy_mag_hamiltonian)
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(
+        lattice_registers)
+    circ_mgr.add_ancillas_register_to_lattice_registers(master_circuit, lattice_registers, 
+        control_fusion=False, physical_states_for_control_pruning=None, optimize_circuits=False)
+    circ_mgr.apply_magnetic_trotter_step(
+        master_circuit,
+        lattice_registers,
+        optimize_circuits=False
+    )
+    print("Obtained circuit:")
+    print(master_circuit)
+
+    # Checking equivalence via helper methods for
+    # (1) flattening a circuit down to a single register and (2) comparing
+    # logical equivalence of two circuits.
+    assert _check_circuits_logically_equivalent(_flatten_circuit(master_circuit), _flatten_circuit(expected_master_circuit)), "Encountered inequivalent circuits."
+# TODO: write a test to compare circuits with ancillas and without ancillas. Qiskit doesn't seem to have a clean way to "ignore" registers. 
+# test_givens does have a test for givens rotation equivalence between with and without ancillas, so maybe this test would be redundant
