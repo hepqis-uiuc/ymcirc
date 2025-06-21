@@ -72,7 +72,8 @@ class Plaquette(Generic[T]):
             self,
             lattice: LatticeData,
             bottom_left_vertex: LatticeVector,
-            plane: tuple[LinkUnitVectorLabel, LinkUnitVectorLabel]
+            plane: tuple[LinkUnitVectorLabel, LinkUnitVectorLabel],
+            **kwargs
     ):
         """Initialize a plaquette from a given LatticeData instance, and data to uniquely specify the plaquette."""
         # Sanity checks.
@@ -93,9 +94,9 @@ class Plaquette(Generic[T]):
         for step in [e1, e2, -e1]:
             vertices_ccw.append(lattice.add_unit_vector_to_vertex_vector(vertices_ccw[-1], step))
         link_steps_ccw = [e1, e2, -e1, -e2]
-        self._vertices = tuple([lattice.get_vertex(v) for v in vertices_ccw])
+        self._vertices = tuple([lattice.get_vertex(v, **kwargs) for v in vertices_ccw])
         self._ordered_vertex_vectors = vertices_ccw
-        self._active_links = tuple([lattice.get_link(link_address) for link_address in zip(vertices_ccw, link_steps_ccw)])
+        self._active_links = tuple([lattice.get_link(link_address, **kwargs) for link_address in zip(vertices_ccw, link_steps_ccw)])
         self._lattice = lattice  # DO NOT MUTATE THIS.
 
         # Construct the control link dict, and ordered control link tuple.
@@ -117,13 +118,16 @@ class Plaquette(Generic[T]):
                 if link_dir in active_link_dirs_per_vertex[v]:
                     continue
                 try:
-                    self._control_links[v][(v, link_dir)] = lattice.get_link((v, link_dir))
+                    self._control_links[v][(v, link_dir)] = lattice.get_link((v, link_dir), **kwargs)
                 except KeyError:  # Depending on boundary conditions, KeyErrors can happen that can be skipped.
                     continue
 
         # Remaining properties are simply set from init args.
         self._plane = plane
         self._bottom_left_vertex = bottom_left_vertex
+
+        # Store any kwargs for later use.
+        self._init_kwargs = kwargs
 
     @property
     def active_links(self) -> tuple[T, T, T, T]:
@@ -178,7 +182,7 @@ class Plaquette(Generic[T]):
             raise NotImplementedError(f"Control link ordering for dim-{self._lattice.dim} plaquettes not yet implemented")
         for vertex_idx, vertex_vector in enumerate(self._ordered_vertex_vectors):
             for link_dir in control_link_dirs_per_vertex[vertex_idx]:
-                control_links_ordered.append(self._lattice.get_link((vertex_vector, link_dir)))
+                control_links_ordered.append(self._lattice.get_link((vertex_vector, link_dir), **self._init_kwargs))
 
         return tuple(control_links_ordered)
 
@@ -223,6 +227,13 @@ class LatticeDef:
         )
         self._periodic_boundary_conds = periodic_boundary_conds
         self._configure_lattice(dimensions, size)
+
+    def __eq__(self, o) -> bool:
+        """Equality check based on being the same class and having all the same property values."""
+        if isinstance(o, LatticeDef):
+            return o.__dict__ == self.__dict__
+        else:
+            return False
 
     def _validate_lattice_params(self,
                                  dim: DimensionalitySpecifier,
@@ -419,6 +430,81 @@ class LatticeDef:
 
         return result_vector
 
+    def get_traversal_order(self) -> List[Tuple[LatticeVector, List[LinkAddress]]]:
+        """
+        Walk through all the vertex and link addresses in the lattice in a conventional order.
+
+        The convention for this can be thought of as consisting of two nested for loops.
+        The first for loop is over the vertices of the lattice. Then,
+        for each vertex, another for loop iterates over all the "positive" links
+        leaving that vertex. The iteration over vertices is by ordering on the tuples denoting
+        lattice coordinates.
+
+        Example for d = 2 with periodic boundary conditions:
+
+        (pbc)        (pbc)        (pbc)
+          |            |            |
+          |            |            |
+          l16          l17          l18
+          |            |            |
+          |            |            |
+        (0,2)--l13---(1,2)--l14---(2,2)--l15---- (pbc)
+          |            |            |
+          |            |            |
+          l10          l11          l12
+          |            |            |
+          |            |            |
+        (0,1)---l7---(1,1)---l8---(2,1)---l9---- (pbc)
+          |            |            |
+          |            |            |
+          l4           l5           l6
+          |            |            |
+          |            |            |
+        (0,0)---l1---(1,0)---l2---(2,0)---l3---- (pbc)
+
+
+        This will return a nested list of vertex and link addresses
+        of the following form:
+
+        [
+            ((0,0), [l1, l4]),
+            ((0,1), [l7, l10]),
+            ((0,2), [l13, l16]),
+            ((1,0), [l2, l5]),
+            ...
+        ]
+
+        Note that the link addresses take the form of (for example):
+        l4 == ((0, 0), 2)
+
+        That is: "(vertex vector, positive direction index)".
+
+        In d=3/2, the "top" pbc links in the above diagram are omitted
+        because they do not exist on that lattice.
+        """
+        if self.all_boundary_conds_periodic is False:
+            raise NotImplementedError("Iteration through nonperiodic lattices not yet supported.")
+
+        all_vertex_addresses_sorted = sorted(self.vertex_addresses)
+        all_addresses_traversal_order = []
+        for current_vertex_address in all_vertex_addresses_sorted:
+            link_addresses_following_current_vertex_address = []
+            for positive_direction in range(1, ceil(self.dim) + 1):
+                has_no_vertical_periodic_link_three_halves_case = (
+                    self.dim == 1.5
+                    and positive_direction > 1
+                    and current_vertex_address[1] == 1
+                )
+                if has_no_vertical_periodic_link_three_halves_case:
+                    continue
+
+                current_link_address = (current_vertex_address, positive_direction)
+                link_addresses_following_current_vertex_address.append(current_link_address)
+
+            all_addresses_traversal_order.append((current_vertex_address, link_addresses_following_current_vertex_address))
+
+        return all_addresses_traversal_order
+
     @staticmethod
     def _skip_links_above_or_below_d_equals_three_halves(
             vertex_vector: LatticeVector, direction_label: LinkUnitVectorLabel) -> bool:
@@ -501,7 +587,8 @@ class LatticeData(ABC, LatticeDef, Generic[T]):
     def get_plaquettes(self,
                        lattice_vector: LatticeVector,
                        e1: Union[LinkUnitVectorLabel, None] = None,
-                       e2: Union[LinkUnitVectorLabel, None] = None
+                       e2: Union[LinkUnitVectorLabel, None] = None,
+                       **kwargs
                        ) -> Plaquette[T] | List[Plaquette[T]]:
         """
         Return the list of all "positive" Plaquettes associated with the vertex lattice_vector.
@@ -525,7 +612,7 @@ class LatticeData(ABC, LatticeDef, Generic[T]):
         only_one_link_given = (e1 is None or e2 is None) and (e1 != e2)
 
         if isinstance(e1, int) and isinstance(e2, int):  # Case where both link directions are provided.
-            return Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=(e1, e2))
+            return Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=(e1, e2), **kwargs)
         elif only_one_link_given:  # Nonsense case.
             raise ValueError(
                 "Provide no link directions to get all Plaquettes at a vertex, or exactly two link directions "
@@ -533,87 +620,12 @@ class LatticeData(ABC, LatticeDef, Generic[T]):
             )
         else:  # Case where no link directions provided, need to construct ALL plaquettes.
             if (self.dim == 1.5 or self.dim == 2):  # Only one plaquette for these geometries.
-                return Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=(1, 2))
+                return Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=(1, 2), **kwargs)
             elif self.dim > 2:  # Generic case with multiple planes.
                 set_of_planes = set((i, j) if i < j else None for i, j in product(range(1, ceil(self.dim + 1)), range(1, ceil(self.dim + 1))))
                 not_none_lambda = lambda x: x is not None
                 all_planes = sorted(list(filter(not_none_lambda, set_of_planes)))  # Need to strip out a spurious None
-                return [Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=plane) for plane in all_planes]
-
-    def get_traversal_order(self) -> List[List[LatticeVector, List[LinkAddress]]]:
-        """
-        Walk through all the vertex and link addresses in the lattice in a conventional order.
-
-        The convention for this can be thought of as consisting of two nested for loops.
-        The first for loop is over the vertices of the lattice. Then,
-        for each vertex, another for loop iterates over all the "positive" links
-        leaving that vertex. The iteration over vertices is by ordering on the tuples denoting
-        lattice coordinates.
-
-        Example for d = 2 with periodic boundary conditions:
-
-        (pbc)        (pbc)        (pbc)
-          |            |            |
-          |            |            |
-          l16          l17          l18
-          |            |            |
-          |            |            |
-        (0,2)--l13---(1,2)--l14---(2,2)--l15---- (pbc)
-          |            |            |
-          |            |            |
-          l10          l11          l12
-          |            |            |
-          |            |            |
-        (0,1)---l7---(1,1)---l8---(2,1)---l9---- (pbc)
-          |            |            |
-          |            |            |
-          l4           l5           l6
-          |            |            |
-          |            |            |
-        (0,0)---l1---(1,0)---l2---(2,0)---l3---- (pbc)
-
-
-        This will return a nested list of vertex and link addresses
-        of the following form:
-
-        [
-            [(0,0) [l1, l4]],
-            [(0,1) [l7, l10]],
-            [(0,2) [l13, l16]],
-            [(1,0) [l2, l5]],
-            ...
-        ]
-
-        Note that the link addresses take the form of (for example):
-        l4 == ((0, 0), 2)
-
-        That is: "(vertex vector, positive direction index)".
-
-        In d=3/2, the "top" pbc links in the above diagram are omitted
-        because they do not exist on that lattice.
-        """
-        if self.all_boundary_conds_periodic is False:
-            raise NotImplementedError("Iteration through nonperiodic lattices not yet supported.")
-
-        all_vertex_addresses_sorted = sorted(self.vertex_addresses)
-        all_addresses_traversal_order = []
-        for current_vertex_address in all_vertex_addresses_sorted:
-            link_addresses_following_current_vertex_address = []
-            for positive_direction in range(1, ceil(self.dim) + 1):
-                has_no_vertical_periodic_link_three_halves_case = (
-                    self.dim == 1.5
-                    and positive_direction > 1
-                    and current_vertex_address[1] == 1
-                )
-                if has_no_vertical_periodic_link_three_halves_case:
-                    continue
-
-                current_link_address = (current_vertex_address, positive_direction)
-                link_addresses_following_current_vertex_address.append(current_link_address)
-
-            all_addresses_traversal_order.append([current_vertex_address, link_addresses_following_current_vertex_address])
-
-        return all_addresses_traversal_order
+                return [Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=plane, **kwargs) for plane in all_planes]
 
     def __iter__(self):
         """Use get_traversal_order method for iteration over lattice data."""

@@ -82,7 +82,7 @@ def test_decomp_1_3_3bar_6_6bar_8():
     np.testing.assert_allclose(cmpr_matrx, decomp_matrx, atol=1e-08)  # Setting atol to match defualt np.isclose behavior.
 
 
-def _test_convert_bitstring_to_evalue_d_2_ground_state():
+def test_convert_bitstring_to_evalue_d_2_ground_state():
     print(
         "Testing if the electric energy |E|^2 is being calculated correctly for d = 2 with "
         "a single multiplicity qubit in the lattice ground state."
@@ -107,7 +107,7 @@ def _test_convert_bitstring_to_evalue_d_2_ground_state():
     np.testing.assert_allclose(expected_energy, computed_energy)
 
 
-def _test_convert_bitstring_to_evalue_d_2_excited_state():
+def test_convert_bitstring_to_evalue_d_2_excited_state():
     print(
         "Testing if the electric energy |E|^2 is being calculated correctly for d = 2, "
         "with 2 multiplicity qubits in a lattice state with six excited links."
@@ -141,7 +141,7 @@ def _test_convert_bitstring_to_evalue_d_2_excited_state():
     np.testing.assert_allclose(expected_energy, computed_energy)
 
 
-def _test_convert_bitstring_to_evalue_d_3_2_excited_state():
+def test_convert_bitstring_to_evalue_d_3_2_excited_state():
     print(
         "Testing if the electric energy |E|^2 is being calculated correctly for d = 3/2, "
         "with no multiplicity qubits in a lattice state with one excited link."
@@ -165,7 +165,7 @@ def _test_convert_bitstring_to_evalue_d_3_2_excited_state():
     np.testing.assert_allclose(expected_energy, computed_energy)
 
 
-def _test_convert_bitstring_to_evalue_ignore_unphysical_links():
+def test_convert_bitstring_to_evalue_ignore_unphysical_links():
     print(
         "Testing if the electric energy |E|^2 is being calculated correctly for d = 3/2, T1 truncation "
         "when there's a link in an unphysical state that's set to be ignored, one vertex qubit, and two excited links.")
@@ -193,7 +193,7 @@ def _test_convert_bitstring_to_evalue_ignore_unphysical_links():
     np.testing.assert_allclose(expected_energy, computed_energy)
 
 
-def _test_convert_bitstring_to_evalue_raise_error_on_unphysical_links():
+def test_convert_bitstring_to_evalue_raise_error_on_unphysical_links():
     print(
         "Testing the option to raise an error when encountering unphysical links "
         "for the electric energy |E|^2 calculation.")
@@ -220,7 +220,7 @@ def _test_convert_bitstring_to_evalue_raise_error_on_unphysical_links():
         convert_bitstring_to_evalue(global_lattice_state_bit_string, lattice_encoder, error_on_unphysical_links=True)
 
 
-def _test_convert_bitstring_to_evalue_d_2_T2_truncation():
+def test_convert_bitstring_to_evalue_d_2_T2_truncation():
     print(
         "Check the electric energy calculation for the T2 truncation. "
         "Lattice state has exactly one three, three bar, six, six bar, and four eights, "
