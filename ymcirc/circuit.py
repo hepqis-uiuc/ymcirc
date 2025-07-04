@@ -110,7 +110,7 @@ class LatticeCircuitManager:
             self._mag_hamiltonian = filtered_and_trimmed_mag_hamiltonian
 
     def create_blank_full_lattice_circuit(
-        self, lattice: LatticeRegisters, use_ancillas: bool = False
+        self, lattice: LatticeRegisters
     ) -> QuantumCircuit:
         """
         Return a blank quantum circuit with all link and vertex registers in lattice.
