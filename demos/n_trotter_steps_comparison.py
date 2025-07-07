@@ -74,6 +74,7 @@ error_on_unphysical_links = False  # Raise an error when decoding unphysical unp
 prune_controls = True
 control_fusion = True
 electric_gray_order = True
+use_ancillas = True # Toggles whether to use ancillas or not 
 n_shots = 10000
 
 # Specify plotting options if desired, and whether to save plots/circuits/data to disk
@@ -159,6 +160,17 @@ if __name__ == "__main__":
             circ_mgr = LatticeCircuitManager(lattice_encoder, mag_hamiltonian)
             master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
 
+            # Adds an ancilla register to use in MCX v-chain decomposition if use_ancillas is True
+            if (use_ancillas):
+                print("Using ancillas. Running a single trotter step to finded the minimum required number of ancillas")
+                circ_mgr.add_ancillas_register_to_lattice_registers(master_circuit, lattice_registers, control_fusion=control_fusion, 
+                physical_states_for_control_pruning=physical_plaquette_states,
+                optimize_circuits=run_circuit_optimization)
+                size_of_ancilla_register = circ_mgr.number_of_ancillas_used_in_circuit()
+                print(f"Ancilla register of size {size_of_ancilla_register}"); print("")
+            else:
+                print("Not using ancillas"); print("")
+
             # Compute the rotation angle per trotter step
             # Append a single Trotter step over the lattice.
             # Put this inside a for loop for multiple Trotter steps?
@@ -204,7 +216,8 @@ if __name__ == "__main__":
             print("Running simulation...")
             job = sampler.run([master_circuit], shots = n_shots)
             job_result = job.result()
-            counts_dict_big_endian = {little_endian_state[::-1]: count for little_endian_state, count in job_result[0].data.meas.get_counts().items()}
+            # Ancilla register added at the end; remove those qubits for final state
+            counts_dict_big_endian = {little_endian_state[::-1][:lattice_registers.n_total_qubits]: count for little_endian_state, count in job_result[0].data.meas.get_counts().items()}
             print("Finished.")
 
             # Aggregate data.

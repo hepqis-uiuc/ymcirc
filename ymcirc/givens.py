@@ -9,7 +9,7 @@ two multi-qubit states into each other.
 
 from __future__ import annotations
 from dataclasses import dataclass
-from qiskit import QuantumCircuit
+from qiskit import QuantumCircuit, QuantumRegister, AncillaRegister
 from qiskit.circuit import ControlledGate
 from qiskit.circuit.library.standard_gates import RXGate, RZGate, RYGate, MCXGate
 from qiskit.quantum_info import Operator, Statevector
@@ -68,6 +68,7 @@ def givens(
     bit_string_2: str,
     angle: float,
     encoded_physical_states: Set[str] | None = None,
+    num_ancillas: int = 0,
     reverse: bool = False,
 ) -> QuantumCircuit:
     """
@@ -121,24 +122,33 @@ def givens(
         pruned_ctrls, pruned_ctrl_state = prune_controls(
             lp_fam, ctrls, ctrl_state, encoded_physical_states
         )
+
+        givens_circuit = QuantumCircuit(QuantumRegister(num_qubits))
+        # adds an ancilla register is num_ancillas > 0
+        if (num_ancillas > 0):
+            givens_circuit.add_register(AncillaRegister(num_ancillas))
+
         Xcirc = _build_Xcirc(lp_fam, control=target)
 
         circ = _CRXCircuit_with_MCX([pruned_ctrl_state, pruned_ctrls], 
-            angle, target, num_qubits)
+            angle, target, num_qubits, num_ancillas)
 
         # Assemble the final circuit.
         # Using inplace speeds up circuit composition.
-        circ.compose(Xcirc, inplace=True)
-        Xcirc.compose(circ, inplace=True)
+        givens_circuit.compose(Xcirc, inplace=True)
+        givens_circuit.compose(circ, inplace=True)
+        givens_circuit.compose(Xcirc, inplace=True)
+
         if reverse is True:
-            Xcirc = Xcirc.reverse_bits()
-        return Xcirc
+            givens_circuit = givens_circuit.reverse_bits()
+        return givens_circuit
 
 
 def givens_fused_controls(
     lp_bin_w_angle: List[(str, str, float)],
     lp_bin: LPFamily,
     encoded_physical_states: Set[str] | None,
+    num_ancillas: int = 0,
     reverse: bool = False,
 ) -> QuantumCircuit:
     """
@@ -147,6 +157,8 @@ def givens_fused_controls(
     Inputs:
         - lp_bin_w_angle: list of bitstrings of the same LP family and the angle they have to be rotated by.
         - lp_bin: the LP family the bitstrings in the bin belong to.
+        - encoded_physical_states: the set of physical states for control pruning 
+        - num_ancillas: the number of ancillas to use in the local circuit 
         - reverse: optional argument to deal with endianess issues
 
     Output:
@@ -169,7 +181,9 @@ def givens_fused_controls(
         if no_rotation_is_needed:
             return QuantumCircuit(len(bit_string_1))  # The identity circuit.
 
-    circ = QuantumCircuit(num_qubits)
+    givens_circuit = QuantumCircuit(num_qubits)
+    if (num_ancillas > 0):
+        givens_circuit.add_register(AncillaRegister(num_ancillas))
 
     # Build the circuit.
     if num_qubits == 1:
@@ -182,6 +196,8 @@ def givens_fused_controls(
             if current_idx_is_target_idx is True:
                 target = idx
                 break
+        Xcirc = _build_Xcirc(lp_bin, control=target)
+        givens_circuit.compose(Xcirc, inplace=True)
         # First, fuse controls.
         angle_dict = fuse_controls(lp_bin, lp_bin_w_angle, round_close_angles=True)
         # Now, prune controls.
@@ -193,18 +209,16 @@ def givens_fused_controls(
                     lp_bin, ctrls, ctrl_state, encoded_physical_states
                 )
                 crxcircuit = _CRXCircuit_with_MCX([pruned_ctrl_state, pruned_ctrls], 
-            angle, target, num_qubits)
-                circ.compose(crxcircuit, inplace=True)
-        Xcirc = _build_Xcirc(lp_bin, control=target)
+            angle, target, num_qubits, num_ancillas)
+                givens_circuit.compose(crxcircuit, inplace=True)
 
         # Assemble the final circuit.
         # Using inplace speeds up circuit composition.
-        circ.compose(Xcirc, inplace=True)
-        Xcirc.compose(circ, inplace=True)
+        givens_circuit.compose(Xcirc, inplace=True)
         if reverse is True:
-            Xcirc = Xcirc.reverse_bits()
+            givens_circuit = givens_circuit.reverse_bits()
 
-        return Xcirc
+        return givens_circuit
 
 
 def _compute_ctrls_and_state_for_givens_MCRX(
@@ -445,7 +459,6 @@ def prune_controls(
     if encoded_physical_states == None:
         return (ctrls, ctrl_state)
     else:
-
         q_prime_idx = _determine_target_of_lp_fam(lp_fam)
 
         # Use the LP family and q', compute the states tilde_p after the prefix
@@ -740,7 +753,7 @@ def _CRXGate(num_ctrls: int, ctrl_state: str, angle: float) -> ControlledGate:
     
 
 def _CRXCircuit_with_MCX(ctrl_list: List[Union[str, List[int]]], 
-    angle: float, target: int, num_qubits: int) -> QuantumCircuit:
+    angle: float, target: int, num_qubits: int, num_ancillas: int = 0) -> QuantumCircuit:
     """
     Input:
         - ctrl_List: [ctrls_state, ctrls], where ctrl_list corresponds to the control qubit indices and 
@@ -748,20 +761,33 @@ def _CRXCircuit_with_MCX(ctrl_list: List[Union[str, List[int]]],
         - angle: The rotation angle for the MCU
         - ctrl_state: The target qubit index for the rotation
         - num_qubits: The total qubits in the local rotation
+        - num_ancillas: The number of ancillas used for the local rotation.
     Output:
         - a QuantumCircuit with the circuit decomposition of the RXGate into MCXs 
-        using the ABC decomposition (Corollary 4.2, Nielsen and Chuang)
+        using the ABC decomposition (Corollary 4.2, Nielsen and Chuang). If ancillas are used,
+        then the MCXs are decomposed into CXs with the v-chain method (arXiv:2408.01304, Algorithm 2)
 
     Note: Qubit indices are in little-endian notation
     """
     ctrl_state, ctrls = ctrl_list
     num_ctrls = len(ctrl_state)
     circ_with_mcx = QuantumCircuit(num_qubits)
+    # Add an ancilla register for num_ancillas > 0 and uses v-chain decomposition for MCX 
+    if (num_ancillas > 0):
+        if (num_ancillas  < num_ctrls - 2):
+            ancillas_needed = num_ctrls - 2
+            raise ValueError(f"Too few ancillas for givens rotation. Require at least {ancillas_needed}")
+        plaquette_ancilla_qubits = AncillaRegister(num_ancillas)
+        circ_with_mcx.add_register(plaquette_ancilla_qubits)
+        mode = 'v-chain'
+    else:
+        plaquette_ancilla_qubits = None
+        mode = 'noancilla'
     circ_with_mcx.append(RZGate(-1.0*np.pi/2.0), [target])
     circ_with_mcx.append(RYGate(-1.0*angle/2.0), [target])
-    circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state[::-1]), ctrls + [target])
+    circ_with_mcx.mcx(ctrls, target, ancilla_qubits=plaquette_ancilla_qubits, ctrl_state = ctrl_state[::-1], mode=mode)
     circ_with_mcx.append(RYGate(1.0*angle/2.0), [target])
-    circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state[::-1]), ctrls + [target])
+    circ_with_mcx.mcx(ctrls, target, ancilla_qubits=plaquette_ancilla_qubits, ctrl_state = ctrl_state[::-1], mode=mode)
     circ_with_mcx.append(RZGate(1.0*np.pi/2.0), [target])
     return circ_with_mcx
 
