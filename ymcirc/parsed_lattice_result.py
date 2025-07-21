@@ -29,6 +29,9 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
     Additionally, a LatticeStateEncoder instance is needed because this class contains
     information about how to map bit substrings corresponding to local degrees of
     freedom onto physically meaningful irrep data.
+
+    Note that this class assumes NO ancilla qubits are included in measurement
+    strings!
     """
 
     def __init__(
@@ -46,7 +49,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         expected_num_bits = self.n_links * lattice_encoder.expected_link_bit_string_length + self.n_vertices * lattice_encoder.expected_vertex_bit_string_length
         has_non_binary_char = any(char not in ['0', '1'] for char in global_lattice_measurement_bit_string)
         if expected_num_bits != len(global_lattice_measurement_bit_string):
-            raise ValueError(f"Expecting length-{expected_num_bits} measurement bit string. Encountered length-{len(global_lattice_measurement_bit_string)} bit string.")
+            raise ValueError(f"Expecting length-{expected_num_bits} measurement bit string. Encountered length-{len(global_lattice_measurement_bit_string)} bit string. Please make sure ancilla qubits are stripped out of measurement string.")
         if self.dim != lattice_encoder.lattice_def.dim:
             raise ValueError(f"Specified a dim-{self.dim} lattice, but using a {LatticeStateEncoder.__name__} with dim-{lattice_encoder.lattice_def.dim}.")
         if self.shape != lattice_encoder.lattice_def.shape:
