@@ -132,7 +132,9 @@ class LatticeCircuitManager:
     ) -> None:
         """
         Adds ancilla qubits to the master_circuit for MCU decomposition. Function 
-        uses a single magnetic trotter step to find the minimum required ancillas needed.
+        constructs the circuit for a a single magnetic trotter step to find the minimum
+        required ancillas needed.
+
         For MCX decomposition into v-chain, (maximum number of controls in a trotter step - 2)
         ancilla qubits are added (check internal givens rotation function for reference)
 
@@ -157,7 +159,7 @@ class LatticeCircuitManager:
                                master_circuit.
 
         Returns:
-          Adds an ancilla register to the master_circuit; sets the internal ancilla parameter
+          None (master_circuit is mutated to include a new ancilla register)
         """
         max_controls = 0
 
