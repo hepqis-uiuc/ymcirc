@@ -743,9 +743,10 @@ def test_creating_correct_ancilla_register_for_d_3_2_T1_small():
     master_circuit = circ_mgr.create_blank_full_lattice_circuit(
         lattice_registers)
 
-    circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit, lattice_registers, control_fusion=True, 
+    circ_mgr.num_ancillas = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(master_circuit, lattice_registers, control_fusion=True, 
         physical_states_for_control_pruning=physical_plaquette_states,
         optimize_circuits=False)
+    circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit)
 
     # Number of ancillas for d=3/2, T1, 1x2 with control pruning and fusing found in arXiv:2503.08866
     assert (len(master_circuit.ancillas) == 3), "Ancilla register for d=3/2, T1 with control pruning and fusion is improperly initiated"
@@ -774,9 +775,10 @@ def test_creating_correct_ancilla_register_for_d_2_T1_small():
     master_circuit = circ_mgr.create_blank_full_lattice_circuit(
         lattice_registers)
 
-    circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit, lattice_registers, control_fusion=True, 
+    circ_mgr.num_ancillas = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(master_circuit, lattice_registers, control_fusion=True, 
         physical_states_for_control_pruning=physical_plaquette_states,
         optimize_circuits=False)
+    circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit)
 
     # Number of ancillas for d=2, T1, 2x2 with control pruning and fusing found in arXiv:2503.08866
     assert (len(master_circuit.ancillas) == 7), "Ancilla register for d=2, T1 with control pruning and fusion is improperly initiated"
@@ -805,9 +807,10 @@ def test_magnetic_with_ancilla_has_no_MCX():
     master_circuit_with_ancillas = circ_mgr.create_blank_full_lattice_circuit(
         lattice_registers)
 
-    circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit_with_ancillas, lattice_registers, control_fusion=True, 
+    circ_mgr.num_ancillas = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(master_circuit_with_ancillas, lattice_registers, control_fusion=True, 
         physical_states_for_control_pruning=physical_plaquette_states,
         optimize_circuits=False)
+    circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit_with_ancillas)
 
     circ_mgr.apply_magnetic_trotter_step(master_circuit_with_ancillas, lattice_registers, physical_states_for_control_pruning=physical_plaquette_states, control_fusion=True)
 
@@ -925,8 +928,9 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice_with_ancillas():
                                      dummy_mag_hamiltonian)
     master_circuit = circ_mgr.create_blank_full_lattice_circuit(
         lattice_registers)
-    circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit, lattice_registers, 
+    circ_mgr.num_ancillas = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(master_circuit, lattice_registers, 
         control_fusion=False, physical_states_for_control_pruning=None, optimize_circuits=False)
+    circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit)
     circ_mgr.apply_magnetic_trotter_step(
         master_circuit,
         lattice_registers,
