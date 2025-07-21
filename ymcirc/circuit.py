@@ -163,20 +163,21 @@ class LatticeCircuitManager:
         """
         max_controls = 0
 
-        self.apply_magnetic_trotter_step(master_circuit, lattice,  
-        coupling_g=1.0, dt=1.0, optimize_circuits=optimize_circuits, 
-        physical_states_for_control_pruning=physical_states_for_control_pruning, 
-        control_fusion=control_fusion, cache_mag_evol_circuit = False)
+        # Copy the input circuit to avoid mutating it.
+        circ_for_n_ancillas_check = copy.deepcopy(master_circuit)
 
-        for circuit_instruction in master_circuit.data:
+        self.apply_magnetic_trotter_step(circ_for_n_ancillas_check, lattice,
+                                         coupling_g=1.0, dt=1.0, optimize_circuits=optimize_circuits, 
+                                         physical_states_for_control_pruning=physical_states_for_control_pruning, 
+                                         control_fusion=control_fusion, cache_mag_evol_circuit = False)
+
+        for circuit_instruction in circ_for_n_ancillas_check.data:
             if len(circuit_instruction.operation.name) >= 3 and circuit_instruction.operation.name[:3] == "mcx":
                 max_controls = max(circuit_instruction.operation.num_ctrl_qubits, max_controls)
-       
+
         max_ancillas = max_controls - 2
 
         master_circuit.add_register(AncillaRegister(max_ancillas, "anc"))
-
-        master_circuit.data = []
 
         self._num_ancillas = max_ancillas
 
