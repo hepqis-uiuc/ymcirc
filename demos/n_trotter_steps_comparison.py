@@ -167,9 +167,9 @@ if __name__ == "__main__":
                 physical_states_for_control_pruning=physical_plaquette_states,
                 optimize_circuits=run_circuit_optimization)
                 size_of_ancilla_register = circ_mgr.number_of_ancillas_used_in_circuit()
-                print(f"Ancilla register of size {size_of_ancilla_register}"); print("")
+                print(f"Ancilla register of size {size_of_ancilla_register}.\n")
             else:
-                print("Not using ancillas"); print("")
+                print("Not using ancillas\n.")
 
             # Compute the rotation angle per trotter step
             # Append a single Trotter step over the lattice.
