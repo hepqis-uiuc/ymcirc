@@ -216,7 +216,9 @@ if __name__ == "__main__":
             print("Running simulation...")
             job = sampler.run([master_circuit], shots = n_shots)
             job_result = job.result()
-            # Ancilla register added at the end; remove those qubits for final state
+            # Ancilla register added at the end. This means to strip out those
+            # qubits for final state, we discard the part of the measurement
+            # string after index lattice_registers.n_total_qubits.
             counts_dict_big_endian = {little_endian_state[::-1][:lattice_registers.n_total_qubits]: count for little_endian_state, count in job_result[0].data.meas.get_counts().items()}
             print("Finished.")
 
