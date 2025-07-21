@@ -129,7 +129,7 @@ class LatticeCircuitManager:
         control_fusion: bool = False,
         physical_states_for_control_pruning: Union[None | Set[str]] = None,
         optimize_circuits: bool = False,
-    ) -> QuantumCircuit:
+    ) -> None:
         """
         Adds ancilla qubits to the master_circuit for MCU decomposition. Function 
         uses a single magnetic trotter step to find the minimum required ancillas needed.
