@@ -743,7 +743,7 @@ def test_creating_correct_ancilla_register_for_d_3_2_T1_small():
     master_circuit = circ_mgr.create_blank_full_lattice_circuit(
         lattice_registers)
 
-    circ_mgr.add_ancillas_register_to_lattice_registers(master_circuit, lattice_registers, control_fusion=True, 
+    circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit, lattice_registers, control_fusion=True, 
         physical_states_for_control_pruning=physical_plaquette_states,
         optimize_circuits=False)
 
@@ -774,7 +774,7 @@ def test_creating_correct_ancilla_register_for_d_2_T1_small():
     master_circuit = circ_mgr.create_blank_full_lattice_circuit(
         lattice_registers)
 
-    circ_mgr.add_ancillas_register_to_lattice_registers(master_circuit, lattice_registers, control_fusion=True, 
+    circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit, lattice_registers, control_fusion=True, 
         physical_states_for_control_pruning=physical_plaquette_states,
         optimize_circuits=False)
 
@@ -805,7 +805,7 @@ def test_magnetic_with_ancilla_has_no_MCX():
     master_circuit_with_ancillas = circ_mgr.create_blank_full_lattice_circuit(
         lattice_registers)
 
-    circ_mgr.add_ancillas_register_to_lattice_registers(master_circuit_with_ancillas, lattice_registers, control_fusion=True, 
+    circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit_with_ancillas, lattice_registers, control_fusion=True, 
         physical_states_for_control_pruning=physical_plaquette_states,
         optimize_circuits=False)
 
@@ -925,7 +925,7 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice_with_ancillas():
                                      dummy_mag_hamiltonian)
     master_circuit = circ_mgr.create_blank_full_lattice_circuit(
         lattice_registers)
-    circ_mgr.add_ancillas_register_to_lattice_registers(master_circuit, lattice_registers, 
+    circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit, lattice_registers, 
         control_fusion=False, physical_states_for_control_pruning=None, optimize_circuits=False)
     circ_mgr.apply_magnetic_trotter_step(
         master_circuit,
