@@ -421,14 +421,15 @@ class LatticeCircuitManager:
 
                 # Now that we have the qubits for the current plaquette,
                 # Stitch the local magnetic evolution circuit into master circuit.
-    
+
                 master_circuit.compose(
                     plaquette_local_rotation_circuit,
                     qubits=[
                         *vertex_multiplicity_qubits,
                         *a_link_qubits,
-                        *c_link_qubits
-                    ] + master_circuit.ancillas,
+                        *c_link_qubits,
+                        *master_circuit.ancillas
+                    ],
                     inplace=True
                 )
 
