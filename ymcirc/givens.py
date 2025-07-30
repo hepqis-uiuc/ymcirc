@@ -90,6 +90,10 @@ def givens(
     relevant for "control pruning" where we allow the givens rotation
     to rotate pairs of unphysical states into each other in addition
     to the target states bit_string_1 and bit_string_2.
+
+    If num_ancillas > 0, circuit construction uses v-chain
+    gate synthesis using the provided number of ancillas. This
+    increases qubit cost in order to reduce CX gate depth.
     """
     # Input validation and sanity checks.
     if len(bit_string_1) != len(bit_string_2):
@@ -130,13 +134,13 @@ def givens(
 
         Xcirc = _build_Xcirc(lp_fam, control=target)
 
-        circ = _CRXCircuit_with_MCX([pruned_ctrl_state, pruned_ctrls], 
+        CRXcirc = _CRXCircuit_with_MCX([pruned_ctrl_state, pruned_ctrls], 
             angle, target, num_qubits, num_ancillas)
 
         # Assemble the final circuit.
         # Using inplace speeds up circuit composition.
         givens_circuit.compose(Xcirc, inplace=True)
-        givens_circuit.compose(circ, inplace=True)
+        givens_circuit.compose(CRXcirc, inplace=True)
         givens_circuit.compose(Xcirc, inplace=True)
 
         if reverse is True:
@@ -158,7 +162,9 @@ def givens_fused_controls(
         - lp_bin_w_angle: list of bitstrings of the same LP family and the angle they have to be rotated by.
         - lp_bin: the LP family the bitstrings in the bin belong to.
         - encoded_physical_states: the set of physical states for control pruning 
-        - num_ancillas: the number of ancillas to use in the local circuit 
+        - num_ancillas: the number of ancillas to use in the local circuit. If num_ancillas > 0, circuit construction uses v-chain
+                        gate synthesis using the provided number of ancillas. This
+                        increases qubit cost in order to reduce CX gate depth.
         - reverse: optional argument to deal with endianess issues
 
     Output:
@@ -188,8 +194,8 @@ def givens_fused_controls(
     # Build the circuit.
     if num_qubits == 1:
         # No pre/post computation needed.
-        circ.rx(angle, 0)
-        return circ
+        givens_circuit.rx(angle, 0)
+        return givens_circuit
     else:
         for idx in range(num_qubits):
             current_idx_is_target_idx = lp_bin.value[idx] == "L"
@@ -291,7 +297,7 @@ def _build_Xcirc(lp_fam: LPFamily, control: int) -> QuantumCircuit:
     return Xcirc
 
 
-# TODO: Clean up the implementation of givens2.
+# TODO: Clean up the implementation of givens2, or remove.
 def givens2(strings: list, angle: float, reverse: bool = False) -> QuantumCircuit:
     """
     Build QuantumCircuit rotating two bit strings into each other by angle.
@@ -761,7 +767,10 @@ def _CRXCircuit_with_MCX(ctrl_list: List[Union[str, List[int]]],
         - angle: The rotation angle for the MCU
         - ctrl_state: The target qubit index for the rotation
         - num_qubits: The total qubits in the local rotation
-        - num_ancillas: The number of ancillas used for the local rotation.
+        - num_ancillas: The number of ancillas used for the local rotation. If
+                        num_ancillas > 0, circuit construction uses v-chain
+                        gate synthesis using the provided number of ancillas.
+                        This increases qubit cost in order to reduce CX gate depth.
     Output:
         - a QuantumCircuit with the circuit decomposition of the RXGate into MCXs 
         using the ABC decomposition (Corollary 4.2, Nielsen and Chuang). If ancillas are used,

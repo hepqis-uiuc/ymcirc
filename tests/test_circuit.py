@@ -1,3 +1,5 @@
+import pytest
+import numpy as np
 from ymcirc._abstract import LatticeDef
 from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.conventions import LatticeStateEncoder, ONE, THREE, THREE_BAR, IRREP_TRUNCATION_DICT_1_3_3BAR
@@ -6,8 +8,9 @@ from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.utilities import _flatten_circuit, _check_circuits_logically_equivalent
 from qiskit.circuit import QuantumCircuit, AncillaRegister
 from qiskit.circuit.library.standard_gates import RXGate, RZGate, RYGate, MCXGate
+from qiskit.circuit.exceptions import CircuitError
 from qiskit.quantum_info import Operator, Statevector, DensityMatrix, partial_trace
-import numpy as np
+
 
 
 def test_create_blank_full_lattice_circuit_has_promised_register_order():
@@ -743,9 +746,10 @@ def test_creating_correct_ancilla_register_for_d_3_2_T1_small():
     master_circuit = circ_mgr.create_blank_full_lattice_circuit(
         lattice_registers)
 
-    circ_mgr.add_ancillas_register_to_lattice_registers(master_circuit, lattice_registers, control_fusion=True, 
+    circ_mgr.num_ancillas = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(master_circuit, lattice_registers, control_fusion=True, 
         physical_states_for_control_pruning=physical_plaquette_states,
         optimize_circuits=False)
+    circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit)
 
     # Number of ancillas for d=3/2, T1, 1x2 with control pruning and fusing found in arXiv:2503.08866
     assert (len(master_circuit.ancillas) == 3), "Ancilla register for d=3/2, T1 with control pruning and fusion is improperly initiated"
@@ -774,9 +778,10 @@ def test_creating_correct_ancilla_register_for_d_2_T1_small():
     master_circuit = circ_mgr.create_blank_full_lattice_circuit(
         lattice_registers)
 
-    circ_mgr.add_ancillas_register_to_lattice_registers(master_circuit, lattice_registers, control_fusion=True, 
+    circ_mgr.num_ancillas = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(master_circuit, lattice_registers, control_fusion=True, 
         physical_states_for_control_pruning=physical_plaquette_states,
         optimize_circuits=False)
+    circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit)
 
     # Number of ancillas for d=2, T1, 2x2 with control pruning and fusing found in arXiv:2503.08866
     assert (len(master_circuit.ancillas) == 7), "Ancilla register for d=2, T1 with control pruning and fusion is improperly initiated"
@@ -805,9 +810,10 @@ def test_magnetic_with_ancilla_has_no_MCX():
     master_circuit_with_ancillas = circ_mgr.create_blank_full_lattice_circuit(
         lattice_registers)
 
-    circ_mgr.add_ancillas_register_to_lattice_registers(master_circuit_with_ancillas, lattice_registers, control_fusion=True, 
+    circ_mgr.num_ancillas = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(master_circuit_with_ancillas, lattice_registers, control_fusion=True, 
         physical_states_for_control_pruning=physical_plaquette_states,
         optimize_circuits=False)
+    circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit_with_ancillas)
 
     circ_mgr.apply_magnetic_trotter_step(master_circuit_with_ancillas, lattice_registers, physical_states_for_control_pruning=physical_plaquette_states, control_fusion=True)
 
@@ -925,8 +931,9 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice_with_ancillas():
                                      dummy_mag_hamiltonian)
     master_circuit = circ_mgr.create_blank_full_lattice_circuit(
         lattice_registers)
-    circ_mgr.add_ancillas_register_to_lattice_registers(master_circuit, lattice_registers, 
+    circ_mgr.num_ancillas = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(master_circuit, lattice_registers, 
         control_fusion=False, physical_states_for_control_pruning=None, optimize_circuits=False)
+    circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit)
     circ_mgr.apply_magnetic_trotter_step(
         master_circuit,
         lattice_registers,
@@ -939,5 +946,166 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice_with_ancillas():
     # (1) flattening a circuit down to a single register and (2) comparing
     # logical equivalence of two circuits.
     assert _check_circuits_logically_equivalent(_flatten_circuit(master_circuit), _flatten_circuit(expected_master_circuit)), "Encountered inequivalent circuits."
+
+
+def test_num_ancillas_setter_works_nonnegative_ints():
+    # Some minimal data to create a LatticeCircuitManager.
+    dummy_mag_hamiltonian = [
+        ("00100001" + "00000000", "01010110" + "10011010", 0.33),
+        ("00100001" + "00000000", "01010110" + "10100000", 0.33)
+    ]
+    dummy_phys_states = [
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, ONE, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+            (THREE, THREE_BAR, THREE, THREE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+            (THREE, THREE, ONE, ONE)
+        )
+    ]
+    lattice_def = LatticeDef(1.5, 2)
+    lattice_encoder = LatticeStateEncoder(
+        IRREP_TRUNCATION_DICT_1_3_3BAR,
+        dummy_phys_states,
+        lattice=lattice_def)
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager(lattice_encoder,
+                                     dummy_mag_hamiltonian)
+
+    init_num_ancillas_is_zero = circ_mgr.num_ancillas == 0
+    assert init_num_ancillas_is_zero, "LatticeCircuitManager not initialized with zero ancillas."
+
+    circ_mgr.num_ancillas = 10
+    assert circ_mgr.num_ancillas == 10
+
+    circ_mgr.num_ancillas = 0
+    assert circ_mgr.num_ancillas == 0
+
+
+def test_num_ancillas_setter_fails_for_non_int():
+    # Some minimal data to create a LatticeCircuitManager.
+    dummy_mag_hamiltonian = [
+        ("00100001" + "00000000", "01010110" + "10011010", 0.33),
+        ("00100001" + "00000000", "01010110" + "10100000", 0.33)
+    ]
+    dummy_phys_states = [
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, ONE, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+            (THREE, THREE_BAR, THREE, THREE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+            (THREE, THREE, ONE, ONE)
+        )
+    ]
+    lattice_def = LatticeDef(1.5, 2)
+    lattice_encoder = LatticeStateEncoder(
+        IRREP_TRUNCATION_DICT_1_3_3BAR,
+        dummy_phys_states,
+        lattice=lattice_def)
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager(lattice_encoder,
+                                     dummy_mag_hamiltonian)
+
+    with pytest.raises(TypeError) as e_info:
+        circ_mgr.num_ancillas = 1.0
+
+
+def test_num_ancillas_setter_fails_for_negative_int():
+    # Some minimal data to create a LatticeCircuitManager.
+    dummy_mag_hamiltonian = [
+        ("00100001" + "00000000", "01010110" + "10011010", 0.33),
+        ("00100001" + "00000000", "01010110" + "10100000", 0.33)
+    ]
+    dummy_phys_states = [
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, ONE, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+            (THREE, THREE_BAR, THREE, THREE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+            (THREE, THREE, ONE, ONE)
+        )
+    ]
+    lattice_def = LatticeDef(1.5, 2)
+    lattice_encoder = LatticeStateEncoder(
+        IRREP_TRUNCATION_DICT_1_3_3BAR,
+        dummy_phys_states,
+        lattice=lattice_def)
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager(lattice_encoder,
+                                     dummy_mag_hamiltonian)
+
+    with pytest.raises(ValueError) as e_info:
+        circ_mgr.num_ancillas = -1
+
+
+def test_adding_ancilla_register_fails_if_already_exists():
+    # Some minimal data to create a LatticeCircuitManager.
+    dummy_mag_hamiltonian = [
+        ("00100001" + "00000000", "01010110" + "10011010", 0.33),
+        ("00100001" + "00000000", "01010110" + "10100000", 0.33)
+    ]
+    dummy_phys_states = [
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, ONE, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+            (THREE, THREE_BAR, THREE, THREE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+            (THREE, THREE, ONE, ONE)
+        )
+    ]
+    lattice_def = LatticeDef(1.5, 2)
+    lattice_encoder = LatticeStateEncoder(
+        IRREP_TRUNCATION_DICT_1_3_3BAR,
+        dummy_phys_states,
+        lattice=lattice_def)
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager(lattice_encoder,
+                                     dummy_mag_hamiltonian)
+
+    # Create a circuit with no ancillas.
+    master_circuit = QuantumCircuit(3)
+    assert len(master_circuit.ancillas) == 0
+
+    # Add an ancillas register.
+    circ_mgr.num_ancillas = 10
+    circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit)
+    assert len(master_circuit.ancillas) == 10
+
+    # Adding an ancillas again should fail.
+    with pytest.raises(CircuitError) as e_info:
+        circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit)
+
 # TODO: write a test to compare circuits with ancillas and without ancillas. Qiskit doesn't seem to have a clean way to "ignore" registers. 
 # test_givens does have a test for givens rotation equivalence between with and without ancillas, so maybe this test would be redundant

@@ -162,14 +162,15 @@ if __name__ == "__main__":
 
             # Adds an ancilla register to use in MCX v-chain decomposition if use_ancillas is True
             if (use_ancillas):
-                print("Using ancillas. Running a single trotter step to finded the minimum required number of ancillas")
-                circ_mgr.add_ancillas_register_to_lattice_registers(master_circuit, lattice_registers, control_fusion=control_fusion, 
-                physical_states_for_control_pruning=physical_plaquette_states,
-                optimize_circuits=run_circuit_optimization)
-                size_of_ancilla_register = circ_mgr.number_of_ancillas_used_in_circuit()
-                print(f"Ancilla register of size {size_of_ancilla_register}"); print("")
+                print("Using ancillas. Running a single trotter step to finded the minimum required number of ancillas.")
+                circ_mgr.num_ancillas = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(
+                    master_circuit, lattice_registers, control_fusion=control_fusion,
+                    physical_states_for_control_pruning=physical_plaquette_states,
+                    optimize_circuits=run_circuit_optimization)
+                circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit)
+                print(f"Added an ancilla register of size {circ_mgr.num_ancillas} to the simulation circuit.\n")
             else:
-                print("Not using ancillas"); print("")
+                print("Not using ancillas\n.")
 
             # Compute the rotation angle per trotter step
             # Append a single Trotter step over the lattice.
@@ -216,7 +217,9 @@ if __name__ == "__main__":
             print("Running simulation...")
             job = sampler.run([master_circuit], shots = n_shots)
             job_result = job.result()
-            # Ancilla register added at the end; remove those qubits for final state
+            # Ancilla register added at the end. This means to strip out those
+            # qubits for final state, we discard the part of the measurement
+            # string after index lattice_registers.n_total_qubits.
             counts_dict_big_endian = {little_endian_state[::-1][:lattice_registers.n_total_qubits]: count for little_endian_state, count in job_result[0].data.meas.get_counts().items()}
             print("Finished.")
 

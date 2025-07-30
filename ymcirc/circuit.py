@@ -120,21 +120,23 @@ class LatticeCircuitManager:
         for details
         """
         all_lattice_registers: List[QuantumRegister] = [reg for reg in lattice]
-        
+
         return QuantumCircuit(*all_lattice_registers)
 
-    def add_ancillas_register_to_lattice_registers(
-        self, master_circuit: QuantumCircuit, 
-        lattice: LatticeRegisters,
-        control_fusion: bool = False,
-        physical_states_for_control_pruning: Union[None | Set[str]] = None,
-        optimize_circuits: bool = False,
-    ) -> QuantumCircuit:
+    def compute_num_ancillas_needed_from_mag_trotter_step(
+            self,
+            master_circuit: QuantumCircuit,
+            lattice: LatticeRegisters,
+            control_fusion: bool = False,
+            physical_states_for_control_pruning: Union[None | Set[str]] = None,
+            optimize_circuits: bool = False) -> int:
         """
-        Adds ancilla qubits to the master_circuit for MCU decomposition. Function 
-        uses a single magnetic trotter step to find the minimum required ancillas needed.
+        Computes the number of ancilla qubits needed to perform v-chain synthesis in the master_circuit
+        for MCU decomposition. Function constructs the circuit for asingle magnetic trotter step to find the minimum
+        required ancillas needed.
+
         For MCX decomposition into v-chain, (maximum number of controls in a trotter step - 2)
-        ancilla qubits are added (check internal givens rotation function for reference)
+        is the result (check internal givens rotation function for reference).
 
         Arguments:
           - master_circuit: a QuantumCircuit instance which is built from all
@@ -157,32 +159,49 @@ class LatticeCircuitManager:
                                master_circuit.
 
         Returns:
-          Adds an ancilla register to the master_circuit; sets the internal ancilla parameter
+          int
         """
         max_controls = 0
 
-        self.apply_magnetic_trotter_step(master_circuit, lattice,  
-        coupling_g=1.0, dt=1.0, optimize_circuits=optimize_circuits, 
-        physical_states_for_control_pruning=physical_states_for_control_pruning, 
-        control_fusion=control_fusion, cache_mag_evol_circuit = False)
+        # Copy the input circuit to avoid mutating it.
+        circ_for_n_ancillas_check = copy.deepcopy(master_circuit)
 
-        for circuit_instruction in master_circuit.data:
+        self.apply_magnetic_trotter_step(circ_for_n_ancillas_check, lattice,
+                                         coupling_g=1.0, dt=1.0, optimize_circuits=optimize_circuits, 
+                                         physical_states_for_control_pruning=physical_states_for_control_pruning, 
+                                         control_fusion=control_fusion, cache_mag_evol_circuit = False)
+
+        for circuit_instruction in circ_for_n_ancillas_check.data:
             if len(circuit_instruction.operation.name) >= 3 and circuit_instruction.operation.name[:3] == "mcx":
                 max_controls = max(circuit_instruction.operation.num_ctrl_qubits, max_controls)
-       
-        max_ancillas = max_controls - 2
 
-        master_circuit.add_register(AncillaRegister(max_ancillas, "anc"))
+        max_ancillas_needed = max_controls - 2
 
-        master_circuit.data = []
+        return max_ancillas_needed
 
-        self._num_ancillas = max_ancillas
-
-    def number_of_ancillas_used_in_circuit(self):
-        """
-        External use function to return the number of ancillas used in circuit
-        """
+    @property
+    def num_ancillas(self) -> int:
+        """The size of the ancilla register LatticeCircuitManager expects."""
         return self._num_ancillas
+
+    @num_ancillas.setter
+    def num_ancillas(self, n) -> None:
+        """Set the size of the ancilla register LatticeCircuitManager expects."""
+        # TODO test these validation checks.
+        if not isinstance(n, int):
+            raise TypeError(f"Number of ancillas {n} is not an integer.")
+        if n < 0:
+            raise ValueError(f"Number of ancillas {n} is not nonnegative.")
+
+        self._num_ancillas = n
+
+    def add_ancilla_register_to_quantum_circuit(self, master_circuit: QuantumCircuit) -> None:
+        """
+        Adds ancilla qubits to the master_circuit based on the value of self.num_ancillas.
+
+        Note that this mutates the circuit!
+        """
+        master_circuit.add_register(AncillaRegister(self.num_ancillas, "anc"))
 
     def apply_electric_trotter_step(
         self,
@@ -418,14 +437,15 @@ class LatticeCircuitManager:
 
                 # Now that we have the qubits for the current plaquette,
                 # Stitch the local magnetic evolution circuit into master circuit.
-    
+
                 master_circuit.compose(
                     plaquette_local_rotation_circuit,
                     qubits=[
                         *vertex_multiplicity_qubits,
                         *a_link_qubits,
-                        *c_link_qubits
-                    ] + master_circuit.ancillas,
+                        *c_link_qubits,
+                        *master_circuit.ancillas
+                    ],
                     inplace=True
                 )
 
@@ -459,14 +479,14 @@ class LatticeCircuitManager:
         plaquette_circ_n_qubits = len(
             self._mag_hamiltonian[0][0]
         )  # TODO this is a disgusting way to get the size of the magnetic evol circuit per plaquette.
-        
+
         plaquette_local_rotation_circuit = QuantumCircuit(plaquette_circ_n_qubits)
-        if (self._num_ancillas > 0):
-            plaquette_local_rotation_circuit.add_register(AncillaRegister(self._num_ancillas))
+        if (self.num_ancillas > 0):
+            plaquette_local_rotation_circuit.add_register(AncillaRegister(self.num_ancillas))
         for lp_fam, lp_bin_w_angle in lp_bin.items():
             if control_fusion is True:
                 fused_circ_for_lp_fam = givens_fused_controls(
-                    lp_bin_w_angle, lp_fam, physical_states_for_control_pruning, self._num_ancillas,
+                    lp_bin_w_angle, lp_fam, physical_states_for_control_pruning, self.num_ancillas,
                 )
                 plaquette_local_rotation_circuit.compose(
                     fused_circ_for_lp_fam, inplace=True
@@ -476,7 +496,7 @@ class LatticeCircuitManager:
                 # to all bitstrings.
                 for bs1, bs2, angle in lp_bin_w_angle:
                     bs1_bs2_circuit = givens(
-                        bs1, bs2, angle, physical_states_for_control_pruning, self._num_ancillas,
+                        bs1, bs2, angle, physical_states_for_control_pruning, self.num_ancillas,
                     )
                     plaquette_local_rotation_circuit.compose(
                         bs1_bs2_circuit, inplace=True
