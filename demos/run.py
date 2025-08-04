@@ -67,7 +67,10 @@ def configure_script_options(
               A string of the form
               "d=[diensionality], [truncation]" where "dimensionality"
               can be 3/2, 2, 3, ... and "truncation" is a string specifying what
-              link irrep truncation to use. See ymcirc.conventions for more info.
+              link irrep truncation to use.
+
+              Currently supported configurations: d=3/2, T1 or T2; d=2, T1.
+              See ymcirc.conventions for more info.
         - lattice_size:
               For 2 or more dimensions, the number of vertices in
               each direction for a (hypercubic) lattice. For d=3/2, how many
