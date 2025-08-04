@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from qiskit import QuantumCircuit, QuantumRegister, AncillaRegister
 from qiskit.circuit import ControlledGate
-from qiskit.circuit.library.standard_gates import RXGate, RZGate, RYGate, MCXGate
+from qiskit.circuit.library.standard_gates import RXGate, RZGate, RYGate
 from qiskit.quantum_info import Operator, Statevector
 from random import random
 from math import isclose
