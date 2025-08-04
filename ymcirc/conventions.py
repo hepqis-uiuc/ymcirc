@@ -155,7 +155,7 @@ import copy
 from pathlib import Path
 import numpy as np
 from typing import Tuple, Dict, Union, List
-from ymcirc._abstract import LatticeDef, Plaquette
+from ymcirc._abstract import LatticeDef
 from ymcirc.utilities import LazyDict, json_loader
 
 # Filesystem stuff.
