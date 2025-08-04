@@ -196,41 +196,36 @@ def givens_fused_controls(
         givens_circuit.add_register(AncillaRegister(num_ancillas))
 
     # Build the circuit.
-    if num_qubits == 1:
-        # No pre/post computation needed.
-        givens_circuit.rx(angle, 0)
-        return givens_circuit
-    else:
-        for idx in range(num_qubits):
-            current_idx_is_target_idx = lp_bin.value[idx] == "L"
-            if current_idx_is_target_idx is True:
-                target = idx
-                break
-        Xcirc = _build_Xcirc(lp_bin, control=target)
-        givens_circuit.compose(Xcirc, inplace=True)
-        # First, fuse controls.
-        angle_dict = fuse_controls(lp_bin, lp_bin_w_angle, round_close_angles=True)
-        # Now, prune controls.
-        # Note that this step will become redundant when control_pruning is turned off
-        # i.e., when encoded_physical_states = None.
-        for angle, ctrl_list in angle_dict.items():
-            if angle == 0:  # Skip rotations that don't do anything.
-                continue
-            for ctrls, ctrl_state in ctrl_list:
-                pruned_ctrls, pruned_ctrl_state = prune_controls(
-                    lp_bin, ctrls, ctrl_state, encoded_physical_states
-                )
-                crxcircuit = _CRXCircuit_with_MCX([pruned_ctrl_state, pruned_ctrls], 
-            angle, target, num_qubits, num_ancillas)
-                givens_circuit.compose(crxcircuit, inplace=True)
+    for idx in range(num_qubits):
+        current_idx_is_target_idx = lp_bin.value[idx] == "L"
+        if current_idx_is_target_idx is True:
+            target = idx
+            break
+    Xcirc = _build_Xcirc(lp_bin, control=target)
+    givens_circuit.compose(Xcirc, inplace=True)
+    # First, fuse controls.
+    angle_dict = fuse_controls(lp_bin, lp_bin_w_angle, round_close_angles=True)
+    # Now, prune controls.
+    # Note that this step will become redundant when control_pruning is turned off
+    # i.e., when encoded_physical_states = None.
+    for angle, ctrl_list in angle_dict.items():
+        if angle == 0:  # Skip rotations that don't do anything.
+            continue
+        for ctrls, ctrl_state in ctrl_list:
+            pruned_ctrls, pruned_ctrl_state = prune_controls(
+                lp_bin, ctrls, ctrl_state, encoded_physical_states
+            )
+            crxcircuit = _CRXCircuit_with_MCX([pruned_ctrl_state, pruned_ctrls], 
+        angle, target, num_qubits, num_ancillas)
+            givens_circuit.compose(crxcircuit, inplace=True)
 
-        # Assemble the final circuit.
-        # Using inplace speeds up circuit composition.
-        givens_circuit.compose(Xcirc, inplace=True)
-        if reverse is True:
-            givens_circuit = givens_circuit.reverse_bits()
+    # Assemble the final circuit.
+    # Using inplace speeds up circuit composition.
+    givens_circuit.compose(Xcirc, inplace=True)
+    if reverse is True:
+        givens_circuit = givens_circuit.reverse_bits()
 
-        return givens_circuit
+    return givens_circuit
 
 
 def _compute_ctrls_and_state_for_givens_MCRX(
