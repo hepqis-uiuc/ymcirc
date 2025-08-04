@@ -228,6 +228,23 @@ class LatticeDef:
         self._periodic_boundary_conds = periodic_boundary_conds
         self._configure_lattice(dimensions, size)
 
+    def __repr__(self):
+        class_name = type(self).__name__
+        size = self.shape[0]
+        return f"{class_name}(dim={self.dim}, size={size}, periodic_boundary_conds={self.periodic_boundary_conds})"
+
+    def __str__(self):
+        if isinstance(self.periodic_boundary_conds, bool):
+            boundary_conds_str = 'periodic' if self.periodic_boundary_conds is True else 'open'
+        else:
+            if self.all_boundary_conds_periodic is True:
+                boundary_conds_str = 'periodic'
+            elif False in self.periodic_boundary_conds and any(self.periodic_boundary_conds):
+                boundary_conds_str = 'mixed'
+            else:
+                boundary_conds_str = 'open'
+        return f"d={self.dim}, {self.n_plaquettes} plaquettes, shape={self.shape}, {boundary_conds_str} boundary conditions"
+
     def __eq__(self, o) -> bool:
         """Equality check based on being the same class and having all the same property values."""
         if isinstance(o, LatticeDef):
