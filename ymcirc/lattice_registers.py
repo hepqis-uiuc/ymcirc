@@ -74,6 +74,15 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
         # Declare the actual QuantumRegister instances for lattice DoFs.
         self._initialize_qubit_registers(n_qubits_per_link, n_qubits_per_vertex)
 
+    def __repr__(self):
+        class_name = type(self).__name__
+        size = self.shape[0]
+        return f"{class_name}(dimensions={self.dim}, size={size}, periodic_boundary_conds={self._periodic_boundary_conds}, n_qubits_per_link={self.n_qubits_per_link}, n_qubits_per_vertex={self._n_qubits_per_vertex}, link_bitmap={self.link_bitmap}, vertex_bitmap={self.vertex_bitmap})"
+
+    def __str__(self):
+        lattice_geometry_str = LatticeDef(dimensions=self.dim, size=self.shape[0], periodic_boundary_conds=self.periodic_boundary_conds).__str__()
+        return f"Quantum registers indexable on a lattice with the geometry: {lattice_geometry_str}"        
+
     def _validate_qubit_params(self, n_qubits_per_link: int = 1, n_qubits_per_vertex: int = 1):
         if n_qubits_per_vertex < 0:
             raise ValueError("Vertex registers must have nonnegative integer number of qubits. "

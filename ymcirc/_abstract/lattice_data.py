@@ -129,6 +129,11 @@ class Plaquette(Generic[T]):
         # Store any kwargs for later use.
         self._init_kwargs = kwargs
 
+    def __repr__(self):
+        class_name = type(self).__name__
+        lattice_repr = self._lattice.__repr__()
+        return f"{class_name}({lattice_repr}, {self._bottom_left_vertex}, {self._plane})"
+
     @property
     def active_links(self) -> tuple[T, T, T, T]:
         """Retrieve the data on the active links in counter-clockwise order."""
