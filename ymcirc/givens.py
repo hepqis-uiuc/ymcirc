@@ -104,6 +104,10 @@ def givens(
 
     num_qubits = len(bit_string_1)
 
+    # Do nothing if the rotation angle is zero.
+    if angle == 0:
+        return circ
+
     # Build the circuit.
     if num_qubits == 1:
         # No pre/post computation needed.
@@ -210,6 +214,8 @@ def givens_fused_controls(
         # Note that this step will become redundant when control_pruning is turned off
         # i.e., when encoded_physical_states = None.
         for angle, ctrl_list in angle_dict.items():
+            if angle == 0:  # Skip rotations that don't do anything.
+                continue
             for ctrls, ctrl_state in ctrl_list:
                 pruned_ctrls, pruned_ctrl_state = prune_controls(
                     lp_bin, ctrls, ctrl_state, encoded_physical_states
@@ -756,7 +762,7 @@ def _fuse_ctrls_of_ctrls_list(
 def _CRXGate(num_ctrls: int, ctrl_state: str, angle: float) -> ControlledGate:
     """Returns a RXGate given num_ctrls and ctrl_state"""
     return RXGate(angle).control(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state[::-1])
-    
+
 
 def _CRXCircuit_with_MCX(ctrl_list: List[Union[str, List[int]]], 
     angle: float, target: int, num_qubits: int, num_ancillas: int = 0) -> QuantumCircuit:
