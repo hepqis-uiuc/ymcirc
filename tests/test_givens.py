@@ -2,7 +2,6 @@ from dataclasses import FrozenInstanceError
 import numpy as np
 import pytest
 import random
-# from random import random
 from qiskit import QuantumCircuit
 from qiskit.circuit.library.standard_gates import RXGate, RZGate, RYGate, MCXGate
 from qiskit.quantum_info import Operator, Statevector, DensityMatrix, partial_trace
