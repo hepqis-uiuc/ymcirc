@@ -152,11 +152,16 @@ the ymcirc.circuit module.
 """
 from __future__ import annotations
 import copy
+import logging
 from pathlib import Path
 import numpy as np
 from typing import Tuple, Dict, Union, List
-from ymcirc._abstract import LatticeDef, Plaquette
+from ymcirc._abstract import LatticeDef
 from ymcirc.utilities import LazyDict, json_loader
+
+# Set up module-specific logger
+logger = logging.getLogger(__name__)
+
 
 # Filesystem stuff.
 _PROJECT_ROOT = Path(__file__).parent
@@ -286,6 +291,8 @@ def load_magnetic_hamiltonian(
     if use_2box_hack is False:
         mag_hamiltonian = box_term + box_dagger_term
 
+    logger.info(f"Loaded pre-computed magnetic Hamiltonian data from disk for {dimensionality_and_truncation_string}.")
+        
     return mag_hamiltonian
 
 
@@ -380,6 +387,8 @@ class LatticeStateEncoder:
             raise NotImplementedError("Lattices with different lengths along different dimensions not yet supported.")
         else:
             self._lattice = LatticeDef(lattice.dim, lattice.shape[0], lattice.periodic_boundary_conds)  # Make a new instance to avoid mutating user data!
+
+        logger.info(f"Created lattice encoder.")
 
     @property
     def vertex_bitmap(self) -> VertexMultiplicityBitmap:
@@ -510,6 +519,7 @@ class LatticeStateEncoder:
             raise ValueError(f"Encountered {len(a_links)} active links instead of 4.")
         if len(c_links) != self._lattice.n_control_links_per_plaquette and (override_n_c_links_validation is False):
             raise ValueError(f"Encountered {len(c_links)} control links instead of {self._lattice.n_control_links_per_plaquette}.")
+
         bit_string_encoding = ""
 
         if not len(self._vertex_bitmap) == 0:
@@ -529,6 +539,8 @@ class LatticeStateEncoder:
                                  "They should be length-3 tuples of ints. "
                                  f"Encountered:\n{c_link}.")
             bit_string_encoding += self._link_bitmap[c_link]
+
+        logging.debug(f"Extracted plaquette data. Proceeding to encode.")
 
         return bit_string_encoding
 
@@ -587,6 +599,7 @@ class LatticeStateEncoder:
             decoded_a_links,
             decoded_c_links
         )
+
         return decoded_plaquette
 
     @staticmethod

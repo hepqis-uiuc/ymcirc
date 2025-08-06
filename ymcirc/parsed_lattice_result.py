@@ -1,11 +1,16 @@
 """Wrapper for parsing bit strings obtained from measuring all the registers in a LatticeRegisters instance."""
 from __future__ import annotations
 import copy
+import logging
 from typing import Dict, List, Union
 from ymcirc._abstract.lattice_data import (
     LatticeData, LatticeDef, Plaquette, DimensionalitySpecifier, LatticeVector,
     LinkUnitVectorLabel, LinkAddress)
 from ymcirc.conventions import LatticeStateEncoder, IrrepWeight, MultiplicityIndex
+
+# Set up module-specific logger
+logger = logging.getLogger(__name__)
+
 
 # Type alias to deal with the fact that underlying measurement results
 # are bit strings, and parsed measurement results are either IrrepWeight
@@ -94,6 +99,8 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         # Let's keep these around too. They're handy to have.
         self._global_lattice_measurement_bit_string = global_lattice_measurement_bit_string
         self._lattice_def = lattice_encoder.lattice_def
+
+        logger.debug(f"Parsed lattice measurement bit string '{global_lattice_measurement_bit_string}'.")
 
     @property
     def lattice_def(self) -> LatticeDef:

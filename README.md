@@ -60,3 +60,6 @@ def test_this_is_some_slow_test():
 ```
 pytest --runslow
 ```
+
+## Usage
+See `demos/run.py` for example usage and logging configuration.
