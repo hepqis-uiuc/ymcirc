@@ -14,6 +14,7 @@ from ymcirc.givens import (
     fuse_controls, gray_to_index, givens_fused_controls, bitstring_value_of_LP_family,
     LPOperator
 )
+from ymcirc.utilities import _check_circuits_logically_equivalent
 
 
 def helper_make_random_bitstring(length):
@@ -61,6 +62,28 @@ def test_givens():
             a=actual_givens_circuit_as_operator, b=expected_givens_operator
         ).all(), f"Failed random test on iteration {test_iter_idx + 1} with inputs: str 1 = {str1} and  str 2 = {str2}. Constructed and expected givens operators not close. Largest difference = {np.max(actual_givens_circuit_as_operator-expected_givens_operator)}. " 
 
+
+def test_givens_zero_rotation_angle_gives_identity_circuit():
+    bs1 = "11010"
+    bs2 = "11110"
+    angle = 0
+    n_qubits = 5
+
+    identity_circ = QuantumCircuit(n_qubits)
+    givens_circ = givens(bs1, bs2, angle)
+
+    assert _check_circuits_logically_equivalent(identity_circ, givens_circ, strict=True), f"Expected an identity circuit. Obtained: {givens_circ}"
+
+
+def test_givens_one_qubit_is_just_rx():
+    bs1 = "0"
+    bs2 = "1"
+    angle = 2
+    expected_circ = QuantumCircuit(1)
+    expected_circ.rx(angle, 0)
+    givens_circ = givens(bs1, bs2, angle)
+
+    assert _check_circuits_logically_equivalent(expected_circ, givens_circ, strict=True), f"Expected a single-qubit RX gate. Obtained: {givens_circ}"
 
 def test_Xcirc():
     print("Verifying that the diagonalization subcircuit is correctly constructed.")

@@ -106,13 +106,15 @@ def givens(
 
     # Do nothing if the rotation angle is zero.
     if angle == 0:
-        return circ
+        identity_circuit = QuantumCircuit(QuantumRegister(num_qubits))
+        return identity_circuit
 
     # Build the circuit.
     if num_qubits == 1:
         # No pre/post computation needed.
-        circ.rx(angle, 0)
-        return circ
+        rotation_no_controls_needed_circuit = QuantumCircuit(QuantumRegister(num_qubits))
+        rotation_no_controls_needed_circuit.rx(angle, 0)
+        return rotation_no_controls_needed_circuit
     else:
         for idx in range(num_qubits):
             current_idx_is_target_idx = bit_string_1[idx] != bit_string_2[idx]
