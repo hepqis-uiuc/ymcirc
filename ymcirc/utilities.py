@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 from collections.abc import Mapping
 import json
+import numpy as np
 from pathlib import Path
 from qiskit.circuit import QuantumCircuit, QuantumRegister
 from typing import Dict, List
@@ -71,7 +72,7 @@ def json_loader(json_path: Path) -> Dict | List:
 # The following methods are intended for package-internal use.
 def _check_circuits_logically_equivalent(circ1: QuantumCircuit, circ2: QuantumCircuit, strict: bool = False) -> bool:
     """
-    Check two circuits for logical equivalence.
+    Check two circuits for logical equivalence by checking whether they have the same gates.
 
     If strict is False, then for larger multi control unitaries, just checks for the right ctrl qubits, target qubit, and ctrl state.
 
@@ -80,9 +81,16 @@ def _check_circuits_logically_equivalent(circ1: QuantumCircuit, circ2: QuantumCi
     ops1 = circ1.data
     ops2 = circ2.data
 
+    if len(ops1) != len(ops2):
+        return False
+
     # Scan through ops and check equivalence.
     for idx, (op1, op2) in enumerate(zip(ops1, ops2)):
-        if op1 != op2:
+        try:
+            op1_and_op2_same_matrix = np.allclose(op1.matrix, op2.matrix, atol=1e-15)
+        except TypeError:  # Happens if no matrix data available. Fall back on other checks.
+            op1_and_op2_same_matrix = False
+        if op1_and_op2_same_matrix is False:
             if strict is True:
                 return False
             elif op1.is_controlled_gate() and op2.is_controlled_gate():
