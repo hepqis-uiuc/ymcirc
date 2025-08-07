@@ -11,17 +11,21 @@ See the documentation on the class itself for more information.
 
 ########## Irrep link state bit string encodings ##########
 
-There are two encodings of irrep link states:
+The constant IRREP_TRUNCATIONS is a dict of possible choices of link irrep states
+to include in a simulation. A particular choice of such states is referred to
+as a truncation throughout this codebase. The keys of IRREP_TRUNCATIONS correspond
+to particular choices of truncation, and the values are the actual bit string encodings.
+Currently supported truncations:
 
-- IRREP_TRUNCATION_DICT_1_3_3BAR
-- IRREP_TRUNCATION_DICT_1_3_3BAR_6_6_BAR_8
+- T1: contains 1, 3, 3bar
+- T2: contains T1 along with 6, 6bar, and 8
 
-These are dictionaries which map length-3 tuples to unique bit strings.
+Each truncation is a dictionary which map length-3 tuples to unique bit strings.
 The tuples represent "i-Weights", which are a way of uniquely labeling
 SU(N) irreps which come from working with the Gelfand-Tsetlin pattern calculus.
 See Arne et al for more details (https://doi.org/10.1063/1.3521562).
 As a convenience, the following constants are defined which take on the correct
-i-Weights values:
+i-Weight values:
 
 - ONE = (0, 0, 0)
 - THREE = (1, 0, 0)
@@ -206,18 +210,20 @@ SIX_BAR: IrrepWeight = (2, 2, 0)
 EIGHT: IrrepWeight = (2, 1, 0)
 
 # Irrep encoding bitmaps.
-IRREP_TRUNCATION_DICT_1_3_3BAR: IrrepBitmap = {
-    ONE: "00",
-    THREE: "10",
-    THREE_BAR: "01"
-}
-IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8: IrrepBitmap = {
-    ONE: "000",
-    THREE: "100",
-    THREE_BAR: "001",
-    SIX: "110",
-    SIX_BAR: "011",
-    EIGHT: "111"
+IRREP_TRUNCATIONS: Dict[str, IrrepBitmap] = {
+    "T1": {
+        ONE: "00",
+        THREE: "10",
+        THREE_BAR: "01"
+    },
+    "T2": {
+        ONE: "000",
+        THREE: "100",
+        THREE_BAR: "001",
+        SIX: "110",
+        SIX_BAR: "011",
+        EIGHT: "111"
+    }
 }
 
 # Lazy-load vertex physical plaquette states from precomputed json files.

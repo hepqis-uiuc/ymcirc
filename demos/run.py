@@ -23,8 +23,7 @@ from typing import Any, Set
 from ymcirc._abstract import LatticeDef
 from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.conventions import (
-    IRREP_TRUNCATION_DICT_1_3_3BAR, IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8,
-    LatticeStateEncoder, load_magnetic_hamiltonian, PHYSICAL_PLAQUETTE_STATES)
+    IRREP_TRUNCATIONS, LatticeStateEncoder, load_magnetic_hamiltonian, PHYSICAL_PLAQUETTE_STATES)
 from ymcirc.electric_helper import convert_bitstring_to_evalue, electric_hamiltonian
 from ymcirc.lattice_registers import LatticeRegisters
 
@@ -184,12 +183,7 @@ def configure_script_options(
 
     # Automatically set some additional options based on user input above.
     options["dimensions"] = 1.5 if (dimensionality_string == "d=3/2" or dimensionality_string == "d=1.5") else int(dimensionality_string[2:])
-    if options["truncation_string"] in ["T1", "T1p"]:
-        options["link_bitmap"] = IRREP_TRUNCATION_DICT_1_3_3BAR
-    elif options["truncation_string"] in ["T2"]:
-        options["link_bitmap"] = IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
-    else:
-        raise ValueError(f"Unknown irrep truncation: '{truncation_string}'.")
+    options["link_bitmap"] = IRREP_TRUNCATIONS[options["truncation_string"]]
     options["lattice_def"] = LatticeDef(
         dimensions=options["dimensions"],
         size=options["lattice_size"],

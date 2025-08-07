@@ -1,8 +1,7 @@
 import pytest
 from ymcirc._abstract import LatticeDef
 from ymcirc.conventions import (
-    PHYSICAL_PLAQUETTE_STATES, IRREP_TRUNCATION_DICT_1_3_3BAR,
-    IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8, ONE, THREE,
+    PHYSICAL_PLAQUETTE_STATES, IRREP_TRUNCATIONS, ONE, THREE,
     THREE_BAR, SIX, SIX_BAR, EIGHT,
     LatticeStateEncoder, HAMILTONIAN_BOX_TERMS
 )
@@ -813,7 +812,7 @@ def test_encode_decode_various_vertices():
 def test_encoding_malformed_plaquette_fails():
     lattice_d_3_2 = LatticeDef(1.5, 4)
     lattice_encoder = LatticeStateEncoder(
-        link_bitmap=IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8,
+        link_bitmap=IRREP_TRUNCATIONS["T2"],
         physical_plaquette_states=PHYSICAL_PLAQUETTE_STATES["d=3/2"]["T2"],
         lattice=lattice_d_3_2
     )
@@ -886,9 +885,9 @@ def test_encoding_good_plaquette():
     # d=3/2 T2 and d=2 T1 should have a single bit for multiplicity encoding.
     lattice_d_3_2 = LatticeDef(1.5, 3)
     lattice_d_2 = LatticeDef(2, 2)
-    l_encoder_d_3_2_T1 = LatticeStateEncoder(IRREP_TRUNCATION_DICT_1_3_3BAR, PHYSICAL_PLAQUETTE_STATES["d=3/2"]["T1"], lattice_d_3_2)
-    l_encoder_d_3_2_T2 = LatticeStateEncoder(IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8, PHYSICAL_PLAQUETTE_STATES["d=3/2"]["T2"], lattice_d_3_2)
-    l_encoder_d_2_T1 = LatticeStateEncoder(IRREP_TRUNCATION_DICT_1_3_3BAR, PHYSICAL_PLAQUETTE_STATES["d=2"]["T1"], lattice_d_2)
+    l_encoder_d_3_2_T1 = LatticeStateEncoder(IRREP_TRUNCATIONS["T1"], PHYSICAL_PLAQUETTE_STATES["d=3/2"]["T1"], lattice_d_3_2)
+    l_encoder_d_3_2_T2 = LatticeStateEncoder(IRREP_TRUNCATIONS["T2"], PHYSICAL_PLAQUETTE_STATES["d=3/2"]["T2"], lattice_d_3_2)
+    l_encoder_d_2_T1 = LatticeStateEncoder(IRREP_TRUNCATIONS["T1"], PHYSICAL_PLAQUETTE_STATES["d=2"]["T1"], lattice_d_2)
 
     # Construct test data.
     plaquette_d_3_2_T1 = (
@@ -947,8 +946,7 @@ def test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding():
     )
     for current_dim_string, current_trunc_string, current_expected_bitlength, current_lattice in cases:
         # Make encoder instance.
-        link_bitmap = IRREP_TRUNCATION_DICT_1_3_3BAR if \
-                current_trunc_string == "T1" else IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
+        link_bitmap = IRREP_TRUNCATIONS[current_trunc_string]
         lattice_encoder = LatticeStateEncoder(
             link_bitmap, PHYSICAL_PLAQUETTE_STATES[current_dim_string][current_trunc_string], lattice=current_lattice)
 
@@ -991,7 +989,7 @@ def test_bit_string_decoding_to_plaquette():
             "T1",
             "10101001" + "00001110", # active links + control links (one of which is in a garbage state)
             LatticeDef(3/2, 3),
-            IRREP_TRUNCATION_DICT_1_3_3BAR,
+            IRREP_TRUNCATIONS["T1"],
             (
                 (None, None, None, None),  # When no vertex bitmap needed, should get back None for decoded vertices.
                 (THREE, THREE, THREE, THREE_BAR),
@@ -1003,7 +1001,7 @@ def test_bit_string_decoding_to_plaquette():
             "T2",
             "0001" + "110111000001" + "000000111011",  # vertex multiplicities + active links + control links
             LatticeDef(3/2, 3),
-            IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8,
+            IRREP_TRUNCATIONS["T2"],
             (
                 (0, 0, 0, 1),
                 (SIX, EIGHT, ONE, THREE_BAR),
@@ -1015,7 +1013,7 @@ def test_bit_string_decoding_to_plaquette():
             "T1",
             "1011" + "00000010" + "0101011010000100",  # vertex multiplicities + active links + control links
             LatticeDef(2, 2),
-            IRREP_TRUNCATION_DICT_1_3_3BAR,
+            IRREP_TRUNCATIONS["T1"],
             (
                 (1, 0, 1, 1),
                 (ONE, ONE, ONE, THREE),
