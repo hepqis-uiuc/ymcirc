@@ -9,6 +9,7 @@ two multi-qubit states into each other.
 
 from __future__ import annotations
 from dataclasses import dataclass
+import logging
 from qiskit import QuantumCircuit, QuantumRegister, AncillaRegister
 from qiskit.circuit import ControlledGate
 from qiskit.circuit.library.standard_gates import RXGate, RZGate, RYGate
@@ -18,6 +19,9 @@ from math import isclose
 import numpy as np
 import copy
 from typing import Tuple, List, Set, Dict, Union
+
+# Set up module-specific logger
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -95,6 +99,7 @@ def givens(
     gate synthesis using the provided number of ancillas. This
     increases qubit cost in order to reduce CX gate depth.
     """
+    logger.debug(f"Constructing Givens rotation circuit by angle {angle} for '{bit_string_1}' <-> '{bit_string_2}'.")
     # Input validation and sanity checks.
     if len(bit_string_1) != len(bit_string_2):
         raise ValueError("Bit strings must be the same length.")
@@ -171,6 +176,7 @@ def givens_fused_controls(
     Output:
         QuantumCircuit object that has the necessary givens rotation.
     """
+    logger.debug(f"Constructing fused-control Givens rotation circuit from an LP bin with {len(lp_bin_w_angle)} rotations.")
 
     num_qubits = len(lp_bin_w_angle[0][0])
 

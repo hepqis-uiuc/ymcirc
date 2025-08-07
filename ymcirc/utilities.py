@@ -3,10 +3,14 @@ from __future__ import annotations
 import ast
 from collections.abc import Mapping
 import json
+import logging
 import numpy as np
 from pathlib import Path
 from qiskit.circuit import QuantumCircuit, QuantumRegister
 from typing import Dict, List
+
+# Set up module-specific logger
+logger = logging.getLogger(__name__)
 
 
 class LazyDict(Mapping):
@@ -54,6 +58,7 @@ def json_loader(json_path: Path) -> Dict | List:
     """
     Load the json file at json_path, and return the data as dict or list.
     """
+    logger.debug(f"Loading json data from disk.")
     with json_path.open('r') as json_file:
         raw_data = json.load(json_file)
         # Safer to use ast.literal_eval than eval to convert data keys to tuples.
