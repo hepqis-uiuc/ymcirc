@@ -98,23 +98,19 @@ def givens(
     # Input validation and sanity checks.
     if len(bit_string_1) != len(bit_string_2):
         raise ValueError("Bit strings must be the same length.")
-    no_rotation_is_needed = bit_string_1 == bit_string_2
-    if no_rotation_is_needed:
-        return QuantumCircuit(len(bit_string_1))  # The identity circuit.
 
     num_qubits = len(bit_string_1)
+    givens_circuit = QuantumCircuit(num_qubits)
 
-    # Do nothing if the rotation angle is zero.
-    if angle == 0:
-        identity_circuit = QuantumCircuit(QuantumRegister(num_qubits))
-        return identity_circuit
+    no_rotation_is_needed = (bit_string_1 == bit_string_2) or angle == 0
+    if no_rotation_is_needed:
+        return givens_circuit
 
     # Build the circuit.
     if num_qubits == 1:
         # No pre/post computation needed.
-        rotation_no_controls_needed_circuit = QuantumCircuit(QuantumRegister(num_qubits))
-        rotation_no_controls_needed_circuit.rx(angle, 0)
-        return rotation_no_controls_needed_circuit
+        givens_circuit.rx(angle, 0)
+        return givens_circuit
     else:
         for idx in range(num_qubits):
             current_idx_is_target_idx = bit_string_1[idx] != bit_string_2[idx]
@@ -133,7 +129,6 @@ def givens(
             lp_fam, ctrls, ctrl_state, encoded_physical_states
         )
 
-        givens_circuit = QuantumCircuit(QuantumRegister(num_qubits))
         # adds an ancilla register is num_ancillas > 0
         if (num_ancillas > 0):
             givens_circuit.add_register(AncillaRegister(num_ancillas))
