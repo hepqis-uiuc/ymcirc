@@ -727,19 +727,20 @@ def test_apply_electric_trotter_step_d_3_2_lattice():
 def test_creating_correct_ancilla_register_for_d_3_2_T1_small():
     print("Checking if an ancilla register with the correct number of ancillas are added for d=3/2, T1, 1x2")
 
-    dimensionality_and_truncation_string = "d=3/2, T1"
+    dim_string, trunc_string = ("d=3/2", "T1")
     lattice_def = LatticeDef(1.5, 2)
 
     lattice_encoder = LatticeStateEncoder(
         IRREP_TRUNCATION_DICT_1_3_3BAR,
-        PHYSICAL_PLAQUETTE_STATES[dimensionality_and_truncation_string],
+        PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string],
         lattice=lattice_def)
 
-    physical_plaquette_states = set(lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in PHYSICAL_PLAQUETTE_STATES[dimensionality_and_truncation_string])
+    physical_plaquette_states = set(lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string])
 
     lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
     magnetic_hamiltonian = load_magnetic_hamiltonian(
-        dimensionality_and_truncation_string,
+        dim_string,
+        trunc_string,
         lattice_encoder)
 
     circ_mgr = LatticeCircuitManager(lattice_encoder, magnetic_hamiltonian)
@@ -759,19 +760,20 @@ def test_creating_correct_ancilla_register_for_d_3_2_T1_small():
 def test_creating_correct_ancilla_register_for_d_2_T1_small():
     print("Checking if an ancilla register with the correct number of ancillas are added are added for d=2, T1, 2x2")
 
-    dimensionality_and_truncation_string = "d=2, T1"
+    dim_string, trunc_string = ("d=2", "T1")
     lattice_def = LatticeDef(2, 2)
 
     lattice_encoder = LatticeStateEncoder(
         IRREP_TRUNCATION_DICT_1_3_3BAR,
-        PHYSICAL_PLAQUETTE_STATES[dimensionality_and_truncation_string],
+        PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string],
         lattice=lattice_def)
 
-    physical_plaquette_states = set(lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in PHYSICAL_PLAQUETTE_STATES[dimensionality_and_truncation_string])
+    physical_plaquette_states = set(lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string])
 
     lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
     magnetic_hamiltonian = load_magnetic_hamiltonian(
-        dimensionality_and_truncation_string,
+        dim_string,
+        trunc_string,
         lattice_encoder)
 
     circ_mgr = LatticeCircuitManager(lattice_encoder, magnetic_hamiltonian)
@@ -791,19 +793,20 @@ def test_creating_correct_ancilla_register_for_d_2_T1_small():
 def test_magnetic_with_ancilla_has_no_MCX():
     print("Checking that the MCX gates are properly decomposed in the magnetic trotter step")
 
-    dimensionality_and_truncation_string = "d=3/2, T1"
+    dim_string, trunc_string = ("d=3/2", "T1")
     lattice_def = LatticeDef(1.5, 2)
 
     lattice_encoder = LatticeStateEncoder(
         IRREP_TRUNCATION_DICT_1_3_3BAR,
-        PHYSICAL_PLAQUETTE_STATES[dimensionality_and_truncation_string],
+        PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string],
         lattice=lattice_def)
 
-    physical_plaquette_states = set(lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in PHYSICAL_PLAQUETTE_STATES[dimensionality_and_truncation_string])
+    physical_plaquette_states = set(lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string])
 
     lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
     magnetic_hamiltonian = load_magnetic_hamiltonian(
-        dimensionality_and_truncation_string,
+        dim_string,
+        trunc_string,
         lattice_encoder)
 
     circ_mgr = LatticeCircuitManager(lattice_encoder, magnetic_hamiltonian)

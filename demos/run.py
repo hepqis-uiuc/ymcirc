@@ -30,7 +30,8 @@ from ymcirc.lattice_registers import LatticeRegisters
 
 
 def configure_script_options(
-        dimensionality_and_truncation_string: str,
+        dimensionality_string: str,
+        truncation_string: str,
         lattice_size: int,
         sim_times: np.ndarray | list,
         n_trotter_steps: int,
@@ -63,13 +64,19 @@ def configure_script_options(
     that control the script behavior.
 
     Inputs:
-        - dimensionality_and_truncation_string:
+        - dimensionality_string:
               A string of the form
-              "d=[diensionality], [truncation]" where "dimensionality"
-              can be 3/2, 2, 3, ... and "truncation" is a string specifying what
-              link irrep truncation to use.
+              "d=[dimesionality]" where "dimensionality"
+              can be 3/2, 2, 3, ...
 
               Currently supported configurations: d=3/2, T1 or T2; d=2, T1.
+              See ymcirc.conventions for more info.
+        - truncation_string:
+              A string specifying what link irrep truncation to use.
+
+              Current supported configurations: 'T1' and 'T2', when using d=3/2,
+              'T1' when using d=2.
+
               See ymcirc.conventions for more info.
         - lattice_size:
               For 2 or more dimensions, the number of vertices in
@@ -151,7 +158,8 @@ def configure_script_options(
     options["sim_results_dir"] = sim_results_dir
     options["do_electric_evolution"] = do_electric_evolution
     options["do_magnetic_evolution"] = do_magnetic_evolution
-    options["dimensionality_and_truncation_string"] = dimensionality_and_truncation_string
+    options["dimensionality_string"] = dimensionality_string
+    options["truncation_string"] = truncation_string
     options["lattice_size"] = lattice_size
     options["coupling_g"] = coupling_g
     options["mag_hamiltonian_matrix_element_threshold"] = mag_hamiltonian_matrix_element_threshold
@@ -175,16 +183,13 @@ def configure_script_options(
     options["use_periodic_boundary_conds"] = use_periodic_boundary_conds
 
     # Automatically set some additional options based on user input above.
-    dim_string, trunc_string = dimensionality_and_truncation_string.split(",")
-    options["dim_string"] = dim_string.strip()
-    options["trunc_string"] = trunc_string.strip()
-    options["dimensions"] = 1.5 if (dim_string == "d=3/2" or dim_string == "d=1.5") else int(dim_string[2:])
-    if options["trunc_string"] in ["T1", "T1p"]:
+    options["dimensions"] = 1.5 if (dimensionality_string == "d=3/2" or dimensionality_string == "d=1.5") else int(dimensionality_string[2:])
+    if options["truncation_string"] in ["T1", "T1p"]:
         options["link_bitmap"] = IRREP_TRUNCATION_DICT_1_3_3BAR
-    elif options["trunc_string"] in ["T2"]:
+    elif options["truncation_string"] in ["T2"]:
         options["link_bitmap"] = IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8
     else:
-        raise ValueError(f"Unknown irrep truncation: '{trunc_string}'.")
+        raise ValueError(f"Unknown irrep truncation: '{truncation_string}'.")
     options["lattice_def"] = LatticeDef(
         dimensions=options["dimensions"],
         size=options["lattice_size"],
@@ -205,7 +210,8 @@ def create_circuits(script_options: dict[str, Any]) -> list[QuantumCircuit]:
 
     # Load mag Hamiltonian data.
     mag_hamiltonian = load_magnetic_hamiltonian(
-        script_options["dimensionality_and_truncation_string"],
+        script_options["dimensionality_string"],
+        script_options["truncation_string"],
         lattice_encoder,
         mag_hamiltonian_matrix_element_threshold=script_options["mag_hamiltonian_matrix_element_threshold"],
         only_include_elems_connected_to_electric_vacuum=script_options["mag_hamiltonian_use_electric_vacuum_transitions_only"])
@@ -213,7 +219,7 @@ def create_circuits(script_options: dict[str, Any]) -> list[QuantumCircuit]:
     # Figure out physical states needed for control pruning.
     if script_options["prune_controls"] is True:
         physical_plaquette_states: Set[str] = set(
-            lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in PHYSICAL_PLAQUETTE_STATES[script_options["dimensionality_and_truncation_string"]])
+            lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in PHYSICAL_PLAQUETTE_STATES[script_options["dimensionality_string"]][script_options["truncation_string"]])
     else:
         physical_plaquette_states = None
 
@@ -392,7 +398,7 @@ def plot_data(data: pd.DataFrame, col: str, title: str, script_options: dict[str
 def create_lattice_encoder(script_options: dict[str, Any]) -> None:
     lattice_encoder = LatticeStateEncoder(
         link_bitmap=script_options["link_bitmap"],
-        physical_plaquette_states=PHYSICAL_PLAQUETTE_STATES[script_options["dimensionality_and_truncation_string"]],
+        physical_plaquette_states=PHYSICAL_PLAQUETTE_STATES[script_options["dimensionality_string"]][script_options["truncation_string"]],
         lattice=script_options["lattice_def"])
 
     return lattice_encoder
@@ -406,16 +412,17 @@ if __name__ == "__main__":
     # configure_script_options for an explanation of all
     # available options.
     script_options = configure_script_options(
-        dimensionality_and_truncation_string="d=3/2, T1",
+        dimensionality_string="d=3/2",
+        truncation_string="T1",
         lattice_size=2,
         sim_times=np.linspace(0.0, 2.5, num=20),
         n_trotter_steps=2,
         n_shots=10000,
         use_ancillas=True,
-        save_circuits_to_qasm=True,
+        save_circuits_to_qasm=False,
         save_circuit_diagrams=False,
-        save_plots=True,
-        save_sim_data=True,
+        save_plots=False,
+        save_sim_data=False,
         circ_qasm_dir=PROJECT_ROOT / "serialized-circuits",
         plots_dir=PROJECT_ROOT / "plots",
         sim_results_dir=PROJECT_ROOT / "sim-results",
@@ -423,7 +430,7 @@ if __name__ == "__main__":
     )
 
     # Generate a descriptive prefix for all filenames based on simulation params.
-    simulation_category_str_prefix = f"{script_options['lattice_def'].n_plaquettes}-plaquettes-in-d={script_options['lattice_def'].dim}-irrep_trunc={script_options['trunc_string']}-mat_elem_cut={script_options['mag_hamiltonian_matrix_element_threshold']}-vac_connected_only={script_options['mag_hamiltonian_use_electric_vacuum_transitions_only']}"
+    simulation_category_str_prefix = f"{script_options['lattice_def'].n_plaquettes}-plaquettes-in-d={script_options['lattice_def'].dim}-irrep_trunc={script_options['truncation_string']}-mat_elem_cut={script_options['mag_hamiltonian_matrix_element_threshold']}-vac_connected_only={script_options['mag_hamiltonian_use_electric_vacuum_transitions_only']}"
 
     # Create circuit(s) to simulate, optionally save to disk.
     simulation_circuits = create_circuits(script_options)
