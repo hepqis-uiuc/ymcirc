@@ -109,6 +109,14 @@ class LatticeCircuitManager:
             # Update the magnetic Hamiltonian data with the trimmed, consistent matrix elements.
             self._mag_hamiltonian = filtered_and_trimmed_mag_hamiltonian
 
+    def __repr__(self):
+        class_name = type(self).__name__
+        return f"{class_name}({self._encoder.__repr__()}, {self._mag_hamiltonian})"
+
+    def __str__(self):
+        class_name = type(self).__name__
+        return f"Circuit manager for lattices of type {self._encoder.lattice_def}.\nAncillas: {self.num_ancillas}\nLink bitmap:{self._encoder.link_bitmap}\nVertex bitmap: {self._encoder.vertex_bitmap}"
+
     def create_blank_full_lattice_circuit(
         self, lattice: LatticeRegisters
     ) -> QuantumCircuit:

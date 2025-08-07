@@ -155,7 +155,7 @@ import copy
 from pathlib import Path
 import numpy as np
 from typing import Tuple, Dict, Union, List
-from ymcirc._abstract import LatticeDef, Plaquette
+from ymcirc._abstract import LatticeDef
 from ymcirc.utilities import LazyDict, json_loader
 
 # Filesystem stuff.
@@ -380,6 +380,16 @@ class LatticeStateEncoder:
             raise NotImplementedError("Lattices with different lengths along different dimensions not yet supported.")
         else:
             self._lattice = LatticeDef(lattice.dim, lattice.shape[0], lattice.periodic_boundary_conds)  # Make a new instance to avoid mutating user data!
+
+        # Retain plaquettes states used to create for repr method.
+        self.__physical_plaquette_states = copy.deepcopy(physical_plaquette_states)
+
+    def __repr__(self):
+        class_name = type(self).__name__
+        return f"{class_name}({self.link_bitmap}, {self.__physical_plaquette_states}, {self._lattice.__repr__()})"
+
+    def __str__(self):
+        return f"Lattice encoder:\nlink bitmap = {self.link_bitmap}\nvertex bitmap = {self.vertex_bitmap}\nlattice geometry = {self._lattice}"
 
     @property
     def vertex_bitmap(self) -> VertexMultiplicityBitmap:
