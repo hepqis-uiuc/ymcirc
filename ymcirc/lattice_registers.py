@@ -1,6 +1,7 @@
 """Classes for juggling registers in quantum simulations of lattices."""
 from __future__ import annotations
 import copy
+import logging
 from qiskit.circuit import QuantumRegister  # type: ignore
 from typing import List, Dict, Union
 from ymcirc.conventions import IrrepBitmap, LatticeStateEncoder, VertexMultiplicityBitmap
@@ -9,6 +10,9 @@ from ymcirc._abstract.lattice_data import (
     LinkUnitVectorLabel, LinkAddress, DimensionalitySpecifier,
     VERTICAL_DIR_LABEL, VERTICAL_NUM_VERTICES_D_THREE_HALVES
 )
+
+# Set up module-specific logger
+logger = logging.getLogger(__name__)
 
 
 class LatticeRegisters(LatticeData[QuantumRegister]):
@@ -73,6 +77,8 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
 
         # Declare the actual QuantumRegister instances for lattice DoFs.
         self._initialize_qubit_registers(n_qubits_per_link, n_qubits_per_vertex)
+
+        logger.info(f"Created {self}. Lattice has {self.n_total_qubits} qubits, {self.n_plaquettes} plaquettes, {self.n_links} links, and {self.n_vertices} vertices.")
 
     def __repr__(self):
         class_name = type(self).__name__

@@ -1,8 +1,12 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from itertools import product
+import logging
 from math import ceil, isclose, comb
 from typing import List, Tuple, Union, Set, TypeVar, Generic, Iterable
+
+# Set up module-specific logger
+logger = logging.getLogger(__name__)
 
 # Type aliases and constants.
 LatticeVector = Union[List[int], Tuple[int, ...]]
@@ -504,6 +508,7 @@ class LatticeDef:
         In d=3/2, the "top" pbc links in the above diagram are omitted
         because they do not exist on that lattice.
         """
+        logger.debug("Constructing lattice traversal data.")
         if self.all_boundary_conds_periodic is False:
             raise NotImplementedError("Iteration through nonperiodic lattices not yet supported.")
 
