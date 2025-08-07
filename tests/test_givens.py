@@ -1,48 +1,50 @@
 from dataclasses import FrozenInstanceError
 import numpy as np
 import pytest
-from random import random
-from qiskit import QuantumCircuit, QuantumRegister
+import random
+from qiskit import QuantumCircuit
 from qiskit.circuit.library.standard_gates import RXGate, RZGate, RYGate, MCXGate
 from qiskit.quantum_info import Operator, Statevector, DensityMatrix, partial_trace
 from scipy.linalg import expm
 from ymcirc.givens import (
-    givens, givens2, compute_LP_family, LPFamily, _build_Xcirc,
-    _compute_ctrls_and_state_for_givens_MCRX, _CRXGate, _CRXCircuit_with_MCX,
+    givens, compute_LP_family, LPFamily, _build_Xcirc,
+    _compute_ctrls_and_state_for_givens_MCRX, _CRXCircuit_with_MCX,
     _apply_LP_family_to_bit_string, prune_controls,
     _eliminate_phys_states_that_differ_from_rep_at_Q_idx,
     fuse_controls, gray_to_index, givens_fused_controls, bitstring_value_of_LP_family,
     LPOperator
 )
+from ymcirc.utilities import _check_circuits_logically_equivalent
 
 
-# TODO these are old tests which are grouped into a class to
-# denote that they either need to be refactored or removed.
-class BasicTests:
-    @staticmethod
-    def helper_make_random_bitstring(length):
-        """Helper for testing purposes."""
-        return "".join(f"{int(random()>0.5)}" for _ in range(length))
+def helper_make_random_bitstring(length):
+    """Helper for testing purposes."""
+    return "".join(f"{int(random.random()>0.5)}" for _ in range(length))
 
-    def test_givens():
-        """Testing the givens method."""
 
-        test_circ = QuantumCircuit(2)
-        test_circ.cx(control_qubit=1, target_qubit=0, ctrl_state="1")
-        test_circ.append(RXGate(1).control(ctrl_state="1"), [0, 1])
-        test_circ.cx(control_qubit=1, target_qubit=0, ctrl_state="1")
+def test_givens():
+    """Testing the givens method."""
+    random.seed(0)
 
-        op_test = Operator(test_circ)
-        op_given = givens("01", "10", 1)
-        assert op_test.equiv(op_given), "Failed non-random test."
+    # Test with known bitstring.
+    test_circ = QuantumCircuit(2)
+    test_circ.cx(control_qubit=1, target_qubit=0, ctrl_state="1")
+    test_circ.append(RXGate(1).control(ctrl_state="1"), [0, 1])
+    test_circ.cx(control_qubit=1, target_qubit=0, ctrl_state="1")
 
-        N = int(random() * 5 + 2)
-        str1 = BasicTests.helper_make_random_bitstring()(N)
-        str2 = BasicTests.helper_make_random_bitstring()(N)
+    op_test = Operator(test_circ)
+    op_given = givens("01", "10", 1)
+    assert op_test.equiv(op_given), "Failed non-random test."
+
+    # Test with pairs of random bitstrings.
+    for test_iter_idx in range(20):
+        N = int(random.random() * 5 + 2)
+        str1 = helper_make_random_bitstring(N)
+        str2 = helper_make_random_bitstring(N)
         print(f"First random string = {str1}")
         print(f"Second random string = {str2}")
 
-        angle = random()
+        angle = random.random()
         print(f"Random angle = {angle}")
 
         actual_givens_circuit = givens(str1, str2, angle, reverse=True)
@@ -51,42 +53,37 @@ class BasicTests:
         H = np.zeros((2**N, 2**N))
         H[int(str1, 2), int(str2, 2)] = 1
         H[int(str2, 2), int(str1, 2)] = 1
-        expected_givens_operator = expm(-1j / 2 * angle * H)
+        if not str1 == str2:
+            expected_givens_operator = expm(-1j / 2 * angle * H)
+        else:
+            expected_givens_operator = np.eye(2**N)
 
         assert np.isclose(
             a=actual_givens_circuit_as_operator, b=expected_givens_operator
-        ).all(), f"Failed random test. Constructed and expected givens operators not close. Largest difference = {np.max(actual_givens_circuit_as_operator-expected_givens_operator)}"
+        ).all(), f"Failed random test on iteration {test_iter_idx + 1} with inputs: str 1 = {str1} and  str 2 = {str2}. Constructed and expected givens operators not close. Largest difference = {np.max(actual_givens_circuit_as_operator-expected_givens_operator)}. " 
 
-    # TODO: Fix nondeterministic behavior in this test
-    def test_givens2():
-        """Testing the givens2 method."""
 
-        N = int(random() * 5 + 2)
-        random_strings = [BasicTests.helper_make_random_bitstring()(N) for _ in range(4)]
-        strings = [
-            [random_strings[0], random_strings[1]],
-            [random_strings[2], random_strings[3]],
-        ]
+def test_givens_zero_rotation_angle_gives_identity_circuit():
+    bs1 = "11010"
+    bs2 = "11110"
+    angle = 0
+    n_qubits = 5
 
-        print(f"Strings are {strings}")
+    identity_circ = QuantumCircuit(n_qubits)
+    givens_circ = givens(bs1, bs2, angle)
 
-        angle = random()
-        print(f"Random angle = {angle}")
+    assert _check_circuits_logically_equivalent(identity_circ, givens_circ, strict=True), f"Expected an identity circuit. Obtained: {givens_circ}"
 
-        H = np.zeros((2**N, 2**N))
-        H[int(strings[0][0], 2), int(strings[0][1], 2)] = 1
-        H[int(strings[1][0], 2), int(strings[1][1], 2)] = 1
 
-        H = H + H.transpose()
+def test_givens_one_qubit_is_just_rx():
+    bs1 = "0"
+    bs2 = "1"
+    angle = 2
+    expected_circ = QuantumCircuit(1)
+    expected_circ.rx(angle, 0)
+    givens_circ = givens(bs1, bs2, angle)
 
-        expected_givens2_operator = expm(-1j / 2 * angle * H)
-        givens2_circuit_as_operator = np.array(Operator(givens2(strings, angle)))
-
-        assert np.isclose(
-            a=givens2_circuit_as_operator, b=expected_givens2_operator
-        ).all(), f"Failed random test. Constructed and expected givens operators not close. Largest difference = {np.max(givens2_circuit_as_operator-expected_givens2_operator)}"
-        print("givens2 random test satisfied.")
-
+    assert _check_circuits_logically_equivalent(expected_circ, givens_circ, strict=True), f"Expected a single-qubit RX gate. Obtained: {givens_circ}"
 
 def test_Xcirc():
     print("Verifying that the diagonalization subcircuit is correctly constructed.")
@@ -251,13 +248,12 @@ def test_MCRX_with_MCX_is_same_as_MCU():
     expected_circ.append(multiRX_expected_gate, expected_ctrls + [control_qubit])
     statevector_with_mcu = Statevector.from_instruction(expected_circ)
 
-
     actual_ctrls, actual_ctrl_state = _compute_ctrls_and_state_for_givens_MCRX(
         bs1, bs2, target=control_qubit
     )
     actual_circ = _CRXCircuit_with_MCX([actual_ctrl_state, actual_ctrls], angle, control_qubit, 12, 0)
     statevector_with_mcx = Statevector.from_instruction(actual_circ)
-        
+
     print(f"Expected circuit:\n{statevector_with_mcu}")
     print(f"Obtained circuit:\n{statevector_with_mcx}")
 
@@ -289,7 +285,6 @@ def test_MCRX_with_ancillas():
     )
     expected_circ.append(multiRX_expected_gate, expected_ctrls + [control_qubit])
     statevector_with_mcu = Statevector.from_instruction(expected_circ)
-
 
     actual_ctrls, actual_ctrl_state = _compute_ctrls_and_state_for_givens_MCRX(
         bs1, bs2, target=control_qubit
@@ -325,19 +320,18 @@ def test_MCRX_with_ancillas():
     expected_circ.append(multiRX_expected_gate, expected_ctrls + [control_qubit])
     statevector_with_mcu = Statevector.from_instruction(expected_circ)
 
-
     actual_ctrls, actual_ctrl_state = _compute_ctrls_and_state_for_givens_MCRX(
         bs1, bs2, target=control_qubit
     )
     actual_circ = _CRXCircuit_with_MCX([actual_ctrl_state, actual_ctrls], angle, control_qubit, 6, num_ancillas)
     densitymatrix_ancillas_with_mcx = DensityMatrix.from_instruction(actual_circ)
     statevector_with_mcx = partial_trace(densitymatrix_ancillas_with_mcx, list(range(6,9))).to_statevector()
-        
+
     print(f"Expected circuit:\n{statevector_with_mcu}")
     print(f"Obtained circuit:\n{statevector_with_mcx}")
 
     assert statevector_with_mcx.equiv(statevector_with_mcu), "Encountered unitarily inequivalent circuits"
-    
+
 
 def test_MCRX_with_ancillas_fails_with_less_ancillas():
     print("Verifying that the CRX method in givens catches when there are less than the required ancillas for the circuit")
