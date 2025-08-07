@@ -388,7 +388,17 @@ class LatticeStateEncoder:
         else:
             self._lattice = LatticeDef(lattice.dim, lattice.shape[0], lattice.periodic_boundary_conds)  # Make a new instance to avoid mutating user data!
 
-        logger.info(f"Created lattice encoder.")
+        # Retain plaquettes states used to create for repr method.
+        self.__physical_plaquette_states = copy.deepcopy(physical_plaquette_states)
+
+        logger.info(f"Created {self}.")
+
+    def __repr__(self):
+        class_name = type(self).__name__
+        return f"{class_name}({self.link_bitmap}, {self.__physical_plaquette_states}, {self._lattice.__repr__()})"
+
+    def __str__(self):
+        return f"Lattice encoder:\nlink bitmap = {self.link_bitmap}\nvertex bitmap = {self.vertex_bitmap}\nlattice geometry = {self._lattice}"
 
     @property
     def vertex_bitmap(self) -> VertexMultiplicityBitmap:
