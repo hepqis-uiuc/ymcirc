@@ -11,17 +11,21 @@ See the documentation on the class itself for more information.
 
 ########## Irrep link state bit string encodings ##########
 
-There are two encodings of irrep link states:
+The constant IRREP_TRUNCATIONS is a dict of possible choices of link irrep states
+to include in a simulation. A particular choice of such states is referred to
+as a truncation throughout this codebase. The keys of IRREP_TRUNCATIONS correspond
+to particular choices of truncation, and the values are the actual bit string encodings.
+Currently supported truncations:
 
-- IRREP_TRUNCATION_DICT_1_3_3BAR
-- IRREP_TRUNCATION_DICT_1_3_3BAR_6_6_BAR_8
+- T1: contains 1, 3, 3bar
+- T2: contains T1 along with 6, 6bar, and 8
 
-These are dictionaries which map length-3 tuples to unique bit strings.
+Each truncation is a dictionary which map length-3 tuples to unique bit strings.
 The tuples represent "i-Weights", which are a way of uniquely labeling
 SU(N) irreps which come from working with the Gelfand-Tsetlin pattern calculus.
 See Arne et al for more details (https://doi.org/10.1063/1.3521562).
 As a convenience, the following constants are defined which take on the correct
-i-Weights values:
+i-Weight values:
 
 - ONE = (0, 0, 0)
 - THREE = (1, 0, 0)
@@ -43,7 +47,7 @@ which yield various "multiplicites" of singlets.
 
 ########## Physical plaquette states, and singlet multiplicities ##########
 
-The (lazy-loaded) dict PHYSICAL_PLAQUETTE_STATES consists of all the single-plaquette
+The dict of (lazy-loaded) dicts PHYSICAL_PLAQUETTE_STATES consists of all the single-plaquette
 gauge-invariant states in a particular lattice geometry and truncation. The dict
 contains data for the following cases
 
@@ -55,7 +59,7 @@ T1 refers to the ONE, THREE, THREE_BAR truncation, while T2 includes the
 additional states SIX, SIX_BAR, and EIGHT. To get the physical states for a particular
 case, use the following syntax:
 
-PHYSICAL_PLAQUETTE_STATES["d=2, T2"]
+PHYSICAL_PLAQUETTE_STATES["d=2"]["T2"]
 
 Since the key in this dict is a string, spacing and capitalization is
 necessary. The entries in the physical states dict consist of lists of all the
@@ -122,19 +126,16 @@ and those data can be ignored.
 ########## Magnetic Hamiltonian box term data ##########
 
 Data on the box term of the magnetic Hamiltonian is (lazy) loaded into the dict
-HAMILTONIAN_BOX_TERMS. This dict follows an indexing pattern similar
-to that of VERTEX_SINGLET_BITMAPS, where strings of the form
+HAMILTONIAN_BOX_TERMS. This dict follows an indexing pattern similar to
+that of PHYSICAL_PLAQUETTE_STATES, and contains the same cases.
 
-"d=3/2, T1"
-
-are used to access the matrix elements of a particular lattice dimension
-in a particular irrep truncation. Once a particular case of dimension and
-truncation has been chosed, the actual matrix element data takes the form of a
+Once a particular case of dimension and truncation has been chosen,
+the actual matrix element data takes the form of a
 dictionary whose keys are tuples (final_plaquette_state, initial_plaquette_state)
 and whose values are floats. The plaquette state data consists of nested tuples conveying
 vertex bag states and link states. As an example,
 
-HAMILTONIAN_BOX_TERMS["d=3/2, T1"] = {
+HAMILTONIAN_BOX_TERMS["d=3/2"]["T1"] = {
     (plaq_1, plaq_2): 0.9999999999999994,
     (plaq_3, plaq_4): 0.33333333333333304,
     ...
@@ -167,15 +168,22 @@ logger = logging.getLogger(__name__)
 _PROJECT_ROOT = Path(__file__).parent
 _HAMILTONIAN_DATA_DIR = _PROJECT_ROOT / "_ymcirc_data/magnetic-hamiltonian-box-term-matrix-elements/"
 _PLAQUETTE_STATES_DATA_DIR = _PROJECT_ROOT / "_ymcirc_data/plaquette-states/"
-_HAMILTONIAN_DATA_FILE_PATHS: Dict[str, Path] = {
-    "d=3/2, T1": _HAMILTONIAN_DATA_DIR / "T1_dim(3_2)_magnetic_hamiltonian.json",
-    "d=3/2, T2": _HAMILTONIAN_DATA_DIR / "T2_dim(3_2)_magnetic_hamiltonian.json",
-    "d=2, T1": _HAMILTONIAN_DATA_DIR / "T1_dim(2)_magnetic_hamiltonian.json",
+_HAMILTONIAN_DATA_FILE_PATHS: Dict[str, Dict[str, Path]] = {
+    "d=3/2": {
+        "T1": _HAMILTONIAN_DATA_DIR / "T1_dim(3_2)_magnetic_hamiltonian.json",
+        "T2": _HAMILTONIAN_DATA_DIR / "T2_dim(3_2)_magnetic_hamiltonian.json"},
+    "d=2": {
+        "T1": _HAMILTONIAN_DATA_DIR / "T1_dim(2)_magnetic_hamiltonian.json"
+    }
 }
-_PLAQUETTE_STATES_DATA_FILE_PATHS: Dict[str, Path] = {
-    "d=3/2, T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(3_2)_plaquette_states.json",
-    "d=3/2, T2": _PLAQUETTE_STATES_DATA_DIR / "T2_dim(3_2)_plaquette_states.json",
-    "d=2, T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(2)_plaquette_states.json",
+_PLAQUETTE_STATES_DATA_FILE_PATHS: Dict[str, Dict[str, Path]] = {
+    "d=3/2": {
+        "T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(3_2)_plaquette_states.json",
+        "T2": _PLAQUETTE_STATES_DATA_DIR / "T2_dim(3_2)_plaquette_states.json"
+    },
+    "d=2": {
+        "T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(2)_plaquette_states.json"
+    }
 }
 
 # Useful type aliases.
@@ -207,18 +215,20 @@ SIX_BAR: IrrepWeight = (2, 2, 0)
 EIGHT: IrrepWeight = (2, 1, 0)
 
 # Irrep encoding bitmaps.
-IRREP_TRUNCATION_DICT_1_3_3BAR: IrrepBitmap = {
-    ONE: "00",
-    THREE: "10",
-    THREE_BAR: "01"
-}
-IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8: IrrepBitmap = {
-    ONE: "000",
-    THREE: "100",
-    THREE_BAR: "001",
-    SIX: "110",
-    SIX_BAR: "011",
-    EIGHT: "111"
+IRREP_TRUNCATIONS: Dict[str, IrrepBitmap] = {
+    "T1": {
+        ONE: "00",
+        THREE: "10",
+        THREE_BAR: "01"
+    },
+    "T2": {
+        ONE: "000",
+        THREE: "100",
+        THREE_BAR: "001",
+        SIX: "110",
+        SIX_BAR: "011",
+        EIGHT: "111"
+    }
 }
 
 # Lazy-load vertex physical plaquette states from precomputed json files.
@@ -226,24 +236,25 @@ IRREP_TRUNCATION_DICT_1_3_3BAR_6_6BAR_8: IrrepBitmap = {
 # where s is a tuple of 4 site multiplicity indices,
 # a is a tuple of 4 "active link" iweights,
 # and c is a variable-length tuple of "control_link" iweights.
-PHYSICAL_PLAQUETTE_STATES: LazyDict = LazyDict({
-    dim_trunc_case: (json_loader, file_path)
-    for dim_trunc_case, file_path in _PLAQUETTE_STATES_DATA_FILE_PATHS.items()
-})
+PHYSICAL_PLAQUETTE_STATES: Dict[str, LazyDict] = {
+    dim_string: LazyDict({trunc_string: (json_loader, file_path) for trunc_string, file_path in _PLAQUETTE_STATES_DATA_FILE_PATHS[dim_string].items()})
+    for dim_string in _PLAQUETTE_STATES_DATA_FILE_PATHS.keys()
+}
 
 # Lazy-load magnetic Hamiltonian box terms from precomputed json files.
 # The following magnetic Hamiltonian box term data is available:
 # d=3/2, T1
 # d=3/2, T2
 # d=2, T1
-HAMILTONIAN_BOX_TERMS: LazyDict = LazyDict({
-    dim_trunc_case: (json_loader, file_path)
-    for dim_trunc_case, file_path in _HAMILTONIAN_DATA_FILE_PATHS.items()
-})
+HAMILTONIAN_BOX_TERMS:  Dict[str, LazyDict] = {
+    dim_string: LazyDict({trunc_string: (json_loader, file_path) for trunc_string, file_path in _HAMILTONIAN_DATA_FILE_PATHS[dim_string].items()})
+    for dim_string in _HAMILTONIAN_DATA_FILE_PATHS.keys()
+}
 
 
 def load_magnetic_hamiltonian(
-        dimensionality_and_truncation_string: str,
+        dim_string: str,
+        trunc_string: str,
         lattice_encoder: LatticeStateEncoder,
         mag_hamiltonian_matrix_element_threshold: float = 0,
         only_include_elems_connected_to_electric_vacuum: bool = False,
@@ -260,8 +271,11 @@ def load_magnetic_hamiltonian(
     value of the matrix element.
 
     Necessary arguments:
-      - dimensionality_and_truncation_string: a string of the form "d=3/2, T2" which specifies
-        the particular matrix elements for a given dimensionality and irrep truncation. See
+      - dim_string: a string of the form "d=3/2" which specifies what
+        dimensionality lattice to assume when loading magnetic Hamiltonian data. See
+        the module docstring on ymcirc.conventions for more information.
+      - trunc_string: a string of the form "T1" which specifies
+        the particular link irrep truncation type to assume when loading magnetic Hamiltonian data. See
         the module docstring on ymcirc.conventions for more information.
       - lattice_encoder: A LatticeStateEncoder instance that allows en/decoding lattices states
         as bit strings.
@@ -275,7 +289,7 @@ def load_magnetic_hamiltonian(
     if use_2box_hack is False:
         box_term: List[Tuple[str, str, float]] = []
         box_dagger_term: List[Tuple[str, str, float]] = []
-    for (final_plaquette_state, initial_plaquette_state), matrix_element_value in HAMILTONIAN_BOX_TERMS[dimensionality_and_truncation_string].items():
+    for (final_plaquette_state, initial_plaquette_state), matrix_element_value in HAMILTONIAN_BOX_TERMS[dim_string][trunc_string].items():
         if abs(matrix_element_value) < mag_hamiltonian_matrix_element_threshold:
             continue
         final_state_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(final_plaquette_state)
@@ -291,7 +305,7 @@ def load_magnetic_hamiltonian(
     if use_2box_hack is False:
         mag_hamiltonian = box_term + box_dagger_term
 
-    logger.info(f"Loaded pre-computed magnetic Hamiltonian data from disk for {dimensionality_and_truncation_string}.")
+    logger.info(f"Loaded pre-computed magnetic Hamiltonian data from disk for {dim_string}, {trunc_string}.")
         
     return mag_hamiltonian
 

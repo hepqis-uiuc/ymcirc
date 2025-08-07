@@ -4,7 +4,7 @@ A collection of utilities for building circuits.
 from __future__ import annotations
 import copy
 import logging
-from ymcirc.conventions import PlaquetteState, LatticeStateEncoder, IRREP_TRUNCATION_DICT_1_3_3BAR, ONE, THREE, THREE_BAR
+from ymcirc.conventions import PlaquetteState, LatticeStateEncoder, ONE, THREE, THREE_BAR
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import (
     givens,
