@@ -10,6 +10,7 @@ parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(parent_dir)
 
 import copy
+import logging
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 import numpy as np
@@ -398,9 +399,31 @@ def create_lattice_encoder(script_options: dict[str, Any]) -> None:
     return lattice_encoder
 
 
+def config_ymcirc_logger(level) -> None:
+    """
+    Set using the logging module.
+
+    Options for level (from most to least 'noisy'):
+      - logging.DEBUG
+      - logging.INFO
+      - logging.WARNING (this is the default level)
+      - logging.ERROR
+      - logging.CRITICAL
+    """
+    # Set log level
+    logger = logging.getLogger("ymcirc")
+    logging.getLogger('ymcirc').setLevel(level)
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter('%(name)s:%(levelname)s:%(message)s'))
+    logger.addHandler(handler)
+
+
 if __name__ == "__main__":
     # Set project root directory. Change as appropriate.
     PROJECT_ROOT = Path(__file__).parent.parent
+
+    # Set log level for ymcirc.
+    config_ymcirc_logger(logging.INFO)
 
     # Set simulation parameters here. See the docstring on
     # configure_script_options for an explanation of all

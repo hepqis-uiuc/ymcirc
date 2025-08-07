@@ -6,11 +6,14 @@ construct the Pauli decomposition for matrix with 1 at (i,i) and weights
 decomposition by the electric Casimir (according to the link_bitmap).
 """
 from __future__ import annotations
+import logging
 from ymcirc.conventions import (IrrepWeight, BitString, IrrepBitmap,
                                 LatticeStateEncoder)
 from ymcirc.parsed_lattice_result import ParsedLatticeResult
 from typing import List
-import warnings
+
+# Set up module-specific logger
+logger = logging.getLogger(__name__)
 
 
 def _bitwise_addition(bit_string_1: str | BitString,
@@ -101,7 +104,7 @@ def convert_bitstring_to_evalue(
                 )
             elif link_is_unphysical and warn_on_unphysical_links:
                 warning_msg = f"Unphysical link state encountered at link address {link_address} during computation of electric energy."
-                warnings.warn(warning_msg)
+                logger.warning(warning_msg)
                 evalue += 0
             else:
                 if not isinstance(current_link_iweight, tuple):
@@ -124,5 +127,7 @@ def electric_hamiltonian(link_bitmap: IrrepBitmap) -> List[float]:
                                casimir=casimir_values[i])
         for i in range(len(list(link_bitmap.values())))
     ]
+
+    logger.debug(f"Computing electric Hamiltonian for link bitmap: {link_bitmap}")
 
     return [sum(x) for x in zip(*pauli_strings)]

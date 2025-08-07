@@ -3,6 +3,7 @@ A collection of utilities for building circuits.
 """
 from __future__ import annotations
 import copy
+import logging
 from ymcirc.conventions import PlaquetteState, LatticeStateEncoder, ONE, THREE, THREE_BAR
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import (
@@ -23,6 +24,10 @@ from qiskit.transpiler import PassManager
 from qiskit.transpiler.passes import InverseCancellation
 from typing import List, Tuple, Set, Union, Dict
 import numpy as np
+
+# Set up module-specific logger
+logger = logging.getLogger(__name__)
+
 
 # A list of tuples: (state bitstring1, state bitstring2, matrix element)
 HamiltonianData = List[Tuple[str, str, float]]
@@ -108,6 +113,14 @@ class LatticeCircuitManager:
 
             # Update the magnetic Hamiltonian data with the trimmed, consistent matrix elements.
             self._mag_hamiltonian = filtered_and_trimmed_mag_hamiltonian
+
+    def __repr__(self):
+        class_name = type(self).__name__
+        return f"{class_name}({self._encoder.__repr__()}, {self._mag_hamiltonian})"
+
+    def __str__(self):
+        class_name = type(self).__name__
+        return f"Circuit manager for lattices of type {self._encoder.lattice_def}.\nAncillas: {self.num_ancillas}\nLink bitmap:{self._encoder.link_bitmap}\nVertex bitmap: {self._encoder.vertex_bitmap}"
 
     def create_blank_full_lattice_circuit(
         self, lattice: LatticeRegisters
@@ -361,10 +374,10 @@ class LatticeCircuitManager:
             )
         )
         if cache_mag_evol_circuit is True and not mag_evol_recomputation_needed:
-            print("Fetching cached magnetic evolution circuit.")
+            logger.debug("Fetching cached magnetic evolution circuit.")
             plaquette_local_rotation_circuit = self._cached_mag_evol_circuit
         else:
-            print("Building magnetic evolution circuit.")
+            logger.info("Building magnetic evolution circuit.")
             plaquette_local_rotation_circuit = self._build_mag_evol_circuit(
                 control_fusion,
                 physical_states_for_control_pruning,
@@ -373,7 +386,7 @@ class LatticeCircuitManager:
                 optimize_circuits,
             )
             if cache_mag_evol_circuit is True:
-                print("Storing magnetic evolution circuit in cache.")
+                logger.debug("Storing magnetic evolution circuit in cache.")
                 self._cached_mag_evol_circuit = plaquette_local_rotation_circuit
                 self._cached_mag_evol_params = {
                     "coupling_g": coupling_g,
@@ -394,7 +407,7 @@ class LatticeCircuitManager:
                 continue
 
             # Get the plaquettes for the current vertex.
-            print(f"Fetching all positive plaquettes at vertex {vertex_address}.")
+            logger.debug(f"Fetching all positive plaquettes at vertex {vertex_address}.")
             has_only_one_positive_plaquette = lattice.dim == 1.5 or lattice.dim == 2
             if has_only_one_positive_plaquette:
                 plaquettes: List[Plaquette] = [
@@ -402,7 +415,7 @@ class LatticeCircuitManager:
                 ]
             else:
                 plaquettes: List[Plaquette] = lattice.get_plaquettes(vertex_address)
-            print(f"Found {len(plaquettes)} plaquette(s).")
+            logger.debug(f"Found {len(plaquettes)} plaquette(s).")
 
             # For each plaquette, apply the the local Trotter step circuit.
             for plaquette in plaquettes:
