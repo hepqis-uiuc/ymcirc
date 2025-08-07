@@ -400,6 +400,16 @@ def create_lattice_encoder(script_options: dict[str, Any]) -> None:
 
 
 def config_ymcirc_logger(level) -> None:
+    """
+    Set using the logging module.
+
+    Options for level (from most to least 'noisy'):
+      - logging.DEBUG
+      - logging.INFO
+      - logging.WARNING (this is the default level)
+      - logging.ERROR
+      - logging.CRITICAL
+    """
     # Set log level
     logger = logging.getLogger("ymcirc")
     logging.getLogger('ymcirc').setLevel(level)
@@ -413,7 +423,7 @@ if __name__ == "__main__":
     PROJECT_ROOT = Path(__file__).parent.parent
 
     # Set log level for ymcirc.
-    config_ymcirc_logger(logging.DEBUG)
+    config_ymcirc_logger(logging.INFO)
 
     # Set simulation parameters here. See the docstring on
     # configure_script_options for an explanation of all
