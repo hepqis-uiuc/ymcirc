@@ -18,7 +18,7 @@ from ymcirc._abstract.lattice_data import Plaquette
 from ymcirc.utilities import _check_circuits_logically_equivalent, _flatten_circuit
 from math import ceil
 from qiskit import transpile
-from qiskit.circuit import QuantumCircuit, QuantumRegister, AncillaRegister
+from qiskit.circuit import Parameter, QuantumCircuit, QuantumRegister, AncillaRegister
 from qiskit.circuit.library.standard_gates import RXGate, CXGate
 from qiskit.transpiler import PassManager
 from qiskit.transpiler.passes import InverseCancellation
@@ -122,6 +122,19 @@ class LatticeCircuitManager:
         class_name = type(self).__name__
         return f"Circuit manager for lattices of type {self._encoder.lattice_def}.\nAncillas: {self.num_ancillas}\nLink bitmap:{self._encoder.link_bitmap}\nVertex bitmap: {self._encoder.vertex_bitmap}"
 
+    @staticmethod
+    def _count_parameters_in_circ(circ: QuantumCircuit, name_prefixes: list[str], separator: str = ',') -> list[int]:
+        n_params_list = [0,] * len(name_prefixes)
+        if len(circ.parameters) > 0:
+            for param in circ.parameters:
+                param_prefix, param_num = param.split(separator)
+                for idx, prefix in enumerate(name_prefixes):
+                    if param_prefix is name_prefixes[idx]:
+                        n_params_list[idx] += 1
+
+        return n_params_list
+
+
     def create_blank_full_lattice_circuit(
         self, lattice: LatticeRegisters
     ) -> QuantumCircuit:
@@ -130,7 +143,7 @@ class LatticeCircuitManager:
 
         This uses an ordering which is specified in the LatticeData class which is
         a parent class of LatticeRegisters. See the documentation on LatticeData
-        for details
+        for details.
         """
         all_lattice_registers: List[QuantumRegister] = [reg for reg in lattice]
 
@@ -221,12 +234,18 @@ class LatticeCircuitManager:
         master_circuit: QuantumCircuit,
         lattice: LatticeRegisters,
         hamiltonian: list[float],
-        coupling_g: float = 1.0,
-        dt: float = 1.0,
         electric_gray_order: bool = False
     ) -> None:
         """
         Perform an electric Trotter step.
+
+        Appends a circuit with the following new Parameter instances:
+            - 'dt_ee,n' (the size of the Trotter time step)
+            - 'coupling_g_ee,n' (strong coupling constant value)
+        where 'n' is the number of dt_ee and coupling_g_ee parameters that
+        already exist in master_circuit. If 'n' is different for the dt
+        and coupling_g parameters, an error is raised.
+
 
         Implementation uses CX and Zs to implement rotations of Z, I Paulis.
         The single link electric Trotter step is constructed through Z, I
@@ -243,8 +262,6 @@ class LatticeCircuitManager:
                           coefficients s.t. for hamiltonian[i] = coeff, coeff
                           is coeff of bitstring(i) with 'Z'=1 and 'I'=0 in the
                           bitstring.
-            - coupling_g: The value of the strong coupling constant.
-            - dt: The size of the Trotter time step.
             - electric_gray_order: The Pauli bitstrings corresponding to the Pauli
                                     decomposition of the electric hamiltonian will 
                                     be gray-code ordered if this option is set to be
@@ -252,18 +269,25 @@ class LatticeCircuitManager:
 
 
         Returns:
-            A new QuantumCircuit instance which is master_circuit with the
-            electric Trotter step appended.
+            None (master_circuit has the electric Trotter step appended)
         """
+        # Construct the dt and coupling parameters for the current electric Trotter step.
+        name_prefixes = ['dt_ee', 'coupling_g_ee']
+        n_dt_ee_params, n_coupling_g_ee_params = LatticeCircuitManager._count_parameters_in_circ(master_circuit, name_prefixes)
+        if n_dt_ee_params != n_coupling_g_ee_params:
+            raise NotImplementedError("Different number of electric dt and electric coupling_g Parameters encountered.")
+        dt_ee_current = Parameter(f'dt_ee,{n_dt_ee_params}')
+        coupling_g_ee_current = Paramter(f'coupling_g_ee,{n_coupling_g_ee_params}')
+
         N = int(np.log2(len(hamiltonian)))
-        angle_mod = ((coupling_g**2) / 2) * dt
+        angle_mod = ((coupling_g_ee_current**2) / 2) * dt_ee_current
         local_circuit = QuantumCircuit(N)
 
         # Use the index of the local Pauli-decomposed electric hamiltonian to generate the Pauli bitstrings.
         pauli_bitstring_list = [str("{0:0" + str(N) + "b}").format(i) for i in range(len(hamiltonian))]
         pauli_decomposed_hamiltonian = zip(pauli_bitstring_list,hamiltonian)
         # Gray-Order the Pauli-bitstrings if electric_gray_order == True.
-        if electric_gray_order == True:
+        if electric_gray_order is True:
             pauli_decomposed_hamiltonian = sorted(pauli_decomposed_hamiltonian,key=lambda x: gray_to_index(x[0]))
 
         # The parity circuit primitive of CXs and Zs.
