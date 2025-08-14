@@ -19,7 +19,7 @@ from pathlib import Path
 from qiskit import transpile
 from qiskit_aer.primitives import SamplerV2
 from qiskit.circuit import QuantumCircuit
-from qiskit.qasm2 import dumps
+from qiskit.qasm3 import dumps
 from typing import Any, Set
 from ymcirc._abstract import LatticeDef
 from ymcirc.circuit import LatticeCircuitManager
