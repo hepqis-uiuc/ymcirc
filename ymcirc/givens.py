@@ -70,7 +70,7 @@ class LPFamily:
 def givens(
     bit_string_1: str,
     bit_string_2: str,
-    angle: float,
+    angle: float, # TODO can be a Parameter or ParameterExpression
     encoded_physical_states: Set[str] | None = None,
     num_ancillas: int = 0,
     reverse: bool = False,
@@ -107,7 +107,7 @@ def givens(
     num_qubits = len(bit_string_1)
     givens_circuit = QuantumCircuit(num_qubits)
 
-    no_rotation_is_needed = (bit_string_1 == bit_string_2) or angle == 0
+    no_rotation_is_needed = (bit_string_1 == bit_string_2) or angle == 0  # TODO what if parameter?
     if no_rotation_is_needed:
         return givens_circuit
 
@@ -212,7 +212,7 @@ def givens_fused_controls(
     # Note that this step will become redundant when control_pruning is turned off
     # i.e., when encoded_physical_states = None.
     for angle, ctrl_list in angle_dict.items():
-        if angle == 0:  # Skip rotations that don't do anything.
+        if angle == 0:  # Skip rotations that don't do anything.  # TODO this is broken if angle is a ParameterExpression?
             continue
         for ctrls, ctrl_state in ctrl_list:
             pruned_ctrls, pruned_ctrl_state = prune_controls(
@@ -420,7 +420,7 @@ def prune_controls(
         return (pruned_ctrls, pruned_ctrl_state)
 
 
-def fuse_controls(
+def fuse_controls( # TODO update type hints to include paramter
     lp_fam: LPFamily,
     lp_bin_w_angle: List[(str, str, float)],
     round_close_angles: bool = True,
@@ -455,7 +455,7 @@ def fuse_controls(
         # Find or create an angle bin.
         if angle in angle_bin:
             angle_bin_key = angle
-        elif round_close_angles is True:
+        elif round_close_angles is True:  # This might be broken if angles are ParameterExpressions instead of floats.
             angles_within_tol_of_current_angle = [
                 angle_bin_val
                 for angle_bin_val in angle_bin.keys()
@@ -626,7 +626,7 @@ def _CRXGate(num_ctrls: int, ctrl_state: str, angle: float) -> ControlledGate:
 
 
 def _CRXCircuit_with_MCX(ctrl_list: List[Union[str, List[int]]], 
-    angle: float, target: int, num_qubits: int, num_ancillas: int = 0) -> QuantumCircuit:
+    angle: float, target: int, num_qubits: int, num_ancillas: int = 0) -> QuantumCircuit: # TODO type hint if parameter angle
     """
     Input:
         - ctrl_List: [ctrls_state, ctrls], where ctrl_list corresponds to the control qubit indices and 
