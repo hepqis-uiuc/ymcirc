@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 from qiskit import QuantumCircuit, QuantumRegister, AncillaRegister
-from qiskit.circuit import ControlledGate
+from qiskit.circuit import ControlledGate, Parameter, ParameterExpression
 from qiskit.circuit.library.standard_gates import RXGate, RZGate, RYGate
 from qiskit.quantum_info import Operator, Statevector
 from random import random
@@ -70,7 +70,7 @@ class LPFamily:
 def givens(
     bit_string_1: str,
     bit_string_2: str,
-    angle: float, # TODO can be a Parameter or ParameterExpression
+    angle: float | Parameter | ParameterExpression,
     encoded_physical_states: Set[str] | None = None,
     num_ancillas: int = 0,
     reverse: bool = False,
@@ -107,7 +107,7 @@ def givens(
     num_qubits = len(bit_string_1)
     givens_circuit = QuantumCircuit(num_qubits)
 
-    no_rotation_is_needed = (bit_string_1 == bit_string_2) or angle == 0  # TODO what if parameter?
+    no_rotation_is_needed = (bit_string_1 == bit_string_2) or angle == 0
     if no_rotation_is_needed:
         return givens_circuit
 
@@ -212,7 +212,7 @@ def givens_fused_controls(
     # Note that this step will become redundant when control_pruning is turned off
     # i.e., when encoded_physical_states = None.
     for angle, ctrl_list in angle_dict.items():
-        if angle == 0:  # Skip rotations that don't do anything.  # TODO this is broken if angle is a ParameterExpression?
+        if angle == 0:  # Skip rotations that don't do anything.
             continue
         for ctrls, ctrl_state in ctrl_list:
             pruned_ctrls, pruned_ctrl_state = prune_controls(
@@ -420,9 +420,9 @@ def prune_controls(
         return (pruned_ctrls, pruned_ctrl_state)
 
 
-def fuse_controls( # TODO update type hints to include paramter
+def fuse_controls(
     lp_fam: LPFamily,
-    lp_bin_w_angle: List[(str, str, float)],
+    lp_bin_w_angle: List[(str, str, float | Parameter | ParameterExpression)],
     round_close_angles: bool = True,
 ) -> Dict[float, tuple[List[int], str]]:
     """
@@ -453,9 +453,10 @@ def fuse_controls( # TODO update type hints to include paramter
         )
 
         # Find or create an angle bin.
+        angle_contains_parameter = isinstance(angle, Parameter) or isinstance(angle, ParameterExpression)
         if angle in angle_bin:
             angle_bin_key = angle
-        elif round_close_angles is True:  # This might be broken if angles are ParameterExpressions instead of floats.
+        elif (round_close_angles is True) and (angle_contains_parameter is False):
             angles_within_tol_of_current_angle = [
                 angle_bin_val
                 for angle_bin_val in angle_bin.keys()
@@ -625,8 +626,12 @@ def _CRXGate(num_ctrls: int, ctrl_state: str, angle: float) -> ControlledGate:
     return RXGate(angle).control(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state[::-1])
 
 
-def _CRXCircuit_with_MCX(ctrl_list: List[Union[str, List[int]]], 
-    angle: float, target: int, num_qubits: int, num_ancillas: int = 0) -> QuantumCircuit: # TODO type hint if parameter angle
+def _CRXCircuit_with_MCX(
+        ctrl_list: List[Union[str, List[int]]], 
+        angle: float | Parameter | ParameterExpression,
+        target: int,
+        num_qubits: int,
+        num_ancillas: int = 0) -> QuantumCircuit:
     """
     Input:
         - ctrl_List: [ctrls_state, ctrls], where ctrl_list corresponds to the control qubit indices and 
