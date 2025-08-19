@@ -540,7 +540,7 @@ class LatticeCircuitManager:
         if (self.num_ancillas > 0):
             plaquette_local_rotation_circuit.add_register(AncillaRegister(self.num_ancillas))
         for lp_fam, lp_bin_w_angle in lp_bin.items():
-            if control_fusion is True: # TODO fix for Parameter stuff
+            if control_fusion is True:
                 fused_circ_for_lp_fam = givens_fused_controls(
                     lp_bin_w_angle, lp_fam, physical_states_for_control_pruning, self.num_ancillas,
                 )
@@ -550,7 +550,7 @@ class LatticeCircuitManager:
             else:
                 # If control fusion is turned off, givens rotation is applied individually
                 # to all bitstrings.
-                for bs1, bs2, angle in lp_bin_w_angle: # TODO fix for Parameter stuff
+                for bs1, bs2, angle in lp_bin_w_angle:
                     bs1_bs2_circuit = givens(
                         bs1, bs2, angle, physical_states_for_control_pruning, self.num_ancillas,
                     )
