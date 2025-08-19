@@ -3,7 +3,8 @@ from ymcirc._abstract import LatticeDef
 from ymcirc.conventions import (
     PHYSICAL_PLAQUETTE_STATES, IRREP_TRUNCATIONS, ONE, THREE,
     THREE_BAR, SIX, SIX_BAR, EIGHT,
-    LatticeStateEncoder, HAMILTONIAN_BOX_TERMS
+    LatticeStateEncoder, HAMILTONIAN_BOX_TERMS,
+    compute_all_rotations_from_just_box_terms
 )
 
 
@@ -90,6 +91,48 @@ def test_hamiltonian_box_terms_no_unexpected_cases():
         assert actual_dim in expected_box_term_dim_trunc_cases.keys(), f"{actual_dim} was unexpected."
         for actual_trunc in HAMILTONIAN_BOX_TERMS[actual_dim].keys():
             assert actual_trunc in expected_box_term_dim_trunc_cases[actual_dim], f"{actual_dim}, {actual_trunc} was unexpected."
+
+
+def test_load_magnetic_hamiltonian_constructs_correct_num_rotations():
+    print(
+        "Checking that loading magnetic Hamiltonian data yields the right number of Givens rotations. "
+        "Since H = box + box^dagger with vanishing diagonals, there should be (1/2)n(n-1) rotations "
+        "for an nxn matrix."
+    )
+
+    # Configure test data.
+    dummy_box_terms_states: List[PlaquetteState] = [
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, THREE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 1),
+            (ONE, THREE, THREE, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        )
+    ]
+    dummy_box_terms_data = {
+        (dummy_box_terms_states[0], dummy_box_terms_states[1]): 0.4,
+        (dummy_box_terms_states[1], dummy_box_terms_states[0]): -0.2,  # Opposite transition exists in box, different amplitude
+        (dummy_box_terms_states[1], dummy_box_terms_states[2]): 0.1,  # Asymmetric transition in box
+        (dummy_box_terms_states[0], dummy_box_terms_states[2]): 0.9
+    }
+    expected_box_plus_box_dagger_rotations = [
+        (dummy_box_terms_states[0], dummy_box_terms_states[1], 0.2), # 0.4 - 0.2
+        (dummy_box_terms_states[1], dummy_box_terms_states[2], 0.1),
+        (dummy_box_terms_states[0], dummy_box_terms_states[2], 0.9)
+    ]
+
+    # Run test.
+    list_of_givens_rotations = compute_all_rotations_from_just_box_terms(box_terms=dummy_box_terms_data)
+    assert list_of_givens_rotations == expected_box_plus_box_dagger_rotations
 
 
 def test_matrix_element_data_are_valid_d_3_2_T1():
