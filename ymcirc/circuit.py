@@ -57,7 +57,12 @@ class LatticeCircuitManager:
         # LatticeCircuitManager instance.
         self._encoder = copy.deepcopy(lattice_encoder)
         self._mag_hamiltonian = copy.deepcopy(mag_hamiltonian)
-
+        self._cached_mag_evol_circuit = None
+        self._cached_mag_evol_params = {
+            "physical_states_for_control_pruning": None,
+            "optimize_circuits": None,
+            "control_fusion": None,
+        }
         # Parameter for the number of ancillas used in circuit. Initialized to 0.
         self._num_ancillas = 0
 
@@ -189,10 +194,11 @@ class LatticeCircuitManager:
         # Copy the input circuit to avoid mutating it.
         circ_for_n_ancillas_check = copy.deepcopy(master_circuit)
 
+        logger.info("Computing but not caching a magnetic Trotter step to determine num ancillas needed.")
         self.apply_magnetic_trotter_step(circ_for_n_ancillas_check, lattice,
                                          optimize_circuits=optimize_circuits,
                                          physical_states_for_control_pruning=physical_states_for_control_pruning, 
-                                         control_fusion=control_fusion)
+                                         control_fusion=control_fusion, cache_mag_evol_circuit=False)
 
         for circuit_instruction in circ_for_n_ancillas_check.data:
             if len(circuit_instruction.operation.name) >= 3 and circuit_instruction.operation.name[:3] == "mcx":
@@ -311,14 +317,14 @@ class LatticeCircuitManager:
             ]
             master_circuit.compose(local_circuit, qubits=link_qubits, inplace=True)
 
-    # TODO Can we get the circuits in a parameterized way?
     def apply_magnetic_trotter_step(
         self,
         master_circuit: QuantumCircuit,
         lattice: LatticeRegisters,
         optimize_circuits: bool = True,
         physical_states_for_control_pruning: Union[None | Set[str]] = None,
-        control_fusion: bool = False
+        control_fusion: bool = False,
+        cache_mag_evol_circuit: bool = False
     ) -> None:
         """
         Add one magnetic Trotter step to the entire lattice circuit.
@@ -357,6 +363,8 @@ class LatticeCircuitManager:
           - control_fusion: Optional boolian argument with the default set to False. If it's set
                             to be True, then LP families of givens rotations are first Gray code ordered,
                             then redundant controls are removed.
+          - cache_mag_evol_circuit: Optional boolean argument to cache the magnetic Hamiltonian
+                                    evolution circuit once generated, and forevermore use that.
         Returns:
           None (master_circuit has the magnetic Trotter step appended)
         """
@@ -381,22 +389,53 @@ class LatticeCircuitManager:
             else:
                 physical_states_for_control_pruning = stripped_physical_states
 
-        # Create the magnetic Hamiltonian evolution circuit.
-        logger.info("Building magnetic evolution circuit.")
-        # Construct the dt and coupling parameters for the current magnetic Trotter step.
+        # Construct the dt and coupling parameters for the current magnetic Trotter step,
         name_prefixes = ['dt_mag', 'coupling_g_mag']
         n_dt_mag_params, n_coupling_g_mag_params = LatticeCircuitManager._count_parameters_in_circ(master_circuit, name_prefixes)
         if n_dt_mag_params != n_coupling_g_mag_params:
             raise NotImplementedError("Different number of magnetic dt and magnetic coupling_g Parameters encountered.")
         dt_mag_current = Parameter(f'dt_mag,{n_dt_mag_params}')
         coupling_g_mag_current = Parameter(f'coupling_g_mag,{n_coupling_g_mag_params}')
-        plaquette_local_rotation_circuit = self._build_mag_evol_circuit(
-            control_fusion,
-            physical_states_for_control_pruning,
-            coupling_g_mag_current,
-            dt_mag_current,
-            optimize_circuits
+
+        # Create or fetch the magnetic Hamiltonian evolution circuit template,
+        # and update with Parameters for the current Trotter step.
+        mag_evol_recomputation_needed = (
+            (self._cached_mag_evol_circuit is None)
+            or (control_fusion != self._cached_mag_evol_params["control_fusion"])
+            or (optimize_circuits != self._cached_mag_evol_params["optimize_circuits"])
+            or (
+                physical_states_for_control_pruning
+                != self._cached_mag_evol_params["physical_states_for_control_pruning"]
             )
+        )
+        if cache_mag_evol_circuit is True and not mag_evol_recomputation_needed:
+            logger.info("Fetching cached magnetic evolution circuit.")
+            #breakpoint()
+            plaquette_local_rotation_circuit_template = self._cached_mag_evol_circuit
+        else:
+            logger.info("Building magnetic evolution circuit from scratch.")
+            # Build template circuit with placeholder paramters.
+            plaquette_local_rotation_circuit_template = self._build_mag_evol_circuit(
+                control_fusion,
+                physical_states_for_control_pruning,
+                coupling_g=Parameter('coupling_g_mag_placeholder'),
+                dt=Parameter('dt_mag_placeholder'),
+                optimize_circuits=optimize_circuits
+            )
+            # Save template if caching is turned on.
+            if cache_mag_evol_circuit is True:
+                logger.info("Storing template magnetic evolution circuit in cache.")
+                self._cached_mag_evol_circuit = plaquette_local_rotation_circuit_template
+                self._cached_mag_evol_params = {
+                    "physical_states_for_control_pruning": physical_states_for_control_pruning,
+                    "optimize_circuits": optimize_circuits,
+                    "control_fusion": control_fusion,
+                }
+        plaquette_local_rotation_circuit = plaquette_local_rotation_circuit_template.assign_parameters({
+            'coupling_g_mag_placeholder': coupling_g_mag_current,
+            'dt_mag_placeholder': dt_mag_current
+        })
+
 
         # Stitch magnetic Hamiltonian evolution circuit onto LatticeRegisters.
         # Vertex iteration loop.

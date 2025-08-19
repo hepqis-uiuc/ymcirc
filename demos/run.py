@@ -51,6 +51,7 @@ def configure_script_options(
         prune_controls: bool = True,
         control_fusion: bool = True,
         electric_gray_order: bool = True,
+        cache_mag_evol_circuit: bool = True,
         use_ancillas: bool = True,
         plot_vacuum_persistence: bool = True,
         plot_electric_energy: bool = True,
@@ -132,6 +133,11 @@ def configure_script_options(
         - electric_gray_order:
               Whether to use Gray ordering of gates to reduce
               circuit depth
+        - cache_mag_evol_circuit:
+              Whether the plaquette-local magnetic evolution
+              circuit should be cached. Speeds up application
+              across lattices and between Trotter steps.
+              Usually a good idea to enable.
         - use_ancillas:
               Whether to introduce ancilla qubits to reduce to gate
               depth of multi-control gates.
@@ -172,6 +178,7 @@ def configure_script_options(
     options["prune_controls"] = prune_controls
     options["control_fusion"] = control_fusion
     options["electric_gray_order"] = electric_gray_order
+    options["cache_mag_evol_circuit"] = cache_mag_evol_circuit
     options["use_ancillas"] = use_ancillas
     options["n_shots"] = n_shots
     options["plot_vacuum_persistence"] = plot_vacuum_persistence
@@ -241,7 +248,8 @@ def create_circuits(script_options: dict[str, Any]) -> list[QuantumCircuit]:
                     lattice_registers,
                     optimize_circuits=script_options["optimize_circuits"],
                     physical_states_for_control_pruning=physical_plaquette_states,
-                    control_fusion=script_options["control_fusion"]
+                    control_fusion=script_options["control_fusion"],
+                    cache_mag_evol_circuit=script_options["cache_mag_evol_circuit"]
                 )
 
             if script_options["do_electric_evolution"] is True:
@@ -443,6 +451,7 @@ if __name__ == "__main__":
         n_trotter_steps=2,
         n_shots=10000,
         use_ancillas=True,
+        cache_mag_evol_circuit=True,
         save_circuits_to_qasm=False,
         save_circuit_diagrams=False,
         save_plots=False,
