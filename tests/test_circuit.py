@@ -287,8 +287,8 @@ def test_apply_magnetic_trotter_step_d_3_2_large_lattice():
         cache_mag_evol_circuit=True
     )
     master_circuit.assign_parameters({  # Values computed above assuming dt and coupling set to 1.
-        "dt_mag,0": 1,
-        "coupling_g_mag,0": 1
+        "dt_mag__0": 1,
+        "coupling_g_mag__0": 1
     }, inplace=True)
     print("Obtained circuit:")
     print(master_circuit)
@@ -405,8 +405,8 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice():
         cache_mag_evol_circuit=True
     )
     master_circuit.assign_parameters({  # Values computed above assuming dt and coupling set to 1.
-        "dt_mag,0": 1,
-        "coupling_g_mag,0": 1
+        "dt_mag__0": 1,
+        "coupling_g_mag__0": 1
     }, inplace=True)
     print("Obtained circuit:")
     print(master_circuit)
@@ -551,8 +551,8 @@ def test_apply_magnetic_trotter_step_d_2_large_lattice():
         cache_mag_evol_circuit=True
     )
     master_circuit.assign_parameters({  # Values computed above assuming dt and coupling set to 1.
-        "dt_mag,0": 1,
-        "coupling_g_mag,0": 1
+        "dt_mag__0": 1,
+        "coupling_g_mag__0": 1
     }, inplace=True)
     print("Obtained circuit:")
     print(master_circuit)
@@ -673,8 +673,8 @@ def test_apply_magnetic_trotter_step_d_2_small_lattice():
         cache_mag_evol_circuit=True
     )
     master_circuit.assign_parameters({  # Values computed above assuming dt and coupling set to 1.
-        "dt_mag,0": 1,
-        "coupling_g_mag,0": 1
+        "dt_mag__0": 1,
+        "coupling_g_mag__0": 1
     }, inplace=True)
     print("Obtained circuit:")
     print(master_circuit)
@@ -713,8 +713,8 @@ def test_apply_electric_trotter_step_d_3_2_lattice():
     lattice_registers)
     circ_mgr.apply_electric_trotter_step(master_circuit,lattice_registers,dummy_electric_hamiltonian,electric_gray_order=True)
     master_circuit.assign_parameters({  # Values computed above assuming dt and coupling set to 1.
-        "dt_ee,0": 1,
-        "coupling_g_ee,0": 1
+        "dt_ee__0": 1,
+        "coupling_g_ee__0": 1
     }, inplace=True)
 
     expected_local_circuit = QuantumCircuit(3)
@@ -843,8 +843,8 @@ def test_magnetic_with_ancilla_has_no_MCX():
 
     circ_mgr.apply_magnetic_trotter_step(master_circuit_with_ancillas, lattice_registers, physical_states_for_control_pruning=physical_plaquette_states, control_fusion=True)
     master_circuit_with_ancillas.assign_parameters({  # Values computed above assuming dt and coupling set to 1.
-        "dt_mag,0": 1,
-        "coupling_g_mag,0": 1
+        "dt_mag__0": 1,
+        "coupling_g_mag__0": 1
     }, inplace=True)
 
     print(master_circuit_with_ancillas)
@@ -971,8 +971,8 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice_with_ancillas():
         cache_mag_evol_circuit=True
     )
     master_circuit.assign_parameters({  # Values computed above assuming dt and coupling set to 1.
-        "dt_mag,0": 1,
-        "coupling_g_mag,0": 1
+        "dt_mag__0": 1,
+        "coupling_g_mag__0": 1
     }, inplace=True)
     print("Obtained circuit:")
     print(master_circuit)

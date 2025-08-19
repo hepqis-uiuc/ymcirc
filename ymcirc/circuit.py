@@ -243,8 +243,8 @@ class LatticeCircuitManager:
         Perform an electric Trotter step.
 
         Appends a circuit with the following new Parameter instances:
-            - 'dt_ee,n' (the size of the Trotter time step)
-            - 'coupling_g_ee,n' (strong coupling constant value)
+            - 'dt_ee__n' (the size of the Trotter time step)
+            - 'coupling_g_ee__n' (strong coupling constant value)
         where 'n' is the number of dt_ee and coupling_g_ee parameters that
         already exist in master_circuit. If 'n' is different for the dt
         and coupling_g parameters, an error is raised.
@@ -276,11 +276,12 @@ class LatticeCircuitManager:
         """
         # Construct the dt and coupling parameters for the current electric Trotter step.
         name_prefixes = ['dt_ee', 'coupling_g_ee']
-        n_dt_ee_params, n_coupling_g_ee_params = LatticeCircuitManager._count_parameters_in_circ(master_circuit, name_prefixes)
+        step_num_separator = '__'
+        n_dt_ee_params, n_coupling_g_ee_params = LatticeCircuitManager._count_parameters_in_circ(master_circuit, name_prefixes, separator=step_num_separator)
         if n_dt_ee_params != n_coupling_g_ee_params:
             raise NotImplementedError("Different number of electric dt and electric coupling_g Parameters encountered.")
-        dt_ee_current = Parameter(f'dt_ee,{n_dt_ee_params}')
-        coupling_g_ee_current = Parameter(f'coupling_g_ee,{n_coupling_g_ee_params}')
+        dt_ee_current = Parameter(f'dt_ee{step_num_separator}{n_dt_ee_params}')
+        coupling_g_ee_current = Parameter(f'coupling_g_ee{step_num_separator}{n_coupling_g_ee_params}')
 
         N = int(np.log2(len(hamiltonian)))
         angle_mod = ((coupling_g_ee_current**2) / 2) * dt_ee_current
@@ -330,8 +331,8 @@ class LatticeCircuitManager:
         Add one magnetic Trotter step to the entire lattice circuit.
 
         Appends a circuit with the following new Parameter instances:
-            - 'dt_mag,n' (the size of the Trotter time step)
-            - 'coupling_g_mag,n' (strong coupling constant value)
+            - 'dt_mag__n' (the size of the Trotter time step)
+            - 'coupling_g_mag__n' (strong coupling constant value)
         where 'n' is the number of dt_mag and coupling_g_mag parameters that
         already exist in master_circuit. If 'n' is different for the dt
         and coupling_g parameters, an error is raised.
@@ -391,11 +392,12 @@ class LatticeCircuitManager:
 
         # Construct the dt and coupling parameters for the current magnetic Trotter step,
         name_prefixes = ['dt_mag', 'coupling_g_mag']
-        n_dt_mag_params, n_coupling_g_mag_params = LatticeCircuitManager._count_parameters_in_circ(master_circuit, name_prefixes)
+        step_num_separator = '__'
+        n_dt_mag_params, n_coupling_g_mag_params = LatticeCircuitManager._count_parameters_in_circ(master_circuit, name_prefixes, separator=step_num_separator)
         if n_dt_mag_params != n_coupling_g_mag_params:
             raise NotImplementedError("Different number of magnetic dt and magnetic coupling_g Parameters encountered.")
-        dt_mag_current = Parameter(f'dt_mag,{n_dt_mag_params}')
-        coupling_g_mag_current = Parameter(f'coupling_g_mag,{n_coupling_g_mag_params}')
+        dt_mag_current = Parameter(f'dt_mag{step_num_separator}{n_dt_mag_params}')
+        coupling_g_mag_current = Parameter(f'coupling_g_mag{step_num_separator}{n_coupling_g_mag_params}')
 
         # Create or fetch the magnetic Hamiltonian evolution circuit template,
         # and update with Parameters for the current Trotter step.
