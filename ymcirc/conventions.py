@@ -257,8 +257,7 @@ def load_magnetic_hamiltonian(
         trunc_string: str,
         lattice_encoder: LatticeStateEncoder,
         mag_hamiltonian_matrix_element_threshold: float = 0,
-        only_include_elems_connected_to_electric_vacuum: bool = False,
-        use_2box_hack: bool = False
+        only_include_elems_connected_to_electric_vacuum: bool = False
 ) -> List[Tuple[str, str, float]]:
     """
     Compute box + box^dagger as a list.
@@ -283,31 +282,48 @@ def load_magnetic_hamiltonian(
     Optional arguments:
       - mag_hamiltonian_matrix_element_threshold: Only include matrix elements greater than this value.
       - only_include_elems_connected_to_electric_vacuum: Drop any matrix elements which aren't connected to the electric vacuum state.
-      - use_2box_hack: Don't include box^dagger, and double the values of each matrix element to compensate.
     """
     mag_hamiltonian: List[Tuple[str, str, float]] = []
-    if use_2box_hack is False:
-        box_term: List[Tuple[str, str, float]] = []
-        box_dagger_term: List[Tuple[str, str, float]] = []
-    for (final_plaquette_state, initial_plaquette_state), matrix_element_value in HAMILTONIAN_BOX_TERMS[dim_string][trunc_string].items():
-        if abs(matrix_element_value) < mag_hamiltonian_matrix_element_threshold:
+    for plaquette_state_1, plaquette_state_2, matrix_elem in compute_all_rotations_from_just_box_terms(HAMILTONIAN_BOX_TERMS[dim_string][trunc_string]):
+        if abs(matrix_elem) < mag_hamiltonian_matrix_element_threshold:
             continue
-        final_state_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(final_plaquette_state)
-        initial_state_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(initial_plaquette_state)
-        if only_include_elems_connected_to_electric_vacuum and ('1' in final_state_bitstring) and ('1' in initial_state_bitstring):
+        state_1_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state_1)
+        state_2_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state_2)
+        if only_include_elems_connected_to_electric_vacuum and ('1' in state_1_bitstring) and ('1' in state_2_bitstring):
             continue
-        if use_2box_hack is False:
-            box_term.append((final_state_bitstring, initial_state_bitstring, matrix_element_value))
-            box_dagger_term.append((initial_state_bitstring, final_state_bitstring, matrix_element_value))
-        else:
-            mag_hamiltonian.append((final_state_bitstring, initial_state_bitstring, 2*matrix_element_value))
+        mag_hamiltonian.append((state_1_bitstring, state_2_bitstring, matrix_elem))
 
-    if use_2box_hack is False:
-        mag_hamiltonian = box_term + box_dagger_term
+    logger.info(f"Loaded pre-computed magnetic Hamiltonian data from disk for {dim_string}, {trunc_string}. There are {len(mag_hamiltonian)} Givens rotations per plaquette.")
 
-    logger.info(f"Loaded pre-computed magnetic Hamiltonian data from disk for {dim_string}, {trunc_string}.")
-        
     return mag_hamiltonian
+
+
+def compute_all_rotations_from_just_box_terms(box_terms: Dict[Tuple[PlaquetteState, PlaquetteState], float]) -> List[Tuple[PlaquetteState, PlaquetteState, float]]:
+    """
+    Compute the set of Givens rotations needed to simulate a magnetic Hamiltonian.
+
+    Note that box^dagger is automatically computed internally, do not input box + box^dagger!
+    Additionally assumes a convention has been chosen where box has no complex elements.
+
+    Returns a list of 3-tuples whose first two elements are final and initial plaquette states,
+    and whose final element is the numerical value of the box + box^dagger
+    matrix element.
+    """
+    # Get list of all state transitions appearing in box and box dagger, with no repetition for ordering.
+    all_transitions_unordered = []
+    for f, i in box_terms.keys():
+        if (f, i) not in all_transitions_unordered and (i, f) not in all_transitions_unordered:
+            all_transitions_unordered.append((f, i))
+
+    # Use state transitions to sum the box and box^dagger amplitudes for
+    # transitions between states.
+    box_plus_box_dagger_rotations = []
+    for state_1, state_2 in all_transitions_unordered:
+        box_amplitude = box_terms[(state_1, state_2)] if (state_1, state_2) in box_terms.keys() else 0
+        box_dagger_amplitude = box_terms[(state_2, state_1)] if (state_2, state_1) in box_terms.keys() else 0
+        box_plus_box_dagger_rotations.append((state_1, state_2, box_amplitude + box_dagger_amplitude))
+
+    return box_plus_box_dagger_rotations
 
 
 class LatticeStateEncoder:
