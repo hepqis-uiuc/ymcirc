@@ -29,7 +29,7 @@ def test_givens():
     # Test with known bitstring.
     test_circ = QuantumCircuit(2)
     test_circ.cx(control_qubit=1, target_qubit=0, ctrl_state="1")
-    test_circ.append(RXGate(1).control(ctrl_state="1"), [0, 1])
+    test_circ.append(RXGate(2).control(ctrl_state="1"), [0, 1])
     test_circ.cx(control_qubit=1, target_qubit=0, ctrl_state="1")
 
     op_test = Operator(test_circ)
@@ -54,7 +54,7 @@ def test_givens():
         H[int(str1, 2), int(str2, 2)] = 1
         H[int(str2, 2), int(str1, 2)] = 1
         if not str1 == str2:
-            expected_givens_operator = expm(-1j / 2 * angle * H)
+            expected_givens_operator = expm(-1j * angle * H)
         else:
             expected_givens_operator = np.eye(2**N)
 
@@ -140,10 +140,10 @@ def test_building_MCRX_gate():
     ) 
     expected_circ = QuantumCircuit(4)
     expected_circ.append(RZGate(-1.0*np.pi/2.0), [control_qubit])
-    expected_circ.append(RYGate(-1.0*angle/2.0), [control_qubit])
+    expected_circ.append(RYGate(-2.0*angle/2.0), [control_qubit])
     expected_circ.append(MCXGate(num_ctrl_qubits=len(expected_ctrls), 
         ctrl_state=expected_ctrl_state), expected_ctrls + [control_qubit])
-    expected_circ.append(RYGate(1.0*angle/2.0), [control_qubit])
+    expected_circ.append(RYGate(2.0*angle/2.0), [control_qubit])
     expected_circ.append(MCXGate(num_ctrl_qubits=len(expected_ctrls), 
         ctrl_state=expected_ctrl_state), expected_ctrls + [control_qubit])
     expected_circ.append(RZGate(1.0*np.pi/2.0), [control_qubit])
@@ -173,10 +173,10 @@ def test_building_MCRX_gate():
     )
     expected_circ = QuantumCircuit(12)
     expected_circ.append(RZGate(-1.0*np.pi/2.0), [control_qubit])
-    expected_circ.append(RYGate(-1.0*angle/2.0), [control_qubit])
+    expected_circ.append(RYGate(-2.0*angle/2.0), [control_qubit])
     expected_circ.append(MCXGate(num_ctrl_qubits=len(expected_ctrls), 
         ctrl_state=expected_ctrl_state), expected_ctrls + [control_qubit])
-    expected_circ.append(RYGate(1.0*angle/2.0), [control_qubit])
+    expected_circ.append(RYGate(2.0*angle/2.0), [control_qubit])
     expected_circ.append(MCXGate(num_ctrl_qubits=len(expected_ctrls), 
         ctrl_state=expected_ctrl_state), expected_ctrls + [control_qubit])
     expected_circ.append(RZGate(1.0*np.pi/2.0), [control_qubit])
@@ -712,9 +712,9 @@ def test_givens_fused_controls():
     expected_circuit.cx(1, 6)
     circ_with_mcx = QuantumCircuit(8)
     circ_with_mcx.append(RZGate(-1.0*np.pi/2.0), [1])
-    circ_with_mcx.append(RYGate(-1.0*1.0/2.0), [1])
+    circ_with_mcx.append(RYGate(-2.0*1.0/2.0), [1])
     circ_with_mcx.append(MCXGate(num_ctrl_qubits=1, ctrl_state="0"), [3, 1])
-    circ_with_mcx.append(RYGate(1.0*1.0/2.0), [1])
+    circ_with_mcx.append(RYGate(2.0*1.0/2.0), [1])
     circ_with_mcx.append(MCXGate(num_ctrl_qubits=1, ctrl_state="0"), [3, 1])
     circ_with_mcx.append(RZGate(1.0*np.pi/2.0), [1])
     expected_circuit.compose(circ_with_mcx, inplace=True)

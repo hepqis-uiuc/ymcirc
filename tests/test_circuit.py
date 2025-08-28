@@ -255,9 +255,9 @@ def test_apply_magnetic_trotter_step_d_3_2_large_lattice():
 
         circ_with_mcx = QuantumCircuit(18)
         circ_with_mcx.append(RZGate(-1.0*np.pi/2.0), pivot_qubit)
-        circ_with_mcx.append(RYGate(-1.0*angle), pivot_qubit)
+        circ_with_mcx.append(RYGate(-2.0*angle), pivot_qubit)
         circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state), ctrls + pivot_qubit)
-        circ_with_mcx.append(RYGate(1.0*angle), pivot_qubit)
+        circ_with_mcx.append(RYGate(2.0*angle), pivot_qubit)
         circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state), ctrls + pivot_qubit)
         circ_with_mcx.append(RZGate(1.0*np.pi/2.0), pivot_qubit)
 
@@ -368,9 +368,9 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice():
 
         circ_with_mcx = QuantumCircuit(12)
         circ_with_mcx.append(RZGate(-1.0*np.pi/2.0), pivot_qubit)
-        circ_with_mcx.append(RYGate(-1.0*angle), pivot_qubit)
+        circ_with_mcx.append(RYGate(-2.0*angle), pivot_qubit)
         circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state), ctrls + pivot_qubit)
-        circ_with_mcx.append(RYGate(1.0*angle), pivot_qubit)
+        circ_with_mcx.append(RYGate(2.0*angle), pivot_qubit)
         circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state), ctrls + pivot_qubit)
         circ_with_mcx.append(RZGate(1.0*np.pi/2.0), pivot_qubit)
 
@@ -509,9 +509,9 @@ def test_apply_magnetic_trotter_step_d_2_large_lattice():
 
         circ_with_mcx = QuantumCircuit(45)
         circ_with_mcx.append(RZGate(-1.0*np.pi/2.0), pivot_qubit)
-        circ_with_mcx.append(RYGate(-1.0*angle), pivot_qubit)
+        circ_with_mcx.append(RYGate(-2.0*angle), pivot_qubit)
         circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state), ctrls + pivot_qubit)
-        circ_with_mcx.append(RYGate(1.0*angle), pivot_qubit)
+        circ_with_mcx.append(RYGate(2.0*angle), pivot_qubit)
         circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state), ctrls + pivot_qubit)
         circ_with_mcx.append(RZGate(1.0*np.pi/2.0), pivot_qubit)
 
@@ -626,9 +626,9 @@ def test_apply_magnetic_trotter_step_d_2_small_lattice():
 
         circ_with_mcx = QuantumCircuit(20)
         circ_with_mcx.append(RZGate(-1.0*np.pi/2.0), pivot_qubit)
-        circ_with_mcx.append(RYGate(-1.0*angle), pivot_qubit)
+        circ_with_mcx.append(RYGate(-2.0*angle), pivot_qubit)
         circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state), ctrls + pivot_qubit)
-        circ_with_mcx.append(RYGate(1.0*angle), pivot_qubit)
+        circ_with_mcx.append(RYGate(2.0*angle), pivot_qubit)
         circ_with_mcx.append(MCXGate(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state), ctrls + pivot_qubit)
         circ_with_mcx.append(RZGate(1.0*np.pi/2.0), pivot_qubit)
 
@@ -908,9 +908,9 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice_with_ancillas():
         circ_with_mcx = QuantumCircuit(12);
         circ_with_mcx.add_register(AncillaRegister(9, "anc"))
         circ_with_mcx.append(RZGate(-1.0*np.pi/2.0), pivot_qubit)
-        circ_with_mcx.append(RYGate(-1.0*angle), pivot_qubit)
+        circ_with_mcx.append(RYGate(-2.0*angle), pivot_qubit)
         circ_with_mcx.mcx(ctrls, pivot_qubit, ancilla_qubits=list(range(12,21)), ctrl_state = ctrl_state, mode='v-chain')
-        circ_with_mcx.append(RYGate(1.0*angle), pivot_qubit)
+        circ_with_mcx.append(RYGate(2.0*angle), pivot_qubit)
         circ_with_mcx.mcx(ctrls, pivot_qubit, ancilla_qubits=list(range(12,21)), ctrl_state = ctrl_state, mode='v-chain')
         circ_with_mcx.append(RZGate(1.0*np.pi/2.0), pivot_qubit)
 
