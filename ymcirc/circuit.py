@@ -18,7 +18,7 @@ from ymcirc._abstract.lattice_data import Plaquette
 from ymcirc.utilities import _check_circuits_logically_equivalent, _flatten_circuit
 from math import ceil
 from qiskit import transpile
-from qiskit.circuit import QuantumCircuit, QuantumRegister, AncillaRegister
+from qiskit.circuit import Parameter, QuantumCircuit, QuantumRegister, AncillaRegister
 from qiskit.circuit.library.standard_gates import RXGate, CXGate
 from qiskit.transpiler import PassManager
 from qiskit.transpiler.passes import InverseCancellation
@@ -59,8 +59,6 @@ class LatticeCircuitManager:
         self._mag_hamiltonian = copy.deepcopy(mag_hamiltonian)
         self._cached_mag_evol_circuit = None
         self._cached_mag_evol_params = {
-            "coupling_g": None,
-            "dt": None,
             "physical_states_for_control_pruning": None,
             "optimize_circuits": None,
             "control_fusion": None,
@@ -122,6 +120,23 @@ class LatticeCircuitManager:
         class_name = type(self).__name__
         return f"Circuit manager for lattices of type {self._encoder.lattice_def}.\nAncillas: {self.num_ancillas}\nLink bitmap:{self._encoder.link_bitmap}\nVertex bitmap: {self._encoder.vertex_bitmap}"
 
+    @staticmethod
+    def _count_parameters_in_circ(circ: QuantumCircuit, name_prefixes: list[str], separator: str = ',') -> list[int]:
+        logger.debug(f"Counting distinct parameters in circuit with the following name prefixes: {name_prefixes}")
+        n_params_list = [0,] * len(name_prefixes)
+        if len(circ.parameters) > 0:
+            for param in circ.parameters:
+                param_prefix, param_num = param.name.split(separator)
+                for idx, name_prefix in enumerate(name_prefixes):
+                    logger.debug(f"{idx}: {param_prefix} == {name_prefix}?")
+                    if param_prefix == name_prefix:
+                        logger.debug("Yes!")
+                        n_params_list[idx] += 1
+
+        logger.debug(f"Final counts: {n_params_list}")
+        return n_params_list
+
+
     def create_blank_full_lattice_circuit(
         self, lattice: LatticeRegisters
     ) -> QuantumCircuit:
@@ -130,7 +145,7 @@ class LatticeCircuitManager:
 
         This uses an ordering which is specified in the LatticeData class which is
         a parent class of LatticeRegisters. See the documentation on LatticeData
-        for details
+        for details.
         """
         all_lattice_registers: List[QuantumRegister] = [reg for reg in lattice]
 
@@ -179,10 +194,11 @@ class LatticeCircuitManager:
         # Copy the input circuit to avoid mutating it.
         circ_for_n_ancillas_check = copy.deepcopy(master_circuit)
 
+        logger.info("Computing but not caching a magnetic Trotter step to determine num ancillas needed.")
         self.apply_magnetic_trotter_step(circ_for_n_ancillas_check, lattice,
-                                         coupling_g=1.0, dt=1.0, optimize_circuits=optimize_circuits, 
+                                         optimize_circuits=optimize_circuits,
                                          physical_states_for_control_pruning=physical_states_for_control_pruning, 
-                                         control_fusion=control_fusion, cache_mag_evol_circuit = False)
+                                         control_fusion=control_fusion, cache_mag_evol_circuit=False)
 
         for circuit_instruction in circ_for_n_ancillas_check.data:
             if len(circuit_instruction.operation.name) >= 3 and circuit_instruction.operation.name[:3] == "mcx":
@@ -221,12 +237,18 @@ class LatticeCircuitManager:
         master_circuit: QuantumCircuit,
         lattice: LatticeRegisters,
         hamiltonian: list[float],
-        coupling_g: float = 1.0,
-        dt: float = 1.0,
         electric_gray_order: bool = False
     ) -> None:
         """
         Perform an electric Trotter step.
+
+        Appends a circuit with the following new Parameter instances:
+            - 'dt_ee__n' (the size of the Trotter time step)
+            - 'coupling_g_ee__n' (strong coupling constant value)
+        where 'n' is the number of dt_ee and coupling_g_ee parameters that
+        already exist in master_circuit. If 'n' is different for the dt
+        and coupling_g parameters, an error is raised.
+
 
         Implementation uses CX and Zs to implement rotations of Z, I Paulis.
         The single link electric Trotter step is constructed through Z, I
@@ -243,8 +265,6 @@ class LatticeCircuitManager:
                           coefficients s.t. for hamiltonian[i] = coeff, coeff
                           is coeff of bitstring(i) with 'Z'=1 and 'I'=0 in the
                           bitstring.
-            - coupling_g: The value of the strong coupling constant.
-            - dt: The size of the Trotter time step.
             - electric_gray_order: The Pauli bitstrings corresponding to the Pauli
                                     decomposition of the electric hamiltonian will 
                                     be gray-code ordered if this option is set to be
@@ -252,18 +272,26 @@ class LatticeCircuitManager:
 
 
         Returns:
-            A new QuantumCircuit instance which is master_circuit with the
-            electric Trotter step appended.
+            None (master_circuit has the electric Trotter step appended)
         """
+        # Construct the dt and coupling parameters for the current electric Trotter step.
+        name_prefixes = ['dt_ee', 'coupling_g_ee']
+        step_num_separator = '__'
+        n_dt_ee_params, n_coupling_g_ee_params = LatticeCircuitManager._count_parameters_in_circ(master_circuit, name_prefixes, separator=step_num_separator)
+        if n_dt_ee_params != n_coupling_g_ee_params:
+            raise NotImplementedError("Different number of electric dt and electric coupling_g Parameters encountered.")
+        dt_ee_current = Parameter(f'dt_ee{step_num_separator}{n_dt_ee_params}')
+        coupling_g_ee_current = Parameter(f'coupling_g_ee{step_num_separator}{n_coupling_g_ee_params}')
+
         N = int(np.log2(len(hamiltonian)))
-        angle_mod = ((coupling_g**2) / 2) * dt
+        angle_mod = ((coupling_g_ee_current**2) / 2) * dt_ee_current
         local_circuit = QuantumCircuit(N)
 
         # Use the index of the local Pauli-decomposed electric hamiltonian to generate the Pauli bitstrings.
         pauli_bitstring_list = [str("{0:0" + str(N) + "b}").format(i) for i in range(len(hamiltonian))]
         pauli_decomposed_hamiltonian = zip(pauli_bitstring_list,hamiltonian)
         # Gray-Order the Pauli-bitstrings if electric_gray_order == True.
-        if electric_gray_order == True:
+        if electric_gray_order is True:
             pauli_decomposed_hamiltonian = sorted(pauli_decomposed_hamiltonian,key=lambda x: gray_to_index(x[0]))
 
         # The parity circuit primitive of CXs and Zs.
@@ -290,22 +318,26 @@ class LatticeCircuitManager:
             ]
             master_circuit.compose(local_circuit, qubits=link_qubits, inplace=True)
 
-    # TODO Can we get the circuits in a parameterized way?
     def apply_magnetic_trotter_step(
         self,
         master_circuit: QuantumCircuit,
         lattice: LatticeRegisters,
-        coupling_g: float = 1.0,
-        dt: float = 1.0,
         optimize_circuits: bool = True,
         physical_states_for_control_pruning: Union[None | Set[str]] = None,
         control_fusion: bool = False,
-        cache_mag_evol_circuit: bool = True,
+        cache_mag_evol_circuit: bool = False
     ) -> None:
         """
         Add one magnetic Trotter step to the entire lattice circuit.
 
-        This is done by iterating over every lattice vertex. At each vertex,
+        Appends a circuit with the following new Parameter instances:
+            - 'dt_mag__n' (the size of the Trotter time step)
+            - 'coupling_g_mag__n' (strong coupling constant value)
+        where 'n' is the number of dt_mag and coupling_g_mag parameters that
+        already exist in master_circuit. If 'n' is different for the dt
+        and coupling_g parameters, an error is raised.
+
+        Implementation is performed by iterating over every lattice vertex. At each vertex,
         there's an additional iteration over every "positive" plaquette.
         For each such plaquette, the plaquette-local magnetic Trotter step
         is appended to the circuit.
@@ -318,8 +350,6 @@ class LatticeCircuitManager:
                             the QuantumRegister instances in lattice.
           - lattice: a LatticeRegisters instance which keeps track of all the
                      QuantumRegisters.
-          - coupling_g: The value of the strong coupling constant.
-          - dt: the size of the Trotter time step.
           - optimize_circuits: if True, run the qiskit transpiler on each
                                internal givens rotation with the maximum
                                optimization level before composing with
@@ -337,8 +367,7 @@ class LatticeCircuitManager:
           - cache_mag_evol_circuit: Optional boolean argument to cache the magnetic Hamiltonian
                                     evolution circuit once generated, and forevermore use that.
         Returns:
-          A new QuantumCircuit instance which is master_circuit with the
-          Trotter step appended.
+          None (master_circuit has the magnetic Trotter step appended)
         """
         # Strip out redundant control links if physical state data provided and the lattice
         # is both small enough and periodic (so that the same physical links can be distinct controls).
@@ -361,12 +390,20 @@ class LatticeCircuitManager:
             else:
                 physical_states_for_control_pruning = stripped_physical_states
 
-        # Create the magnetic Hamiltonian evolution circuit.
+        # Construct the dt and coupling parameters for the current magnetic Trotter step,
+        name_prefixes = ['dt_mag', 'coupling_g_mag']
+        step_num_separator = '__'
+        n_dt_mag_params, n_coupling_g_mag_params = LatticeCircuitManager._count_parameters_in_circ(master_circuit, name_prefixes, separator=step_num_separator)
+        if n_dt_mag_params != n_coupling_g_mag_params:
+            raise NotImplementedError("Different number of magnetic dt and magnetic coupling_g Parameters encountered.")
+        dt_mag_current = Parameter(f'dt_mag{step_num_separator}{n_dt_mag_params}')
+        coupling_g_mag_current = Parameter(f'coupling_g_mag{step_num_separator}{n_coupling_g_mag_params}')
+
+        # Create or fetch the magnetic Hamiltonian evolution circuit template,
+        # and update with Parameters for the current Trotter step.
         mag_evol_recomputation_needed = (
             (self._cached_mag_evol_circuit is None)
             or (control_fusion != self._cached_mag_evol_params["control_fusion"])
-            or (dt != self._cached_mag_evol_params["dt"])
-            or (coupling_g != self._cached_mag_evol_params["coupling_g"])
             or (optimize_circuits != self._cached_mag_evol_params["optimize_circuits"])
             or (
                 physical_states_for_control_pruning
@@ -374,27 +411,33 @@ class LatticeCircuitManager:
             )
         )
         if cache_mag_evol_circuit is True and not mag_evol_recomputation_needed:
-            logger.debug("Fetching cached magnetic evolution circuit.")
-            plaquette_local_rotation_circuit = self._cached_mag_evol_circuit
+            logger.info("Fetching cached magnetic evolution circuit.")
+            #breakpoint()
+            plaquette_local_rotation_circuit_template = self._cached_mag_evol_circuit
         else:
-            logger.info("Building magnetic evolution circuit.")
-            plaquette_local_rotation_circuit = self._build_mag_evol_circuit(
+            logger.info("Building magnetic evolution circuit from scratch.")
+            # Build template circuit with placeholder paramters.
+            plaquette_local_rotation_circuit_template = self._build_mag_evol_circuit(
                 control_fusion,
                 physical_states_for_control_pruning,
-                coupling_g,
-                dt,
-                optimize_circuits,
+                coupling_g=Parameter('coupling_g_mag_placeholder'),
+                dt=Parameter('dt_mag_placeholder'),
+                optimize_circuits=optimize_circuits
             )
+            # Save template if caching is turned on.
             if cache_mag_evol_circuit is True:
-                logger.debug("Storing magnetic evolution circuit in cache.")
-                self._cached_mag_evol_circuit = plaquette_local_rotation_circuit
+                logger.info("Storing template magnetic evolution circuit in cache.")
+                self._cached_mag_evol_circuit = plaquette_local_rotation_circuit_template
                 self._cached_mag_evol_params = {
-                    "coupling_g": coupling_g,
-                    "dt": dt,
                     "physical_states_for_control_pruning": physical_states_for_control_pruning,
                     "optimize_circuits": optimize_circuits,
                     "control_fusion": control_fusion,
                 }
+        plaquette_local_rotation_circuit = plaquette_local_rotation_circuit_template.assign_parameters({
+            'coupling_g_mag_placeholder': coupling_g_mag_current,
+            'dt_mag_placeholder': dt_mag_current
+        })
+
 
         # Stitch magnetic Hamiltonian evolution circuit onto LatticeRegisters.
         # Vertex iteration loop.
@@ -466,9 +509,9 @@ class LatticeCircuitManager:
         self,
         control_fusion: bool,
         physical_states_for_control_pruning: Union[None | Set[str]],
-        coupling_g: float,
-        dt: float,
-        optimize_circuits: bool,
+        coupling_g: Parameter,
+        dt: Parameter,
+        optimize_circuits: bool
     ) -> QuantumCircuit:
         """Build the magnetic time-evolution circuit for a plaquette."""
         # Sort the bitstrings corresponding to transitions in the magnetic hamiltonian
@@ -583,10 +626,10 @@ class LatticeCircuitManager:
 
     @staticmethod
     def _sort_matrix_elements_into_lp_bins(
-        bitstrings_w_matrix_element: List[(str, str, float)],
-        coupling_g: float,
-        dt: float,
-    ) -> Dict[LPFamily, List[(str, str, float)]]:
+        bitstrings_w_matrix_element: List[(str, str, float | Parameter)],
+        coupling_g: float | Parameter,
+        dt: float | Parameter,
+    ) -> Dict[LPFamily, List[(str, str, float | Parameter)]]:
         """
         Rearrange magnetic Hamiltonian matrix elements to LP family bins.
 

@@ -19,7 +19,7 @@ from pathlib import Path
 from qiskit import transpile
 from qiskit_aer.primitives import SamplerV2
 from qiskit.circuit import QuantumCircuit
-from qiskit.qasm2 import dumps
+from qiskit.qasm3 import dumps
 from typing import Any, Set
 from ymcirc._abstract import LatticeDef
 from ymcirc.circuit import LatticeCircuitManager
@@ -51,6 +51,7 @@ def configure_script_options(
         prune_controls: bool = True,
         control_fusion: bool = True,
         electric_gray_order: bool = True,
+        cache_mag_evol_circuit: bool = True,
         use_ancillas: bool = True,
         plot_vacuum_persistence: bool = True,
         plot_electric_energy: bool = True,
@@ -132,6 +133,11 @@ def configure_script_options(
         - electric_gray_order:
               Whether to use Gray ordering of gates to reduce
               circuit depth
+        - cache_mag_evol_circuit:
+              Whether the plaquette-local magnetic evolution
+              circuit should be cached. Speeds up application
+              across lattices and between Trotter steps.
+              Usually a good idea to enable.
         - use_ancillas:
               Whether to introduce ancilla qubits to reduce to gate
               depth of multi-control gates.
@@ -172,6 +178,7 @@ def configure_script_options(
     options["prune_controls"] = prune_controls
     options["control_fusion"] = control_fusion
     options["electric_gray_order"] = electric_gray_order
+    options["cache_mag_evol_circuit"] = cache_mag_evol_circuit
     options["use_ancillas"] = use_ancillas
     options["n_shots"] = n_shots
     options["plot_vacuum_persistence"] = plot_vacuum_persistence
@@ -234,18 +241,15 @@ def create_circuits(script_options: dict[str, Any]) -> list[QuantumCircuit]:
             circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit)
 
         # Apply Trotter steps.
-        dt = sim_time / script_options["n_trotter_steps"]
         for _ in range(script_options["n_trotter_steps"]):
             if script_options["do_magnetic_evolution"] is True:
                 circ_mgr.apply_magnetic_trotter_step(
                     master_circuit,
                     lattice_registers,
-                    coupling_g=script_options["coupling_g"],
-                    dt=dt,
                     optimize_circuits=script_options["optimize_circuits"],
                     physical_states_for_control_pruning=physical_plaquette_states,
                     control_fusion=script_options["control_fusion"],
-                    cache_mag_evol_circuit=True
+                    cache_mag_evol_circuit=script_options["cache_mag_evol_circuit"]
                 )
 
             if script_options["do_electric_evolution"] is True:
@@ -253,8 +257,6 @@ def create_circuits(script_options: dict[str, Any]) -> list[QuantumCircuit]:
                     master_circuit,
                     lattice_registers,
                     electric_hamiltonian(lattice_encoder.link_bitmap),
-                    coupling_g=script_options["coupling_g"],
-                    dt=dt,
                     electric_gray_order=script_options["electric_gray_order"])
 
         # Circuit complete.
@@ -320,10 +322,23 @@ def run_circuit_simulations(circuits: list[QuantumCircuit], script_options: dict
     print(f"# ancilla qubits: {n_ancilla_qubits}")
 
     # Prepare circuits for execution by adding a final
-    # measurement of all registers, and then transpile.
+    # measurement of all registers, assigning parameter values,
+    # and then transpiling.
+    # In principle, we could set all the dt and coupling_g parameters
+    # for each electric or magnetic Trotter step individually,
+    # but in this case, we use the same dt for both at each total sim duration,
+    # and use one value of the coupling g for all simulations.
     transpiled_circuits_with_final_measurement = []
-    for circuit in circuits:
+    for idx, circuit in enumerate(circuits):
+        dt = script_options["sim_times"][idx] / script_options["n_trotter_steps"]
         transpiled_circuit_with_final_measurement = copy.deepcopy(circuit)
+        parameter_values = dict()
+        for param in transpiled_circuit_with_final_measurement.parameters:
+            if 'dt' in param.name:
+                parameter_values[param.name] = dt
+            elif 'coupling_g' in param.name:
+                parameter_values[param.name] = script_options['coupling_g']
+        transpiled_circuit_with_final_measurement.assign_parameters(parameter_values, inplace=True)
         transpiled_circuit_with_final_measurement.measure_all()
         transpiled_circuit_with_final_measurement = transpile(transpiled_circuit_with_final_measurement, optimization_level=3)
         transpiled_circuits_with_final_measurement.append(transpiled_circuit_with_final_measurement)
@@ -436,6 +451,7 @@ if __name__ == "__main__":
         n_trotter_steps=2,
         n_shots=10000,
         use_ancillas=True,
+        cache_mag_evol_circuit=True,
         save_circuits_to_qasm=False,
         save_circuit_diagrams=False,
         save_plots=False,
