@@ -16,7 +16,7 @@ from matplotlib.figure import Figure
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from qiskit import transpile
+from qiskit import transpile, qpy
 from qiskit_aer.primitives import SamplerV2
 from qiskit.circuit import QuantumCircuit
 from qiskit.qasm3 import dumps
@@ -55,7 +55,8 @@ def configure_script_options(
         use_ancillas: bool = True,
         plot_vacuum_persistence: bool = True,
         plot_electric_energy: bool = True,
-        save_circuits_to_qasm: bool = False,
+        save_circuit_to_qasm: bool = False,
+        save_circuit_to_qpy: bool = False,
         save_circuit_diagrams: bool = False,
         save_plots: bool = False,
         save_sim_data: bool = False
@@ -147,9 +148,12 @@ def configure_script_options(
         - plot_electric_energy:
               Whether to plot all available electric energy
               data.
-        - save_circuits_to_qasm:
-              Whether to save all generated circuits to disk
-              as QASM files.
+        - save_circuit_to_qasm:
+              Whether to save generated parameterized circuit to disk
+              as QASM file.
+        - save_circuit_to_qpy:
+              Whether to save generated parameterized circuit to disk
+              as QPY file.
         - save_circuit_diagrams:
               Whether to save diagrams of all generated
               circuits to disk as PDFs.
@@ -183,7 +187,8 @@ def configure_script_options(
     options["n_shots"] = n_shots
     options["plot_vacuum_persistence"] = plot_vacuum_persistence
     options["plot_electric_energy"] = plot_electric_energy
-    options["save_circuits_to_qasm"] = save_circuits_to_qasm
+    options["save_circuit_to_qasm"] = save_circuit_to_qasm
+    options["save_circuit_to_qpy"] = save_circuit_to_qpy
     options["save_circuit_diagrams"] = save_circuit_diagrams
     options["save_plots"] = save_plots
     options["save_sim_data"] = save_sim_data
@@ -200,23 +205,23 @@ def configure_script_options(
     return options
 
 
-def create_circuits(script_options: dict[str, Any]) -> list[QuantumCircuit]:
+def create_circuit(script_options: dict[str, Any]) -> QuantumCircuit:
     """
-    Create a list of QuantumCircuit instances corresponding to a set
-    of simulations.
+    Create a parameterized QuantumCircuit instance for simulating the lattice
+    described by script_options.
     """
-    circuits: list[QuantumCircuit] = []
-
     # Create lattice_encoder instance.
     lattice_encoder = create_lattice_encoder(script_options)
 
     # Load mag Hamiltonian data.
+    print("Loading magnetic Hamiltonian data...")
     mag_hamiltonian = load_magnetic_hamiltonian(
         script_options["dimensionality_string"],
         script_options["truncation_string"],
         lattice_encoder,
         mag_hamiltonian_matrix_element_threshold=script_options["mag_hamiltonian_matrix_element_threshold"],
         only_include_elems_connected_to_electric_vacuum=script_options["mag_hamiltonian_use_electric_vacuum_transitions_only"])
+    print("Done.")
 
     # Figure out physical states needed for control pruning.
     if script_options["prune_controls"] is True:
@@ -225,54 +230,50 @@ def create_circuits(script_options: dict[str, Any]) -> list[QuantumCircuit]:
     else:
         physical_plaquette_states = None
 
-    # Create a simulation circuit for each sim duration.
-    for sim_time in script_options["sim_times"]:
-        # Initialize the current circuit's registers.
-        lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
-        circ_mgr = LatticeCircuitManager(lattice_encoder, mag_hamiltonian)
-        master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
+    # Initialize the current circuit's registers.
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager(lattice_encoder, mag_hamiltonian)
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
 
-        # Add ancilla register if needed.
-        if script_options["use_ancillas"] is True:
-            circ_mgr.num_ancillas = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(
-                master_circuit, lattice_registers, control_fusion=script_options["control_fusion"],
+    # Add ancilla register if needed.
+    if script_options["use_ancillas"] is True:
+        circ_mgr.num_ancillas = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(
+            master_circuit, lattice_registers, control_fusion=script_options["control_fusion"],
+            physical_states_for_control_pruning=physical_plaquette_states,
+            optimize_circuits=script_options["optimize_circuits"])
+        circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit)
+
+    # Apply Trotter steps.
+    for idx in range(script_options["n_trotter_steps"]):
+        if script_options["do_magnetic_evolution"] is True:
+            print(f"Applying magnetic Trotter step {idx + 1}/{script_options['n_trotter_steps']} across lattice...")
+            circ_mgr.apply_magnetic_trotter_step(
+                master_circuit,
+                lattice_registers,
+                optimize_circuits=script_options["optimize_circuits"],
                 physical_states_for_control_pruning=physical_plaquette_states,
-                optimize_circuits=script_options["optimize_circuits"])
-            circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit)
+                control_fusion=script_options["control_fusion"],
+                cache_mag_evol_circuit=script_options["cache_mag_evol_circuit"]
+            )
 
-        # Apply Trotter steps.
-        for _ in range(script_options["n_trotter_steps"]):
-            if script_options["do_magnetic_evolution"] is True:
-                circ_mgr.apply_magnetic_trotter_step(
-                    master_circuit,
-                    lattice_registers,
-                    optimize_circuits=script_options["optimize_circuits"],
-                    physical_states_for_control_pruning=physical_plaquette_states,
-                    control_fusion=script_options["control_fusion"],
-                    cache_mag_evol_circuit=script_options["cache_mag_evol_circuit"]
-                )
+        if script_options["do_electric_evolution"] is True:
+            print(f"Applying electric Trotter step {idx + 1}/{script_options['n_trotter_steps']} across lattice...")
+            circ_mgr.apply_electric_trotter_step(
+                master_circuit,
+                lattice_registers,
+                electric_hamiltonian(lattice_encoder.link_bitmap),
+                electric_gray_order=script_options["electric_gray_order"])
 
-            if script_options["do_electric_evolution"] is True:
-                circ_mgr.apply_electric_trotter_step(
-                    master_circuit,
-                    lattice_registers,
-                    electric_hamiltonian(lattice_encoder.link_bitmap),
-                    electric_gray_order=script_options["electric_gray_order"])
-
-        # Circuit complete.
-        circuits.append(master_circuit)
-
-    return circuits
+    return master_circuit
 
 
-def save_circuits(circuits: list[QuantumCircuit], simulation_identifier: str, script_options: dict[str, Any]) -> None:
+def save_circuit(circuit: QuantumCircuit, simulation_identifier: str, script_options: dict[str, Any]) -> None:
     """
-    Write a list of QuantumCircuit instances to
-    a set of QASM files and/or save circuit diagrams to pdfs
+    Write a QuantumCircuit instance to
+    QASM/QPY files and/or save circuit diagrams to pdfs
     depending on script_options.
 
-    The string simulation_identifier is combined with the timesteps in script_options to assign
-    each circuit in circuits a meaningful filename. Each QASM file is saved in the
+    Each QASM/QPY file is saved in the
     directory specified by script_options['circ_qasm_dir'].
     """
     # Prep the circuit write directory.
@@ -287,50 +288,55 @@ def save_circuits(circuits: list[QuantumCircuit], simulation_identifier: str, sc
         circuit_diagram_dir = Path(circuit_diagram_dir)
     circuit_diagram_dir.mkdir(exist_ok=True)
 
-    # Iterate over the circuits for each sim time.
-    # Write QASM file and/or PDF of circuit diagram.
-    circuits_with_sim_time = zip(circuits, script_options["sim_times"])
-    for circuit, sim_time in circuits_with_sim_time:
-        if script_options["save_circuits_to_qasm"] is True:
-            circuit_filename = simulation_identifier + f"-t={sim_time}.qasm"
-            qasm_file_path = circuits_dir / circuit_filename
-            with qasm_file_path.open('w') as qasm_file:
-                qasm_file.write(dumps(circuit))
-        if script_options["save_circuit_diagrams"] is True:
-            diagram_filename = simulation_identifier + f"-t={sim_time}.pdf"
-            diagram_file_path = circuit_diagram_dir / diagram_filename
-            circuit.draw(
-                output="mpl",
-                filename=diagram_file_path,
-                fold=False
-            )
+    # Write QASM/QPY file and/or PDF of circuit diagram.
+    if script_options["save_circuit_to_qasm"] is True:
+        qasm_circuit_filename = simulation_identifier + ".qasm"
+        qasm_file_path = circuits_dir / qasm_circuit_filename
+        with qasm_file_path.open('w') as qasm_file:
+            qasm_file.write(dumps(circuit))
+    if script_options["save_circuit_to_qpy"] is True:
+        qpy_circuit_filename = simulation_identifier + ".qpy"
+        qpy_file_path = circuits_dir / qpy_circuit_filename
+        with open(qpy_file_path, "wb") as qpy_file:
+            qpy.dump(circuit, qpy_file)
+    if script_options["save_circuit_diagrams"] is True:
+        diagram_filename = simulation_identifier + ".pdf"
+        diagram_file_path = circuit_diagram_dir / diagram_filename
+        circuit.draw(
+            output="mpl",
+            filename=diagram_file_path,
+            fold=False
+        )
 
 
-def run_circuit_simulations(circuits: list[QuantumCircuit], script_options: dict[str, Any]) -> pd.DataFrame:
+def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, Any]) -> pd.DataFrame:
     """
-    Execute a simulation of each QuantumCircuit in circuits according
-    to the parameters in script_options. Returns the results as a DataFrame.
+    Execute a simulation of circuit according
+    to the parameters in script_options. There will be
+    as many simulations as there are items in sim_times.
+
+    Returns the results as a DataFrame.
     """
     # Set up objects needed for executing circuits and processing results.
     sampler = SamplerV2()
-    n_ancilla_qubits = len(circuits[0].ancillas)
-    n_total_qubits = len(circuits[0].qubits)
+    n_ancilla_qubits = len(circuit.ancillas)
+    n_total_qubits = len(circuit.qubits)
     n_data_qubits = n_total_qubits - n_ancilla_qubits
     vacuum_state = "0" * n_data_qubits
     lattice_encoder = create_lattice_encoder(script_options)
     print(f"# data qubits: {n_data_qubits}")
     print(f"# ancilla qubits: {n_ancilla_qubits}")
 
-    # Prepare circuits for execution by adding a final
+    # Prepare a circuit for each sim_time by adding a
     # measurement of all registers, assigning parameter values,
     # and then transpiling.
     # In principle, we could set all the dt and coupling_g parameters
     # for each electric or magnetic Trotter step individually,
     # but in this case, we use the same dt for both at each total sim duration,
     # and use one value of the coupling g for all simulations.
-    transpiled_circuits_with_final_measurement = []
-    for idx, circuit in enumerate(circuits):
-        dt = script_options["sim_times"][idx] / script_options["n_trotter_steps"]
+    transpiled_circuits_with_assigned_params = []
+    for idx, sim_time in enumerate(script_options["sim_times"]):
+        dt = sim_time / script_options["n_trotter_steps"]
         transpiled_circuit_with_final_measurement = copy.deepcopy(circuit)
         parameter_values = dict()
         for param in transpiled_circuit_with_final_measurement.parameters:
@@ -341,10 +347,10 @@ def run_circuit_simulations(circuits: list[QuantumCircuit], script_options: dict
         transpiled_circuit_with_final_measurement.assign_parameters(parameter_values, inplace=True)
         transpiled_circuit_with_final_measurement.measure_all()
         transpiled_circuit_with_final_measurement = transpile(transpiled_circuit_with_final_measurement, optimization_level=3)
-        transpiled_circuits_with_final_measurement.append(transpiled_circuit_with_final_measurement)
+        transpiled_circuits_with_assigned_params.append(transpiled_circuit_with_final_measurement)
 
     # Execute circuits.
-    job = sampler.run(transpiled_circuits_with_final_measurement, shots=script_options['n_shots'])
+    job = sampler.run(transpiled_circuits_with_assigned_params, shots=script_options['n_shots'])
     job_results = job.result()
 
     # Organize job results into dataframe.
@@ -451,8 +457,11 @@ if __name__ == "__main__":
         n_trotter_steps=2,
         n_shots=10000,
         use_ancillas=True,
+        control_fusion=True,
+        prune_controls=True,
         cache_mag_evol_circuit=True,
-        save_circuits_to_qasm=False,
+        save_circuit_to_qasm=False,
+        save_circuit_to_qpy=False,
         save_circuit_diagrams=False,
         save_plots=False,
         save_sim_data=False,
@@ -466,13 +475,15 @@ if __name__ == "__main__":
     simulation_category_str_prefix = f"{script_options['lattice_def'].n_plaquettes}-plaquettes-in-d={script_options['lattice_def'].dim}-irrep_trunc={script_options['truncation_string']}-mat_elem_cut={script_options['mag_hamiltonian_matrix_element_threshold']}-vac_connected_only={script_options['mag_hamiltonian_use_electric_vacuum_transitions_only']}"
 
     # Create circuit(s) to simulate, optionally save to disk.
-    simulation_circuits = create_circuits(script_options)
-    if script_options["save_circuits_to_qasm"] is True or script_options["save_circuit_diagrams"] is True:
-        save_circuits(simulation_circuits, simulation_category_str_prefix, script_options)
+    simulation_circuit = create_circuit(script_options)
+    if (script_options["save_circuit_to_qasm"] is True or
+        script_options["save_circuit_to_qpy"] is True or
+        script_options["save_circuit_diagrams"] is True):
+        save_circuit(simulation_circuit, simulation_category_str_prefix, script_options)
 
     # Either run circuits or skip.
     if script_options["n_shots"] is not None:
-        sim_data = run_circuit_simulations(simulation_circuits, script_options)
+        sim_data = run_circuit_simulations(simulation_circuit, script_options)
     else:
         sim_data = None  # Neither simulating circuits nor loading sim data.
 
