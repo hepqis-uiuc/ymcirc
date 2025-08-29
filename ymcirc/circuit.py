@@ -544,11 +544,12 @@ class LatticeCircuitManager:
             plaquette_local_rotation_circuit.add_register(AncillaRegister(self.num_ancillas))
         for idx, (lp_fam, lp_bin_w_angle) in enumerate(lp_bin.items()):
             loop_time_state, eta = eta_update(state=loop_time_state, processed=idx+1, total=len(lp_bin.items()))
-            msg = (
+            iter_msg = (
                 f"Constructing rotation circuit for LP bin {idx + 1}/{len(lp_bin.items())} with {len(lp_bin_w_angle)} Givens rotations."
             )
-            logger.info(msg)
-            logger.info(f"Time remaining: {fmt_td(eta)} (~{fmt_td(loop_time_state['avg'])} per LP bin)")
+            eta_msg = "More iterations needed to estimate time remaining." if idx == 0 else f"Estimated time remaining: {fmt_td(eta)}"
+            logger.info(iter_msg)
+            logger.info(eta_msg)
             if control_fusion is True:
                 fused_circ_for_lp_fam = givens_fused_controls(
                     lp_bin_w_angle, lp_fam, physical_states_for_control_pruning, self.num_ancillas,

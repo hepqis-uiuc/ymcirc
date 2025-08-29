@@ -179,7 +179,7 @@ def eta_update(state: Optional[Dict] | None,
                processed: int,
                total: int,
                *,
-               alpha: float = 0.2) -> Tuple[Optional[Dict], Optional[float]]:
+               alpha: float = 0.5) -> Tuple[Optional[Dict], Optional[float]]:
     """
     Update ETA state and return (new_state, eta_seconds or None).
 
