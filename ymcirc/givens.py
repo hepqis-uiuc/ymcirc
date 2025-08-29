@@ -622,8 +622,11 @@ def _fuse_ctrls_of_ctrls_list(
 
 
 def _CRXGate(num_ctrls: int, ctrl_state: str, angle: float) -> ControlledGate:
-    """Returns a RXGate given num_ctrls and ctrl_state"""
-    return RXGate(angle).control(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state[::-1])
+    """Returns a RXGate given num_ctrls and ctrl_state for the given angle. 
+       Should be noted qiskit's rotation gates divide their rotation input by 2.0. 
+       This is accounted for in the code
+    """
+    return RXGate(2.0*angle).control(num_ctrl_qubits=num_ctrls, ctrl_state=ctrl_state[::-1])
 
 
 def _CRXCircuit_with_MCX(
@@ -636,7 +639,8 @@ def _CRXCircuit_with_MCX(
     Input:
         - ctrl_List: [ctrls_state, ctrls], where ctrl_list corresponds to the control qubit indices and 
         ctrl_state corresponds to the state the controls are in.
-        - angle: The rotation angle for the MCU
+        - angle: The rotation angle for the MCU. Should be noted qiskit's rotation gates divide their rotation input by 2.0. 
+        This is accounted for in the code
         - ctrl_state: The target qubit index for the rotation
         - num_qubits: The total qubits in the local rotation
         - num_ancillas: The number of ancillas used for the local rotation. If
@@ -665,9 +669,9 @@ def _CRXCircuit_with_MCX(
         plaquette_ancilla_qubits = None
         mode = 'noancilla'
     circ_with_mcx.append(RZGate(-1.0*np.pi/2.0), [target])
-    circ_with_mcx.append(RYGate(-1.0*angle/2.0), [target])
+    circ_with_mcx.append(RYGate(-2.0*angle/2.0), [target])
     circ_with_mcx.mcx(ctrls, target, ancilla_qubits=plaquette_ancilla_qubits, ctrl_state = ctrl_state[::-1], mode=mode)
-    circ_with_mcx.append(RYGate(1.0*angle/2.0), [target])
+    circ_with_mcx.append(RYGate(2.0*angle/2.0), [target])
     circ_with_mcx.mcx(ctrls, target, ancilla_qubits=plaquette_ancilla_qubits, ctrl_state = ctrl_state[::-1], mode=mode)
     circ_with_mcx.append(RZGate(1.0*np.pi/2.0), [target])
     return circ_with_mcx
