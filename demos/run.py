@@ -468,6 +468,7 @@ if __name__ == "__main__":
         control_fusion=True,
         prune_controls=True,
         cache_mag_evol_circuit=True,
+        load_circuit_from_file=None,  # Replace with file path if desired.
         save_circuit_to_qasm=False,
         save_circuit_to_qpy=False,
         save_circuit_diagrams=False,
@@ -482,7 +483,6 @@ if __name__ == "__main__":
     # Generate a descriptive prefix for all filenames based on simulation params.
     # Also specify whether to load a circuit from disk instead of creating it.
     simulation_category_str_prefix = f"{script_options['lattice_def'].n_plaquettes}-plaquettes-in-d={script_options['lattice_def'].dim}-irrep_trunc={script_options['truncation_string']}-n_trotter_steps={script_options['n_trotter_steps']}-mat_elem_cut={script_options['mag_hamiltonian_matrix_element_threshold']}-vac_connected_only={script_options['mag_hamiltonian_use_electric_vacuum_transitions_only']}-vchain={script_options['use_ancillas']}-control_fusion={script_options['control_fusion']}-prune_controls={script_options['prune_controls']}"
-    script_options["load_circuit_from_file"] = script_options['serialized_circ_dir'] / (simulation_category_str_prefix + ".qpy") # Comment out to generate circuit instead.
 
     # Create or load circuit to simulate, optionally save to disk.
     # Note that if we don't transpile the circuit,
