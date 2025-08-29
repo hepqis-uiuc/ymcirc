@@ -19,7 +19,7 @@ from pathlib import Path
 from qiskit import transpile, qpy
 from qiskit_aer.primitives import SamplerV2
 from qiskit.circuit import QuantumCircuit
-from qiskit.qasm3 import dumps
+from qiskit.qasm3 import dumps, load
 from typing import Any, Set
 from ymcirc._abstract import LatticeDef
 from ymcirc.circuit import LatticeCircuitManager
@@ -37,7 +37,7 @@ def configure_script_options(
         n_trotter_steps: int,
         n_shots: int | None,
         use_periodic_boundary_conds: bool = True,
-        circ_qasm_dir: Path | str | None = None,
+        serialized_circ_dir: Path | str | None = None,
         plots_dir: Path | str | None = None,
         sim_results_dir: Path | str | None = None,
         do_electric_evolution: bool = True,
@@ -59,7 +59,8 @@ def configure_script_options(
         save_circuit_to_qpy: bool = False,
         save_circuit_diagrams: bool = False,
         save_plots: bool = False,
-        save_sim_data: bool = False
+        save_sim_data: bool = False,
+        load_circuit_from_file: str | Path | None = None
 ) -> dict[str, Any]:
     """
     Configure a dictionary of options
@@ -95,8 +96,8 @@ def configure_script_options(
               no circuit simulations will be run.
         - use_periodic_boundary_conds:
               Use periodic boundary conditions if True.
-        - circ_qasm_dir:
-              Directory for read/write of circuit qasm files.
+        - serialized_circ_dir:
+              Directory for read/write of circuit QASM/QPY files.
         - plots_dir:
               Directory for read/write of plots.
         - sim_results_dir:
@@ -161,9 +162,12 @@ def configure_script_options(
               Whether to save all plots generated to disk as PDFs instead of shown immediately.
         - save_sim_data:
               Whether to save all circuit execution data to disk.
+        - load_circuit_from_file:
+              If a str or Path instance, a parameterized circuit file (either QASM or QPY).
+              Skips creating a circuit if not None.
     """
     options: dict[str, Any] = dict()
-    options["circ_qasm_dir"] = circ_qasm_dir
+    options["serialized_circ_dir"] = serialized_circ_dir
     options["plots_dir"] = plots_dir
     options["sim_results_dir"] = sim_results_dir
     options["do_electric_evolution"] = do_electric_evolution
@@ -193,6 +197,7 @@ def configure_script_options(
     options["save_plots"] = save_plots
     options["save_sim_data"] = save_sim_data
     options["use_periodic_boundary_conds"] = use_periodic_boundary_conds
+    options["load_circuit_from_file"] = load_circuit_from_file
 
     # Automatically set some additional options based on user input above.
     options["dimensions"] = 1.5 if (dimensionality_string == "d=3/2" or dimensionality_string == "d=1.5") else int(dimensionality_string[2:])
@@ -274,10 +279,11 @@ def save_circuit(circuit: QuantumCircuit, simulation_identifier: str, script_opt
     depending on script_options.
 
     Each QASM/QPY file is saved in the
-    directory specified by script_options['circ_qasm_dir'].
+    directory specified by script_options['serialized_circ_dir'].
     """
+    print("Saving circuit to disk...")
     # Prep the circuit write directory.
-    circuits_dir = script_options['circ_qasm_dir']
+    circuits_dir = script_options['serialized_circ_dir']
     if not isinstance(circuits_dir, Path):
         circuits_dir = Path(circuits_dir)
     circuits_dir.mkdir(exist_ok=True)
@@ -336,6 +342,7 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
     # and use one value of the coupling g for all simulations.
     transpiled_circuits_with_assigned_params = []
     for idx, sim_time in enumerate(script_options["sim_times"]):
+        print(f"Setting parameters for circuit {idx+1}/{len(script_options['sim_times'])} (sim_time = {sim_time})")
         dt = sim_time / script_options["n_trotter_steps"]
         transpiled_circuit_with_final_measurement = copy.deepcopy(circuit)
         parameter_values = dict()
@@ -350,6 +357,7 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
         transpiled_circuits_with_assigned_params.append(transpiled_circuit_with_final_measurement)
 
     # Execute circuits.
+    print("Executing circuits...")
     job = sampler.run(transpiled_circuits_with_assigned_params, shots=script_options['n_shots'])
     job_results = job.result()
 
@@ -465,21 +473,44 @@ if __name__ == "__main__":
         save_circuit_diagrams=False,
         save_plots=False,
         save_sim_data=False,
-        circ_qasm_dir=PROJECT_ROOT / "serialized-circuits",
+        serialized_circ_dir=PROJECT_ROOT / "serialized-circuits",
         plots_dir=PROJECT_ROOT / "plots",
         sim_results_dir=PROJECT_ROOT / "sim-results",
         mag_hamiltonian_matrix_element_threshold=0.9
     )
 
     # Generate a descriptive prefix for all filenames based on simulation params.
-    simulation_category_str_prefix = f"{script_options['lattice_def'].n_plaquettes}-plaquettes-in-d={script_options['lattice_def'].dim}-irrep_trunc={script_options['truncation_string']}-mat_elem_cut={script_options['mag_hamiltonian_matrix_element_threshold']}-vac_connected_only={script_options['mag_hamiltonian_use_electric_vacuum_transitions_only']}"
+    # Also specify whether to load a circuit from disk instead of creating it.
+    simulation_category_str_prefix = f"{script_options['lattice_def'].n_plaquettes}-plaquettes-in-d={script_options['lattice_def'].dim}-irrep_trunc={script_options['truncation_string']}-n_trotter_steps={script_options['n_trotter_steps']}-mat_elem_cut={script_options['mag_hamiltonian_matrix_element_threshold']}-vac_connected_only={script_options['mag_hamiltonian_use_electric_vacuum_transitions_only']}-vchain={script_options['use_ancillas']}-control_fusion={script_options['control_fusion']}-prune_controls={script_options['prune_controls']}"
+    script_options["load_circuit_from_file"] = script_options['serialized_circ_dir'] / (simulation_category_str_prefix + ".qpy") # Comment out to generate circuit instead.
 
-    # Create circuit(s) to simulate, optionally save to disk.
-    simulation_circuit = create_circuit(script_options)
-    if (script_options["save_circuit_to_qasm"] is True or
-        script_options["save_circuit_to_qpy"] is True or
-        script_options["save_circuit_diagrams"] is True):
+    # Create or load circuit to simulate, optionally save to disk.
+    # Note that if we don't transpile the circuit,
+    # some of the larger mcx gates don't get saved when
+    # writing a QPY file.
+    if script_options["load_circuit_from_file"] is None:
+        simulation_circuit = create_circuit(script_options)
+        simulation_circuit = transpile(simulation_circuit, optimization_level=3)
+    else:
+        print("Skipping circuit creation, loading from disk.")
+        circuit_load_path = Path(script_options["load_circuit_from_file"])
+        if circuit_load_path.exists() is False:
+            raise FileExistsError(f"Tried to load nonexistent file: '{circuit_load_path}'")
+        if circuit_load_path.suffix == ".qpy":
+            with open(circuit_load_path, "rb") as handle:
+                simulation_circuit = qpy.load(handle)[0]
+        elif circuit_load_path.suffix == ".qasm":
+            simulation_circuit = load(circuit_load_path)
+        else:
+            raise ValueError(f"Attempted to load circuit file of unknown type '{circuit_load_path.suffix}'.")
+    if ((script_options["save_circuit_to_qasm"] is True or
+         script_options["save_circuit_to_qpy"] is True or
+         script_options["save_circuit_diagrams"] is True)
+        and
+        (script_options["load_circuit_from_file"] is None)):
         save_circuit(simulation_circuit, simulation_category_str_prefix, script_options)
+
+    print(f"Circuit ops count: {simulation_circuit.count_ops()}.")
 
     # Either run circuits or skip.
     if script_options["n_shots"] is not None:
