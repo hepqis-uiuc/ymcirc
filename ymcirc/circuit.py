@@ -15,7 +15,7 @@ from ymcirc.givens import (
     gray_to_index,
 )
 from ymcirc._abstract.lattice_data import Plaquette
-from ymcirc.utilities import _check_circuits_logically_equivalent, _flatten_circuit
+from ymcirc.utilities import _check_circuits_logically_equivalent, _flatten_circuit, eta_update, fmt_td
 from math import ceil
 from qiskit import transpile
 from qiskit.circuit import Parameter, QuantumCircuit, QuantumRegister, AncillaRegister
@@ -390,6 +390,7 @@ class LatticeCircuitManager:
             else:
                 physical_states_for_control_pruning = stripped_physical_states
 
+        logger.info(f"There are {len(physical_states_for_control_pruning)} plaquette states.")
         # Construct the dt and coupling parameters for the current magnetic Trotter step,
         name_prefixes = ['dt_mag', 'coupling_g_mag']
         step_num_separator = '__'
@@ -412,7 +413,6 @@ class LatticeCircuitManager:
         )
         if cache_mag_evol_circuit is True and not mag_evol_recomputation_needed:
             logger.info("Fetching cached magnetic evolution circuit.")
-            #breakpoint()
             plaquette_local_rotation_circuit_template = self._cached_mag_evol_circuit
         else:
             logger.info("Building magnetic evolution circuit from scratch.")
@@ -522,6 +522,7 @@ class LatticeCircuitManager:
             coupling_g,
             dt,
         )
+        logger.info(f"There are {sum([len(bin) for bin in lp_bin.values()])} primitive Givens rotation circuits for the plaquette.")
         if control_fusion is True:
             # Sort according to Gray-order.
             lp_bin = {
@@ -531,15 +532,24 @@ class LatticeCircuitManager:
                     key=lambda x: gray_to_index(bitstring_value_of_LP_family(x)),
                 )
             }
+
         # Iterate over all LP bins and apply givens rotation.
+        # Also logs progress of circuit construction at INFO level.
         plaquette_circ_n_qubits = len(
             self._mag_hamiltonian[0][0]
         )  # TODO this is a disgusting way to get the size of the magnetic evol circuit per plaquette.
-
         plaquette_local_rotation_circuit = QuantumCircuit(plaquette_circ_n_qubits)
+        loop_time_state = None  # For tracking Givens rotation circuit construction progress.
         if (self.num_ancillas > 0):
             plaquette_local_rotation_circuit.add_register(AncillaRegister(self.num_ancillas))
-        for lp_fam, lp_bin_w_angle in lp_bin.items():
+        for idx, (lp_fam, lp_bin_w_angle) in enumerate(lp_bin.items()):
+            loop_time_state, eta = eta_update(state=loop_time_state, processed=idx+1, total=len(lp_bin.items()))
+            iter_msg = (
+                f"Constructing rotation circuit for LP bin {idx + 1}/{len(lp_bin.items())} with {len(lp_bin_w_angle)} Givens rotations."
+            )
+            eta_msg = "More iterations needed to estimate time remaining." if idx == 0 else f"Estimated time remaining: {fmt_td(eta)}"
+            logger.info(iter_msg)
+            logger.info(eta_msg)
             if control_fusion is True:
                 fused_circ_for_lp_fam = givens_fused_controls(
                     lp_bin_w_angle, lp_fam, physical_states_for_control_pruning, self.num_ancillas,

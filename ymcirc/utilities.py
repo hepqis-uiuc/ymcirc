@@ -7,7 +7,8 @@ import logging
 import numpy as np
 from pathlib import Path
 from qiskit.circuit import QuantumCircuit, QuantumRegister
-from typing import Dict, List
+import time
+from typing import Dict, List, Optional, Tuple
 
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
@@ -172,3 +173,65 @@ def _flatten_circuit(original_circuit: QuantumCircuit) -> QuantumCircuit:
         flattened_circuit.append(gate, new_qubits)
 
     return flattened_circuit
+
+
+def eta_update(state: Optional[Dict] | None,
+               processed: int,
+               total: int,
+               *,
+               alpha: float = 0.5) -> Tuple[Optional[Dict], Optional[float]]:
+    """
+    Update ETA state and return (new_state, eta_seconds or None).
+
+    Uses an exponential moving average (EMA) with decay parameter alpha.
+
+    - state: previously returned state dict, or None to start.
+             Has keys "t0", "last", "avg".
+    - processed: total items processed so far (int). Saved into "last" for
+             future reference.
+    - total: total items (int).
+    - alpha: EMA smoothing factor in (0,1].
+    Returns:
+    - state: updated state dict (store and pass back next call)
+    - eta_seconds: estimated seconds remaining, or None if insufficient data
+    """
+    # Initialize state on first call, do nothing if no updates since last call.
+    if state is None:
+        state = {"t0": time.monotonic(), "last": 0, "avg": None}
+    now = time.monotonic()
+    if processed <= state["last"]:
+        return state, None
+
+    # Get elapsed time since last call.
+    # use to estimate time-per-item.
+    elapsed = now - state["t0"]
+    sample = elapsed / processed if processed else None
+
+    # Update EMA, or set if not yet computed.
+    if state["avg"] is None:
+        state["avg"] = sample
+    elif sample is not None:
+        state["avg"] = alpha * sample + (1 - alpha) * state["avg"]
+
+    # Record the new processed count for future idempotency checks.
+    state["last"] = processed
+
+    # If no valid average, can't return an ETA.
+    if state["avg"] is None:
+        return state, None
+
+    # Return state and ETA based on current EMA.
+    remaining = max(0, total - processed)
+    return state, remaining * state["avg"]
+
+
+def fmt_td(seconds: float) -> str:
+    """Render seconds in a human-readable format."""
+    s = int(round(seconds))
+    m, s = divmod(s, 60)
+    h, m = divmod(m, 60)
+    if h:
+        return f"{h}h:{m:02d}m:{s:02d}s"
+    if m:
+        return f"{m}m:{s:02d}s"
+    return f"{s}s"
