@@ -62,4 +62,7 @@ pytest --runslow
 ```
 
 ## Usage
-See `demos/run.py` for example usage and logging configuration.
+See the `run` directory for example usage and logging configuration of ymcirc. To run the modules within `run`, call (for example):
+```
+python -m run.time_evol
+```
