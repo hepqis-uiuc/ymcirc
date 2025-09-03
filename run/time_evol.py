@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from run.functions import (
     config_ymcirc_logger, configure_script_options,
-    create_circuit, save_circuit, run_circuit_simulations,
+    create_time_evol_circuit, save_circuit, run_circuit_simulations,
     save_circuit_sim_data, plot_data
 )
 from pathlib import Path
@@ -63,7 +63,7 @@ if __name__ == "__main__":
     # some of the larger mcx gates don't get saved when
     # writing a QPY file.
     if script_options["load_circuit_from_file"] is None:
-        simulation_circuit = create_circuit(script_options)
+        simulation_circuit = create_time_evol_circuit(script_options)
         simulation_circuit = transpile(simulation_circuit, optimization_level=3)
     else:
         print("Skipping circuit creation, loading from disk.")

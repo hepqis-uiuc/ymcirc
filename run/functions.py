@@ -210,7 +210,7 @@ def configure_script_options(
     return options
 
 
-def create_circuit(script_options: dict[str, Any]) -> QuantumCircuit:
+def create_time_evol_circuit(script_options: dict[str, Any]) -> QuantumCircuit:
     """
     Create a parameterized QuantumCircuit instance for simulating the lattice
     described by script_options.
