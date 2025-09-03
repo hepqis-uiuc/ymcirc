@@ -18,7 +18,7 @@ from ymcirc._abstract.lattice_data import Plaquette
 from ymcirc.utilities import _check_circuits_logically_equivalent, _flatten_circuit, eta_update, fmt_td
 from math import ceil
 from qiskit import transpile
-from qiskit.circuit import Parameter, QuantumCircuit, QuantumRegister, AncillaRegister
+from qiskit.circuit import Parameter, ParameterVector, QuantumCircuit, QuantumRegister, AncillaRegister
 from qiskit.circuit.library.standard_gates import RXGate, CXGate
 from qiskit.transpiler import PassManager
 from qiskit.transpiler.passes import InverseCancellation
@@ -318,6 +318,7 @@ class LatticeCircuitManager:
             ]
             master_circuit.compose(local_circuit, qubits=link_qubits, inplace=True)
 
+    # TODO flag variable here to instead assign a unique parameter to each givens rotation?
     def apply_magnetic_trotter_step(
         self,
         master_circuit: QuantumCircuit,
@@ -369,28 +370,8 @@ class LatticeCircuitManager:
         Returns:
           None (master_circuit has the magnetic Trotter step appended)
         """
-        # Strip out redundant control links if physical state data provided and the lattice
-        # is both small enough and periodic (so that the same physical links can be distinct controls).
-        if (physical_states_for_control_pruning is not None) and (self._lattice_is_periodic is True) and (self._lattice_is_small is True):
-            stripped_physical_states = []
-            for plaquette_string in physical_states_for_control_pruning:
-                plaquette_state = self._encoder.decode_bit_string_to_plaquette_state(plaquette_string)
-                if self._plaquette_state_has_inconsistent_controls(plaquette_state) is True:
-                    continue
+        physical_states_for_control_pruning = self._strip_redundant_controls_if_small_and_periodic_lattice(physical_states_for_control_pruning)
 
-                plaquette_state_c_links_stripped = self._discard_duplicate_controls_from_plaquette_state(plaquette_state)
-                plaquette_state_c_links_stripped_bit_string = self._encoder.encode_plaquette_state_as_bit_string(
-                    plaquette_state_c_links_stripped,
-                    override_n_c_links_validation=True
-                )
-                stripped_physical_states.append(plaquette_state_c_links_stripped_bit_string)
-            stripped_physical_states = set(stripped_physical_states)
-            if len(stripped_physical_states) == 0:
-                physical_states_for_control_pruning = None
-            else:
-                physical_states_for_control_pruning = stripped_physical_states
-
-        logger.info(f"There are {len(physical_states_for_control_pruning)} plaquette states.")
         # Construct the dt and coupling parameters for the current magnetic Trotter step,
         name_prefixes = ['dt_mag', 'coupling_g_mag']
         step_num_separator = '__'
@@ -437,7 +418,6 @@ class LatticeCircuitManager:
             'coupling_g_mag_placeholder': coupling_g_mag_current,
             'dt_mag_placeholder': dt_mag_current
         })
-
 
         # Stitch magnetic Hamiltonian evolution circuit onto LatticeRegisters.
         # Vertex iteration loop.
@@ -505,24 +485,75 @@ class LatticeCircuitManager:
                     inplace=True
                 )
 
+    def _strip_redundant_controls_if_small_and_periodic_lattice(self, physical_states_for_control_pruning: set[str]) -> set[str] | None:
+        """
+        For lattices that are small and periodic, it's possible that the same link might act
+        as a control for more than one vertex in a single plaquette. This helper (1)
+        discards plaquette states that are inconsistent with this possibility and
+        (2) discards repeated control links from the description of plaquette states.
+
+        If the small and periodic test fails, just returns the input idempotently.
+        """
+        plaquettes_may_have_redundant_controls = (physical_states_for_control_pruning is not None) and (self._lattice_is_periodic is True) and (self._lattice_is_small is True)
+        if not plaquettes_may_have_redundant_controls:
+            return physical_states_for_control_pruning
+
+        stripped_physical_states = []
+        for plaquette_string in physical_states_for_control_pruning:
+            plaquette_state = self._encoder.decode_bit_string_to_plaquette_state(plaquette_string)
+            if self._plaquette_state_has_inconsistent_controls(plaquette_state) is True:
+                continue
+            plaquette_state_c_links_stripped = self._discard_duplicate_controls_from_plaquette_state(plaquette_state)
+            plaquette_state_c_links_stripped_bit_string = self._encoder.encode_plaquette_state_as_bit_string(
+                plaquette_state_c_links_stripped,
+                override_n_c_links_validation=True
+            )
+            stripped_physical_states.append(plaquette_state_c_links_stripped_bit_string)
+        stripped_physical_states = set(stripped_physical_states)
+        logger.info(f"There are {len(stripped_physical_states)} plaquette states.")
+        if len(stripped_physical_states) == 0:
+            physical_states_for_control_pruning = None
+        else:
+            physical_states_for_control_pruning = stripped_physical_states
+
+        return stripped_physical_states
+
     def _build_mag_evol_circuit(
         self,
         control_fusion: bool,
         physical_states_for_control_pruning: Union[None | Set[str]],
         coupling_g: Parameter,
         dt: Parameter,
-        optimize_circuits: bool
+        optimize_circuits: bool,
+        use_independent_params_for_each_givens_rot: bool = False
     ) -> QuantumCircuit:
-        """Build the magnetic time-evolution circuit for a plaquette."""
+        """
+        Build the magnetic time-evolution circuit for a plaquette.
+
+        If use_independent_params_for_each_givens_rot is True,
+        then coupling_g and dt will be ignored, and a unique
+        parameter for the rotation angle will be assigned for each
+        Givens rotation in the plaquette circuit.
+        """
         # Sort the bitstrings corresponding to transitions in the magnetic hamiltonian
         # into LP bins. This step also computes the angle of Givens rotation for each
-        # pair of bitstrings.
+        # pair of bitstrings. The resulting Givens rotations are characterized by
+        # two parameters: dt and the coupling g.
         lp_bin = LatticeCircuitManager._sort_matrix_elements_into_lp_bins(
             self._mag_hamiltonian,
             coupling_g,
             dt,
         )
-        logger.info(f"There are {sum([len(bin) for bin in lp_bin.values()])} primitive Givens rotation circuits for the plaquette.")
+        n_givens_rotations = sum([len(bin) for bin in lp_bin.values()])
+        logger.info(f"There are {n_givens_rotations} primitive Givens rotation circuits for the plaquette.")
+        # If specified by function arguments, replace each Givens rotation angle with an independent Parameter.
+        if use_independent_params_for_each_givens_rot is True:
+            rot_angle_param_vector = ParameterVector("theta", n_givens_rotations)
+            lp_bin = {
+                lp_fam: [(bit_string_1, bit_string_2, rot_angle_param_vector[idx_rot + idx_fam]) for idx_rot, (bit_string_1, bit_string_2, old_angle) in enumerate(lp_bin[lp_fam])]
+                for idx_fam, lp_fam in enumerate(lp_bin.keys())
+            }
+        
         if control_fusion is True:
             # Sort according to Gray-order.
             lp_bin = {
