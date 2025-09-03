@@ -1,4 +1,4 @@
-"""This script demonstrates one way of building a simulation pipeline with ymcirc."""
+"""This module demonstrates one way of constructing and simulating time-evolution circuits with ymcirc."""
 from __future__ import annotations
 
 # Hacky way to make ymcirc imports work.
@@ -56,7 +56,6 @@ if __name__ == "__main__":
     )
 
     # Generate a descriptive prefix for all filenames based on simulation params.
-    # Also specify whether to load a circuit from disk instead of creating it.
     simulation_category_str_prefix = f"{script_options['lattice_def'].n_plaquettes}-plaquettes-in-d={script_options['lattice_def'].dim}-irrep_trunc={script_options['truncation_string']}-n_trotter_steps={script_options['n_trotter_steps']}-mat_elem_cut={script_options['mag_hamiltonian_matrix_element_threshold']}-vac_connected_only={script_options['mag_hamiltonian_use_electric_vacuum_transitions_only']}-vchain={script_options['use_ancillas']}-control_fusion={script_options['control_fusion']}-prune_controls={script_options['prune_controls']}"
 
     # Create or load circuit to simulate, optionally save to disk.
