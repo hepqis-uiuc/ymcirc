@@ -318,7 +318,6 @@ class LatticeCircuitManager:
             ]
             master_circuit.compose(local_circuit, qubits=link_qubits, inplace=True)
 
-    # TODO flag variable here to instead assign a unique parameter to each givens rotation?
     def apply_magnetic_trotter_step(
         self,
         master_circuit: QuantumCircuit,
@@ -326,17 +325,25 @@ class LatticeCircuitManager:
         optimize_circuits: bool = True,
         physical_states_for_control_pruning: Union[None | Set[str]] = None,
         control_fusion: bool = False,
-        cache_mag_evol_circuit: bool = False
+        cache_mag_evol_circuit: bool = False,
+        givens_have_independent_params: bool = False
     ) -> None:
         """
         Add one magnetic Trotter step to the entire lattice circuit.
 
-        Appends a circuit with the following new Parameter instances:
+        Appends a circuit with the following new Parameter instances
+        (if givens_have_independent_params is False):
             - 'dt_mag__n' (the size of the Trotter time step)
             - 'coupling_g_mag__n' (strong coupling constant value)
         where 'n' is the number of dt_mag and coupling_g_mag parameters that
         already exist in master_circuit. If 'n' is different for the dt
         and coupling_g parameters, an error is raised.
+
+        If givens_have_independent_params is True, then for each plaquette,
+        each Givens rotation will take the single angle parameter theta[m]
+        where m is zero-indexed and ranges over all the Givens rotations
+        present in the mag_hamiltonian argument used to create the
+        LatticeCircuitManager instance.
 
         Implementation is performed by iterating over every lattice vertex. At each vertex,
         there's an additional iteration over every "positive" plaquette.
@@ -362,11 +369,14 @@ class LatticeCircuitManager:
                                                  links which are shared between vertices will be stripped
                                                  out first.
                                                  If None, no control pruning is attempted.
-          - control_fusion: Optional boolian argument with the default set to False. If it's set
+          - control_fusion: Optional boolean argument with the default set to False. If it's set
                             to be True, then LP families of givens rotations are first Gray code ordered,
                             then redundant controls are removed.
           - cache_mag_evol_circuit: Optional boolean argument to cache the magnetic Hamiltonian
                                     evolution circuit once generated, and forevermore use that.
+          - givens_have_independent_params: Optional boolean argument with the default set to False.
+                                            If True, then each individual Givens rotation subcircuit
+                                            will be controlled by a unique parameter.
         Returns:
           None (master_circuit has the magnetic Trotter step appended)
         """
@@ -403,7 +413,8 @@ class LatticeCircuitManager:
                 physical_states_for_control_pruning,
                 coupling_g=Parameter('coupling_g_mag_placeholder'),
                 dt=Parameter('dt_mag_placeholder'),
-                optimize_circuits=optimize_circuits
+                optimize_circuits=optimize_circuits,
+                use_independent_params_for_each_givens_rot=givens_have_independent_params
             )
             # Save template if caching is turned on.
             if cache_mag_evol_circuit is True:
@@ -414,10 +425,13 @@ class LatticeCircuitManager:
                     "optimize_circuits": optimize_circuits,
                     "control_fusion": control_fusion,
                 }
-        plaquette_local_rotation_circuit = plaquette_local_rotation_circuit_template.assign_parameters({
-            'coupling_g_mag_placeholder': coupling_g_mag_current,
-            'dt_mag_placeholder': dt_mag_current
-        })
+        if givens_have_independent_params is False:
+            plaquette_local_rotation_circuit = plaquette_local_rotation_circuit_template.assign_parameters({
+                'coupling_g_mag_placeholder': coupling_g_mag_current,
+                'dt_mag_placeholder': dt_mag_current
+            })
+        else:  # No need to update the circuit parameters if we set the mag evolution to use unique ones per rotation.
+            plaquette_local_rotation_circuit = plaquette_local_rotation_circuit_template
 
         # Stitch magnetic Hamiltonian evolution circuit onto LatticeRegisters.
         # Vertex iteration loop.
@@ -532,30 +546,30 @@ class LatticeCircuitManager:
 
         If use_independent_params_for_each_givens_rot is True,
         then coupling_g and dt will be ignored, and a unique
-        parameter for the rotation angle will be assigned for each
+        parameter for the rotation angle theta[m] will be assigned for each
         Givens rotation in the plaquette circuit.
         """
-        # Sort the bitstrings corresponding to transitions in the magnetic hamiltonian
-        # into LP bins. This step also computes the angle of Givens rotation for each
-        # pair of bitstrings. The resulting Givens rotations are characterized by
-        # two parameters: dt and the coupling g.
+        n_givens_rotations = len(self._mag_hamiltonian)
+        logger.info(f"There are {n_givens_rotations} primitive Givens rotation circuits to be constructed for the plaquette.")
+        # Sort the bitstrings corresponding to transitions in the magnetic
+        # Hamiltonian into LP bins. This step also computes the angle of Givens
+        # rotation for each pair of bitstrings. The resulting Givens rotations
+        # are characterized by two parameters: dt and the coupling g.
         lp_bin = LatticeCircuitManager._sort_matrix_elements_into_lp_bins(
             self._mag_hamiltonian,
             coupling_g,
             dt,
         )
-        n_givens_rotations = sum([len(bin) for bin in lp_bin.values()])
-        logger.info(f"There are {n_givens_rotations} primitive Givens rotation circuits for the plaquette.")
-        # If specified by function arguments, replace each Givens rotation angle with an independent Parameter.
+        # If specified by function arguments, replace each Givens rotation
+        # angle with an independent theta Parameter.
         if use_independent_params_for_each_givens_rot is True:
             rot_angle_param_vector = ParameterVector("theta", n_givens_rotations)
             lp_bin = {
                 lp_fam: [(bit_string_1, bit_string_2, rot_angle_param_vector[idx_rot + idx_fam]) for idx_rot, (bit_string_1, bit_string_2, old_angle) in enumerate(lp_bin[lp_fam])]
                 for idx_fam, lp_fam in enumerate(lp_bin.keys())
             }
-        
+        # Sort according to Gray-order if performing control fusion.
         if control_fusion is True:
-            # Sort according to Gray-order.
             lp_bin = {
                 k: lp_bin[k]
                 for k in sorted(
