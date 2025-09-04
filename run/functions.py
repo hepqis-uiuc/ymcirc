@@ -19,7 +19,7 @@ from pathlib import Path
 from qiskit import transpile, qpy
 from qiskit_aer.primitives import SamplerV2
 from qiskit.circuit import QuantumCircuit
-from qiskit.qasm3 import dumps
+from qiskit.qasm3 import dumps, load
 from typing import Any, Set
 from ymcirc._abstract import LatticeDef
 from ymcirc.circuit import LatticeCircuitManager
@@ -43,6 +43,7 @@ def configure_script_options(
         do_electric_evolution: bool = True,
         do_magnetic_evolution: bool = True,
         coupling_g: float | int = 1.0,
+        givens_have_independent_params: bool = False,
         mag_hamiltonian_matrix_element_threshold: float | int = 0,
         optimize_circuits: bool = False,
         mag_hamiltonian_use_electric_vacuum_transitions_only: bool = False,
@@ -108,7 +109,12 @@ def configure_script_options(
         - do_magnetic_evolution:
               Whether to include magnetic Hamiltonian in
               simulation circuits.
-        - coupling_g: The value of the coupling constant in the Hamiltonian.
+        - coupling_g:
+              The value of the coupling constant in the Hamiltonian.
+        - givens_have_independent_params:
+             If true, overrides coupling and dt parameters for the magnetic Trotter step.
+             instead, each Givens rotation in the plaquette evolution circuit has its
+             own theta Parameter.
         - mag_hamiltonian_matrix_element_threshold:
               A number between zero and
               one. All magnetic Hamiltonian matrix elements less than the
@@ -176,6 +182,7 @@ def configure_script_options(
     options["truncation_string"] = truncation_string
     options["lattice_size"] = lattice_size
     options["coupling_g"] = coupling_g
+    options["givens_have_independent_params"] = givens_have_independent_params
     options["mag_hamiltonian_matrix_element_threshold"] = mag_hamiltonian_matrix_element_threshold
     options["optimize_circuits"] = optimize_circuits
     options["n_trotter_steps"] = n_trotter_steps
@@ -307,29 +314,31 @@ def save_circuit(circuit: QuantumCircuit, simulation_identifier: str, script_opt
     """
     print("Saving circuit to disk...")
     # Prep the circuit write directory.
-    circuits_dir = script_options['serialized_circ_dir']
-    if not isinstance(circuits_dir, Path):
-        circuits_dir = Path(circuits_dir)
-    circuits_dir.mkdir(exist_ok=True)
+    if script_options['serialized_circ_dir'] is not None:
+        circuits_dir = script_options['serialized_circ_dir']
+        if not isinstance(circuits_dir, Path):
+            circuits_dir = Path(circuits_dir)
+        circuits_dir.mkdir(exist_ok=True)
 
     # Prep tbe circuit diagram write directory.
-    circuit_diagram_dir = script_options['plots_dir']
-    if not isinstance(circuit_diagram_dir, Path):
-        circuit_diagram_dir = Path(circuit_diagram_dir)
-    circuit_diagram_dir.mkdir(exist_ok=True)
+    if script_options['plots_dir'] is not None:
+        circuit_diagram_dir = script_options['plots_dir']
+        if not isinstance(circuit_diagram_dir, Path):
+            circuit_diagram_dir = Path(circuit_diagram_dir)
+        circuit_diagram_dir.mkdir(exist_ok=True)
 
     # Write QASM/QPY file and/or PDF of circuit diagram.
-    if script_options["save_circuit_to_qasm"] is True:
+    if script_options["save_circuit_to_qasm"] is True and circuits_dir is not None:
         qasm_circuit_filename = simulation_identifier + ".qasm"
         qasm_file_path = circuits_dir / qasm_circuit_filename
         with qasm_file_path.open('w') as qasm_file:
             qasm_file.write(dumps(circuit))
-    if script_options["save_circuit_to_qpy"] is True:
+    if script_options["save_circuit_to_qpy"] is True and circuits_dir is not None:
         qpy_circuit_filename = simulation_identifier + ".qpy"
         qpy_file_path = circuits_dir / qpy_circuit_filename
         with open(qpy_file_path, "wb") as qpy_file:
             qpy.dump(circuit, qpy_file)
-    if script_options["save_circuit_diagrams"] is True:
+    if script_options["save_circuit_diagrams"] is True and circuit_diagram_dir is not None:
         diagram_filename = simulation_identifier + ".pdf"
         diagram_file_path = circuit_diagram_dir / diagram_filename
         circuit.draw(
@@ -337,6 +346,26 @@ def save_circuit(circuit: QuantumCircuit, simulation_identifier: str, script_opt
             filename=diagram_file_path,
             fold=False
         )
+
+
+def load_circuit(circuit_load_path: str | Path) -> QuantumCircuit:
+    """
+    Load the circuit specified by circuit_load_path.
+
+    Can handle both QASM and QPY files.
+    """
+    circuit_load_path = Path(circuit_load_path)
+    if circuit_load_path.exists() is False:
+        raise FileExistsError(f"Tried to load nonexistent file: '{circuit_load_path}'")
+    if circuit_load_path.suffix == ".qpy":
+        with open(circuit_load_path, "rb") as handle:
+            simulation_circuit = qpy.load(handle)[0]
+    elif circuit_load_path.suffix == ".qasm":
+        simulation_circuit = load(circuit_load_path)
+    else:
+        raise ValueError(f"Attempted to load circuit file of unknown type '{circuit_load_path.suffix}'.")
+
+    return simulation_circuit
 
 
 def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, Any]) -> pd.DataFrame:

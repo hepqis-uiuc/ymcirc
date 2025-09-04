@@ -9,20 +9,13 @@ parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(parent_dir)
 
 import logging
-import matplotlib.pyplot as plt
-import numpy as np
 from run.functions import (
-    config_ymcirc_logger, configure_script_options, initialize_lattice_tools,
-    create_time_evol_circuit, save_circuit, run_circuit_simulations,
-    save_circuit_sim_data, plot_data
+    config_ymcirc_logger, configure_script_options, initialize_lattice_tools, save_circuit,
+    load_circuit
 )
 from pathlib import Path
-from qiskit import transpile, qpy
-from qiskit.qasm3 import load
-
-from ymcirc.circuit import LatticeCircuitManager
-from ymcirc.conventions import (
-    IRREP_TRUNCATIONS, LatticeStateEncoder, load_magnetic_hamiltonian, PHYSICAL_PLAQUETTE_STATES)
+from qiskit import transpile
+from qiskit import qpy
 
 if __name__ == "__main__":
     # Set project root directory. Change as appropriate.
@@ -31,33 +24,53 @@ if __name__ == "__main__":
     # Set log level for ymcirc.
     config_ymcirc_logger(logging.INFO)
 
-    # TODO what script options to configure?
     script_options = configure_script_options(
         dimensionality_string="d=3/2",
         truncation_string="T1",
         lattice_size=2,
-        sim_times=[],  # TODO too specific
-        n_trotter_steps=1,  # TODO too specific
-        n_shots=None,  # TODO too specific?
+        givens_have_independent_params=True,
+        sim_times=[],
+        n_trotter_steps=1,  # TODO does this break if higher than 1?
+        n_shots=None,
         use_ancillas=True,
         control_fusion=True,
         prune_controls=True,
         cache_mag_evol_circuit=True,
-        mag_hamiltonian_matrix_element_threshold=0.0
+        mag_hamiltonian_matrix_element_threshold=0.0,
+        load_circuit_from_file=None,#"state_prep=vqe-2-plaquettes-in-d=1.5-irrep_trunc=T1-mat_elem_cut=0.0-vac_connected_only=False-vchain=True-control_fusion=True-prune_controls=True.qpy",  # Replace with file path if desired.
+        save_circuit_to_qpy=True,
+        serialized_circ_dir=PROJECT_ROOT / "serialized-circuits"
     )
+    script_options['state_prep_method'] = "vqe"  # When there are more methods available, they will be added to configure_script_options.
 
-    # TODO descriptive prefix for all filenames based on sim params.
+    # Generate a descriptive prefix for all filenames based on simulation params.
+    filename_str_prefix = f"state_prep={script_options['state_prep_method']}-{script_options['lattice_def'].n_plaquettes}-plaquettes-in-d={script_options['lattice_def'].dim}-irrep_trunc={script_options['truncation_string']}-mat_elem_cut={script_options['mag_hamiltonian_matrix_element_threshold']}-vac_connected_only={script_options['mag_hamiltonian_use_electric_vacuum_transitions_only']}-vchain={script_options['use_ancillas']}-control_fusion={script_options['control_fusion']}-prune_controls={script_options['prune_controls']}"
 
-    # TODO create circuit where all givens rotations are parameterized. Put this in a function and/or circuit manager?
-    lattice_encoder, physical_plaquette_states, lattice_registers, circ_mgr, master_circuit = initialize_lattice_tools(script_options)
-    physical_plaquette_states_stripped = circ_mgr._strip_redundant_controls_if_small_and_periodic_lattice(physical_plaquette_states)
-    circ_mgr.apply_magnetic_trotter_step(
-        master_circuit,
-        lattice_registers,
-        optimize_circuits=script_options['optimize_circuits'],
-        physical_states_for_control_pruning=physical_plaquette_states,
-        control_fusion=script_options['control_fusion'],
-        cache_mag_evol_circuit=script_options['cache_mag_evol_circuit'],
-        givens_have_independent_params=True  # TODO this needs to be in script options.
-    )
-    master_circuit = transpile(master_circuit, optimization_level=3)  # Optimize decompose "v-chain" gates into their constituents.
+    # Create or load state prep circuit.
+    if script_options['load_circuit_from_file'] is None:
+        print(f"Creating ground state preparation ciruit using method: {script_options['state_prep_method']}")
+        lattice_encoder, physical_plaquette_states, lattice_registers, circ_mgr, state_prep_circuit = initialize_lattice_tools(script_options)
+        if script_options['state_prep_method'] == "vqe":
+            circ_mgr.apply_magnetic_trotter_step(
+                state_prep_circuit,
+                lattice_registers,
+                optimize_circuits=script_options['optimize_circuits'],
+                physical_states_for_control_pruning=physical_plaquette_states,
+                control_fusion=script_options['control_fusion'],
+                cache_mag_evol_circuit=script_options['cache_mag_evol_circuit'],
+                givens_have_independent_params=script_options['givens_have_independent_params']
+            )
+            state_prep_circuit = transpile(state_prep_circuit, optimization_level=3)  # Optimize decompose "v-chain" gates into their constituents.
+            breakpoint()
+        else:
+            raise NotImplementedError(f"State prep method {script_options['state_prep_method']} unknown.")
+
+        # Optionally save state prep circuit to disk.
+        if script_options['save_circuit_to_qpy'] is True:
+            save_circuit(state_prep_circuit, filename_str_prefix, script_options)
+    else:
+        print(f"Skipping circuit creation, loading from disk.\nfile = {script_options['load_circuit_from_file']}")
+        circuit_file = script_options['serialized_circ_dir'] / script_options['load_circuit_from_file']
+        state_prep_circuit = load_circuit(circuit_load_path=circuit_file)
+
+    print(f"Circuit ops count: {state_prep_circuit.count_ops()}.")

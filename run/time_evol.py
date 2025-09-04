@@ -14,12 +14,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from run.functions import (
     config_ymcirc_logger, configure_script_options,
-    create_time_evol_circuit, save_circuit, run_circuit_simulations,
+    create_time_evol_circuit, save_circuit, load_circuit, run_circuit_simulations,
     save_circuit_sim_data, plot_data
 )
 from pathlib import Path
-from qiskit import transpile, qpy
-from qiskit.qasm3 import load
+from qiskit import transpile
 
 
 if __name__ == "__main__":
@@ -65,24 +64,17 @@ if __name__ == "__main__":
     if script_options["load_circuit_from_file"] is None:
         simulation_circuit = create_time_evol_circuit(script_options)
         simulation_circuit = transpile(simulation_circuit, optimization_level=3)
-    else:
-        print("Skipping circuit creation, loading from disk.")
-        circuit_load_path = Path(script_options["load_circuit_from_file"])
-        if circuit_load_path.exists() is False:
-            raise FileExistsError(f"Tried to load nonexistent file: '{circuit_load_path}'")
-        if circuit_load_path.suffix == ".qpy":
-            with open(circuit_load_path, "rb") as handle:
-                simulation_circuit = qpy.load(handle)[0]
-        elif circuit_load_path.suffix == ".qasm":
-            simulation_circuit = load(circuit_load_path)
-        else:
-            raise ValueError(f"Attempted to load circuit file of unknown type '{circuit_load_path.suffix}'.")
-    if ((script_options["save_circuit_to_qasm"] is True or
+        # Save the circuit if desired.
+        if ((script_options["save_circuit_to_qasm"] is True or
          script_options["save_circuit_to_qpy"] is True or
          script_options["save_circuit_diagrams"] is True)
         and
         (script_options["load_circuit_from_file"] is None)):
-        save_circuit(simulation_circuit, simulation_category_str_prefix, script_options)
+            save_circuit(simulation_circuit, simulation_category_str_prefix, script_options)
+    else:
+        print("Skipping circuit creation, loading from disk.")
+        circuit_file = script_options['serialized_circ_dir'] / script_options['load_circuit_from_file']
+        simulation_circuit = load_circuit(circuit_load_path=circuit_file)
 
     print(f"Circuit ops count: {simulation_circuit.count_ops()}.")
 
