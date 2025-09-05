@@ -15,7 +15,6 @@ from run.functions import (
 )
 from pathlib import Path
 from qiskit import transpile
-from qiskit import qpy
 
 if __name__ == "__main__":
     # Set project root directory. Change as appropriate.
@@ -29,16 +28,16 @@ if __name__ == "__main__":
         truncation_string="T1",
         lattice_size=2,
         givens_have_independent_params=True,
-        sim_times=[],
-        n_trotter_steps=1,  # TODO does this break if higher than 1?
+        sim_times=[],  # Doesn't control anything in this script, but required argument.
+        n_trotter_steps=1,  # Doesn't control anything in this script, but required argument.
         n_shots=None,
-        use_ancillas=True,
+        use_ancillas=True,  # NOTE: saving/loading circuits with ancillas to QPY is currently broken
         control_fusion=True,
         prune_controls=True,
         cache_mag_evol_circuit=True,
         mag_hamiltonian_matrix_element_threshold=0.0,
-        load_circuit_from_file=None,#"state_prep=vqe-2-plaquettes-in-d=1.5-irrep_trunc=T1-mat_elem_cut=0.0-vac_connected_only=False-vchain=True-control_fusion=True-prune_controls=True.qpy",  # Replace with file path if desired.
-        save_circuit_to_qpy=True,
+        load_circuit_from_file=None,  # Replace with file name if desired.
+        save_circuit_to_qpy=False,
         serialized_circ_dir=PROJECT_ROOT / "serialized-circuits"
     )
     script_options['state_prep_method'] = "vqe"  # When there are more methods available, they will be added to configure_script_options.
@@ -61,7 +60,6 @@ if __name__ == "__main__":
                 givens_have_independent_params=script_options['givens_have_independent_params']
             )
             state_prep_circuit = transpile(state_prep_circuit, optimization_level=3)  # Optimize decompose "v-chain" gates into their constituents.
-            breakpoint()
         else:
             raise NotImplementedError(f"State prep method {script_options['state_prep_method']} unknown.")
 
@@ -74,3 +72,4 @@ if __name__ == "__main__":
         state_prep_circuit = load_circuit(circuit_load_path=circuit_file)
 
     print(f"Circuit ops count: {state_prep_circuit.count_ops()}.")
+    print(f"Parameters ({len(state_prep_circuit.parameters)} total): {state_prep_circuit.parameters}")
