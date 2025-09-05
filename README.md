@@ -66,3 +66,4 @@ See the `run` directory for example usage and logging configuration of ymcirc. T
 ```
 python -m run.time_evol
 ```
+Replace `run.time_evol` with the particular desired module in the `run` directory.
