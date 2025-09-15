@@ -563,10 +563,11 @@ class LatticeCircuitManager:
         # If specified by function arguments, replace each Givens rotation
         # angle with an independent theta Parameter.
         if use_independent_params_for_each_givens_rot is True:
-            rot_angle_param_vector = ParameterVector("theta", n_givens_rotations)
+            rot_angle_param_vector_iterator = iter(ParameterVector("theta", n_givens_rotations))
             lp_bin = {
-                lp_fam: [(bit_string_1, bit_string_2, rot_angle_param_vector[idx_rot + idx_fam]) for idx_rot, (bit_string_1, bit_string_2, old_angle) in enumerate(lp_bin[lp_fam])]
-                for idx_fam, lp_fam in enumerate(lp_bin.keys())
+                lp_fam: [(bit_string_1, bit_string_2, next(rot_angle_param_vector_iterator))
+                         for (bit_string_1, bit_string_2, old_angle) in lp_bin[lp_fam]]
+                for lp_fam in lp_bin.keys()
             }
         # Sort according to Gray-order if performing control fusion.
         if control_fusion is True:
