@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from qiskit import transpile
-from qiskit_aer.primitives import SamplerV2
+from qiskit_aer import AerSimulator
 from qiskit.circuit import QuantumCircuit
 from qiskit.qasm2 import dumps
 from typing import Any, Set
@@ -310,7 +310,7 @@ def run_circuit_simulations(circuits: list[QuantumCircuit], script_options: dict
     to the parameters in script_options. Returns the results as a DataFrame.
     """
     # Set up objects needed for executing circuits and processing results.
-    sampler = SamplerV2()
+    simulator = AerSimulator(method='statevector')
     n_ancilla_qubits = len(circuits[0].ancillas)
     n_total_qubits = len(circuits[0].qubits)
     n_data_qubits = n_total_qubits - n_ancilla_qubits
@@ -322,21 +322,24 @@ def run_circuit_simulations(circuits: list[QuantumCircuit], script_options: dict
     # Prepare circuits for execution by adding a final
     # measurement of all registers, and then transpile.
     transpiled_circuits_with_final_measurement = []
-    for circuit in circuits:
+    for idx, circuit in enumerate(circuits):
+        print(f"Transpiling circuit {idx+1/len(circuits)...}")
         transpiled_circuit_with_final_measurement = copy.deepcopy(circuit)
         transpiled_circuit_with_final_measurement.measure_all()
-        transpiled_circuit_with_final_measurement = transpile(transpiled_circuit_with_final_measurement, optimization_level=3)
+        transpiled_circuit_with_final_measurement = transpile(transpiled_circuit_with_final_measurement, simulator, optimization_level=3)
         transpiled_circuits_with_final_measurement.append(transpiled_circuit_with_final_measurement)
 
     # Execute circuits.
-    job = sampler.run(transpiled_circuits_with_final_measurement, shots=script_options['n_shots'])
-    job_results = job.result()
+    print("Running simulation...")
+    job = simulator.run(transpiled_circuits_with_final_measurement, shots=script_options['n_shots'])
+    job_results = job.result().get_counts()
+    print("Done.")
 
     # Organize job results into dataframe.
     df_job_results = pd.DataFrame(columns=["vacuum_persistence_probability", "electric_energy"], index=script_options["sim_times"])
     for job_result, sim_time in zip(job_results, script_options["sim_times"]):
         # Strip out ancilla bits, and reverse to big-endian convention.
-        counts_dict_big_endian = {little_endian_state[::-1][:n_data_qubits]: count for little_endian_state, count in job_result.data.meas.get_counts().items()}
+        counts_dict_big_endian = {little_endian_state[::-1][:n_data_qubits]: count for little_endian_state, count in job_result.items()}
         for big_endian_state, counts in counts_dict_big_endian.items():
             df_job_results.loc[sim_time, big_endian_state] = counts
 
