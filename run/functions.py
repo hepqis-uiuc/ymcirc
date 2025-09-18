@@ -43,6 +43,7 @@ def configure_script_options(
         do_electric_evolution: bool = True,
         do_magnetic_evolution: bool = True,
         coupling_g: float | int = 1.0,
+        givens_have_independent_params: bool = False,
         mag_hamiltonian_matrix_element_threshold: float | int = 0,
         optimize_circuits: bool = False,
         mag_hamiltonian_use_electric_vacuum_transitions_only: bool = False,
@@ -108,7 +109,12 @@ def configure_script_options(
         - do_magnetic_evolution:
               Whether to include magnetic Hamiltonian in
               simulation circuits.
-        - coupling_g: The value of the coupling constant in the Hamiltonian.
+        - coupling_g:
+              The value of the coupling constant in the Hamiltonian.
+        - givens_have_independent_params:
+             If true, overrides coupling and dt parameters for the magnetic Trotter step.
+             instead, each Givens rotation in the plaquette evolution circuit has its
+             own theta Parameter.
         - mag_hamiltonian_matrix_element_threshold:
               A number between zero and
               one. All magnetic Hamiltonian matrix elements less than the
@@ -176,6 +182,7 @@ def configure_script_options(
     options["truncation_string"] = truncation_string
     options["lattice_size"] = lattice_size
     options["coupling_g"] = coupling_g
+    options["givens_have_independent_params"] = givens_have_independent_params
     options["mag_hamiltonian_matrix_element_threshold"] = mag_hamiltonian_matrix_element_threshold
     options["optimize_circuits"] = optimize_circuits
     options["n_trotter_steps"] = n_trotter_steps
@@ -210,10 +217,24 @@ def configure_script_options(
     return options
 
 
-def create_circuit(script_options: dict[str, Any]) -> QuantumCircuit:
+def initialize_lattice_tools(script_options: dict[str, Any]) -> tuple[
+        LatticeStateEncoder, Set[str], LatticeRegisters, LatticeCircuitManager, QuantumCircuit]:
     """
-    Create a parameterized QuantumCircuit instance for simulating the lattice
-    described by script_options.
+    Initialize some tools for creating a new lattice circuit.
+
+    Using the parameters given in script_options, returns the tuple
+    (lattice_encoder, physical_plaquette_states, lattice_registers, circ_mgr, lattice_circuit):
+      - lattice_encoder: a LatticeStateEncoder for encoding/decoding
+        state info on the lattice indicated by script_options.
+      - physical_plaquette_states: Either None, or a Set of encoded plaquette
+        bitstrings corresponding to valid physical states. If not None,
+        then this information can be used for control pruning downstream.
+      - lattice_registers: a new LatticeRegisters instance for organizing
+        QuantumRegister instances in the lattice circuit.
+      - circ_mgr: a new LatticeCircuitManager instance for building
+        up circuits for the lattice specified by script_options.
+      - lattice_circuit: a fresh QuantumCircuit instance with no gates
+        consisting of the QuantumRegister instances in lattice_registers.
     """
     # Create lattice_encoder instance.
     lattice_encoder = create_lattice_encoder(script_options)
@@ -238,16 +259,26 @@ def create_circuit(script_options: dict[str, Any]) -> QuantumCircuit:
     # Initialize the current circuit's registers.
     lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
     circ_mgr = LatticeCircuitManager(lattice_encoder, mag_hamiltonian)
-    master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
+    lattice_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
 
     # Add ancilla register if needed.
     if script_options["use_ancillas"] is True:
         circ_mgr.num_ancillas = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(
-            master_circuit, lattice_registers, control_fusion=script_options["control_fusion"],
+            lattice_circuit, lattice_registers, control_fusion=script_options["control_fusion"],
             physical_states_for_control_pruning=physical_plaquette_states,
             optimize_circuits=script_options["optimize_circuits"])
-        circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit)
+        circ_mgr.add_ancilla_register_to_quantum_circuit(lattice_circuit)
 
+    return lattice_encoder, physical_plaquette_states, lattice_registers, circ_mgr, lattice_circuit
+
+
+def create_time_evol_circuit(script_options: dict[str, Any]) -> QuantumCircuit:
+    """
+    Create a parameterized QuantumCircuit instance for simulating the lattice
+    described by script_options.
+    """
+    lattice_encoder, physical_plaquette_states, lattice_registers, circ_mgr, master_circuit = initialize_lattice_tools(script_options)
+    
     # Apply Trotter steps.
     for idx in range(script_options["n_trotter_steps"]):
         if script_options["do_magnetic_evolution"] is True:
@@ -283,29 +314,31 @@ def save_circuit(circuit: QuantumCircuit, simulation_identifier: str, script_opt
     """
     print("Saving circuit to disk...")
     # Prep the circuit write directory.
-    circuits_dir = script_options['serialized_circ_dir']
-    if not isinstance(circuits_dir, Path):
-        circuits_dir = Path(circuits_dir)
-    circuits_dir.mkdir(exist_ok=True)
+    if script_options['serialized_circ_dir'] is not None:
+        circuits_dir = script_options['serialized_circ_dir']
+        if not isinstance(circuits_dir, Path):
+            circuits_dir = Path(circuits_dir)
+        circuits_dir.mkdir(exist_ok=True)
 
     # Prep tbe circuit diagram write directory.
-    circuit_diagram_dir = script_options['plots_dir']
-    if not isinstance(circuit_diagram_dir, Path):
-        circuit_diagram_dir = Path(circuit_diagram_dir)
-    circuit_diagram_dir.mkdir(exist_ok=True)
+    if script_options['plots_dir'] is not None:
+        circuit_diagram_dir = script_options['plots_dir']
+        if not isinstance(circuit_diagram_dir, Path):
+            circuit_diagram_dir = Path(circuit_diagram_dir)
+        circuit_diagram_dir.mkdir(exist_ok=True)
 
     # Write QASM/QPY file and/or PDF of circuit diagram.
-    if script_options["save_circuit_to_qasm"] is True:
+    if script_options["save_circuit_to_qasm"] is True and circuits_dir is not None:
         qasm_circuit_filename = simulation_identifier + ".qasm"
         qasm_file_path = circuits_dir / qasm_circuit_filename
         with qasm_file_path.open('w') as qasm_file:
             qasm_file.write(dumps(circuit))
-    if script_options["save_circuit_to_qpy"] is True:
+    if script_options["save_circuit_to_qpy"] is True and circuits_dir is not None:
         qpy_circuit_filename = simulation_identifier + ".qpy"
         qpy_file_path = circuits_dir / qpy_circuit_filename
         with open(qpy_file_path, "wb") as qpy_file:
             qpy.dump(circuit, qpy_file)
-    if script_options["save_circuit_diagrams"] is True:
+    if script_options["save_circuit_diagrams"] is True and circuit_diagram_dir is not None:
         diagram_filename = simulation_identifier + ".pdf"
         diagram_file_path = circuit_diagram_dir / diagram_filename
         circuit.draw(
@@ -313,6 +346,26 @@ def save_circuit(circuit: QuantumCircuit, simulation_identifier: str, script_opt
             filename=diagram_file_path,
             fold=False
         )
+
+
+def load_circuit(circuit_load_path: str | Path) -> QuantumCircuit:
+    """
+    Load the circuit specified by circuit_load_path.
+
+    Can handle both QASM and QPY files.
+    """
+    circuit_load_path = Path(circuit_load_path)
+    if circuit_load_path.exists() is False:
+        raise FileExistsError(f"Tried to load nonexistent file: '{circuit_load_path}'")
+    if circuit_load_path.suffix == ".qpy":
+        with open(circuit_load_path, "rb") as handle:
+            simulation_circuit = qpy.load(handle)[0]
+    elif circuit_load_path.suffix == ".qasm":
+        simulation_circuit = load(circuit_load_path)
+    else:
+        raise ValueError(f"Attempted to load circuit file of unknown type '{circuit_load_path.suffix}'.")
+
+    return simulation_circuit
 
 
 def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, Any]) -> pd.DataFrame:
@@ -445,100 +498,3 @@ def config_ymcirc_logger(level) -> None:
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(logging.Formatter('%(name)s:%(levelname)s:%(message)s'))
     logger.addHandler(handler)
-
-
-if __name__ == "__main__":
-    # Set project root directory. Change as appropriate.
-    PROJECT_ROOT = Path(__file__).parent.parent
-
-    # Set log level for ymcirc.
-    config_ymcirc_logger(logging.INFO)
-
-    # Set simulation parameters here. See the docstring on
-    # configure_script_options for an explanation of all
-    # available options.
-    script_options = configure_script_options(
-        dimensionality_string="d=3/2",
-        truncation_string="T1",
-        lattice_size=2,
-        sim_times=np.linspace(0.0, 2.5, num=20),
-        n_trotter_steps=2,
-        n_shots=10000,
-        use_ancillas=True,
-        control_fusion=True,
-        prune_controls=True,
-        cache_mag_evol_circuit=True,
-        load_circuit_from_file=None,  # Replace with file path if desired.
-        save_circuit_to_qasm=False,
-        save_circuit_to_qpy=False,
-        save_circuit_diagrams=False,
-        save_plots=False,
-        save_sim_data=False,
-        serialized_circ_dir=PROJECT_ROOT / "serialized-circuits",
-        plots_dir=PROJECT_ROOT / "plots",
-        sim_results_dir=PROJECT_ROOT / "sim-results",
-        mag_hamiltonian_matrix_element_threshold=0.9
-    )
-
-    # Generate a descriptive prefix for all filenames based on simulation params.
-    # Also specify whether to load a circuit from disk instead of creating it.
-    simulation_category_str_prefix = f"{script_options['lattice_def'].n_plaquettes}-plaquettes-in-d={script_options['lattice_def'].dim}-irrep_trunc={script_options['truncation_string']}-n_trotter_steps={script_options['n_trotter_steps']}-mat_elem_cut={script_options['mag_hamiltonian_matrix_element_threshold']}-vac_connected_only={script_options['mag_hamiltonian_use_electric_vacuum_transitions_only']}-vchain={script_options['use_ancillas']}-control_fusion={script_options['control_fusion']}-prune_controls={script_options['prune_controls']}"
-
-    # Create or load circuit to simulate, optionally save to disk.
-    # Note that if we don't transpile the circuit,
-    # some of the larger mcx gates don't get saved when
-    # writing a QPY file.
-    if script_options["load_circuit_from_file"] is None:
-        simulation_circuit = create_circuit(script_options)
-        simulation_circuit = transpile(simulation_circuit, optimization_level=3)
-    else:
-        print("Skipping circuit creation, loading from disk.")
-        circuit_load_path = Path(script_options["load_circuit_from_file"])
-        if circuit_load_path.exists() is False:
-            raise FileExistsError(f"Tried to load nonexistent file: '{circuit_load_path}'")
-        if circuit_load_path.suffix == ".qpy":
-            with open(circuit_load_path, "rb") as handle:
-                simulation_circuit = qpy.load(handle)[0]
-        elif circuit_load_path.suffix == ".qasm":
-            simulation_circuit = load(circuit_load_path)
-        else:
-            raise ValueError(f"Attempted to load circuit file of unknown type '{circuit_load_path.suffix}'.")
-    if ((script_options["save_circuit_to_qasm"] is True or
-         script_options["save_circuit_to_qpy"] is True or
-         script_options["save_circuit_diagrams"] is True)
-        and
-        (script_options["load_circuit_from_file"] is None)):
-        save_circuit(simulation_circuit, simulation_category_str_prefix, script_options)
-
-    print(f"Circuit ops count: {simulation_circuit.count_ops()}.")
-
-    # Either run circuits or skip.
-    if script_options["n_shots"] is not None:
-        sim_data = run_circuit_simulations(simulation_circuit, script_options)
-    else:
-        sim_data = None  # Neither simulating circuits nor loading sim data.
-
-    # Save circuit execution data if available.
-    if sim_data is not None and script_options["save_sim_data"] is True:
-        save_circuit_sim_data(sim_data, simulation_category_str_prefix, script_options)
-
-    # Optionally plot circuit execution data, and save plots to disk if desired.
-    if script_options["plot_vacuum_persistence"] is True and sim_data is not None:
-        title = f'$\\left|\\left<vac.|U(t)|vac.\\right>\\right|^2$ ({script_options["lattice_def"].n_plaquettes} plaquettes, mat. trunc = {script_options["mag_hamiltonian_matrix_element_threshold"]})'
-        fig_vpp = plot_data(sim_data, "vacuum_persistence_probability", title, script_options)
-        if script_options["save_plots"] is True:
-            Path(script_options['plots_dir']).mkdir(exist_ok=True)
-            vpp_plot_filename = simulation_category_str_prefix + "_vpp.pdf"
-            fig_vpp.savefig(Path(script_options['plots_dir']) / vpp_plot_filename)
-        else:
-            plt.show()
-
-    if script_options["plot_electric_energy"] is True and sim_data is not None:
-        title = f'Electric energy $\\left|E\\right|^2$ ({script_options["lattice_def"].n_plaquettes} plaquettes, mat. trunc = {script_options["mag_hamiltonian_matrix_element_threshold"]})'
-        fig_ee = plot_data(sim_data, "electric_energy", title, script_options)
-        if script_options["save_plots"] is True:
-            Path(script_options['plots_dir']).mkdir(exist_ok=True)
-            ee_plot_filename = simulation_category_str_prefix + "_ee.pdf"
-            fig_ee.savefig(Path(script_options['plots_dir']) / ee_plot_filename)
-        else:
-            plt.show()

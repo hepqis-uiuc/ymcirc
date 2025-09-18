@@ -1142,5 +1142,88 @@ def test_adding_ancilla_register_fails_if_already_exists():
     with pytest.raises(CircuitError) as e_info:
         circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit)
 
+def test_apply_mag_trotter_step_independent_params_for_givens_rotations():
+    # Some minimal data to create a LatticeCircuitManager.
+    dummy_mag_hamiltonian = [  # There will be 2 Givens rotations and therefore 2 Parameters.
+        ("00100001" + "00000000", "01010110" + "10011001", 0.99),
+        ("00100001" + "00000000", "01010110" + "10100000", 0.33),
+        ("00100001" + "00000000", "01010110" + "00100000", 0.66)
+    ]
+    dummy_phys_states = [
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, ONE, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+            (THREE, THREE_BAR, THREE, THREE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+            (THREE, THREE, ONE, ONE)
+        )
+    ]
+    lattice_def = LatticeDef(1.5, 3)
+    lattice_encoder = LatticeStateEncoder(IRREP_TRUNCATIONS["T1"], dummy_phys_states, lattice=lattice_def)
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager(lattice_encoder, dummy_mag_hamiltonian)
+
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
+    circ_mgr.apply_magnetic_trotter_step(
+        master_circuit,
+        lattice_registers,
+        givens_have_independent_params=True
+    )
+    assert len(master_circuit.parameters) == 3
+    for idx, parameter in enumerate(master_circuit.parameters):
+        assert parameter.name == f'theta[{idx}]'
+
+def test_apply_mag_trotter_step_independent_params_multiple_lp_families():
+    # This dummy data creates 3 LP bins. Two of them have 2 Givens rotations, one has 3.
+    dummy_mag_hamiltonian = [
+        ("01010101" + "00000101", "10100101" + "00001010", 0.99), #LP fam 1: LLLLPPPP + PPPPLLLL
+        ("10100000" + "10100101", "01010000" + "10101010", 0.99), #LP fam 1: LLLLPPPP + PPPPLLLL
+        ("01010101" + "01010000", "01011010" + "10100000", 0.99), #LP fam 2: PPPPLLLL + LLLLPPPP
+        ("00001010" + "01010000", "00000101" + "10100000", 0.99), #LP fam 2: PPPPLLLL + LLLLPPPP
+        ("00000000" + "10101010", "00000000" + "01010101", 0.99), #LP fam 3: PPPPPPPP + LLLLLLLL
+        ("00000000" + "01010101", "00000000" + "10101010", 0.99), #LP fam 3: PPPPPPPP + LLLLLLLL
+        ("00000000" + "01011010", "00000000" + "10100101", 0.99), #LP fam 3: PPPPPPPP + LLLLLLLL
+    ]
+
+    dummy_phys_states = [
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, ONE, THREE_BAR),
+            (ONE, ONE, ONE, ONE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+            (THREE, THREE_BAR, THREE, THREE)
+        ),
+        (
+            (0, 0, 0, 0),
+            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+            (THREE, THREE, ONE, ONE)
+        )
+    ]
+    lattice_def = LatticeDef(1.5, 3)
+    lattice_encoder = LatticeStateEncoder(IRREP_TRUNCATIONS["T1"], dummy_phys_states, lattice=lattice_def)
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager(lattice_encoder, dummy_mag_hamiltonian)
+
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
+    circ_mgr.apply_magnetic_trotter_step(
+        master_circuit,
+        lattice_registers,
+        givens_have_independent_params=True
+    )
+    assert len(master_circuit.parameters) == 7
+    for idx, parameter in enumerate(master_circuit.parameters):
+        assert parameter.name == f'theta[{idx}]'
+
 # TODO: write a test to compare circuits with ancillas and without ancillas. Qiskit doesn't seem to have a clean way to "ignore" registers. 
 # test_givens does have a test for givens rotation equivalence between with and without ancillas, so maybe this test would be redundant
