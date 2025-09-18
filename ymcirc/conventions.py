@@ -51,9 +51,9 @@ The dict of (lazy-loaded) dicts PHYSICAL_PLAQUETTE_STATES consists of all the si
 gauge-invariant states in a particular lattice geometry and truncation. The dict
 contains data for the following cases
 
-- "d=3/2, T1"
-- "d=3/2, T2"
-- "d=2, T1"
+- d=3/2, T1
+- d=3/2, T2
+- d=2, T1
 
 T1 refers to the ONE, THREE, THREE_BAR truncation, while T2 includes the
 additional states SIX, SIX_BAR, and EIGHT. To get the physical states for a particular
@@ -62,7 +62,8 @@ case, use the following syntax:
 PHYSICAL_PLAQUETTE_STATES["d=2"]["T2"]
 
 Since the key in this dict is a string, spacing and capitalization is
-necessary. The entries in the physical states dict consist of lists of all the
+necessary. NOTE: "d=3/2" works but "d=1.5" will cause a KeyError.
+The entries in the physical states dict consist of lists of all the
 single-plaquete gauge-invariant states in that particular dimensionality and truncation.
 The plaquette data takes the form a tuple of tuples:
 
@@ -142,7 +143,8 @@ HAMILTONIAN_BOX_TERMS["d=3/2"]["T1"] = {
 }
 with plaq_1 through plaq_4 taking the form described above for plaquette states.
 See the definition of HAMILTONIAN_BOX_TERMS below for a complete listing of all available
-combinations of dimension and truncation data.
+combinations of dimension and truncation data. NOTE AGAIN: "d=3/2" works but
+"d=1.5" will cause a KeyError.
 
 For small, periodic lattices, the same physical lattice link can be a control on
 distinct vertices in the same plaquette. For example, a periodic d=3/2 lattice

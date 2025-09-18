@@ -6,5 +6,6 @@ pytest~=8.3
 pylatexenc~=2.10
 qiskit~=2.1
 qiskit-aer~=0.17
+qiskit-qasm3-import~=0.6
 scipy~=1.14
 typing_extensions~=4.12
