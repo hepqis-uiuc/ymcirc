@@ -41,6 +41,7 @@ if __name__ == "__main__":
         use_ancillas=True,
         control_fusion=True,
         prune_controls=True,
+        method='matrix_product_state',  # matrix_product_state, statevector, etc. See Qiskit Aer docs.
         cache_mag_evol_circuit=True,
         load_circuit_from_file=None,  # Replace with file path if desired.
         save_circuit_to_qasm=False,

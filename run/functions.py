@@ -46,6 +46,7 @@ def configure_script_options(
         givens_have_independent_params: bool = False,
         mag_hamiltonian_matrix_element_threshold: float | int = 0,
         optimize_circuits: bool = False,
+        method: str = 'statevector',
         mag_hamiltonian_use_electric_vacuum_transitions_only: bool = False,
         warn_unphysical_links: bool = True,
         error_unphysical_links: bool = False,
@@ -121,6 +122,9 @@ def configure_script_options(
               threshold will be skipped during circuit construction.
         - optimize_circuits:
               Whether to run qiskit's circuit optimizer.
+        - method:
+              String specification of the simulation method to use to transpile/execute circuits.
+              See Qiskit Aer documentation for current list of valid options.
         - mag_hamiltonian_use_electric_vacuum_transitions_only:
               If True, all
               magnetic Hamiltonian matrix elements which don't induce transitions
@@ -185,6 +189,7 @@ def configure_script_options(
     options["givens_have_independent_params"] = givens_have_independent_params
     options["mag_hamiltonian_matrix_element_threshold"] = mag_hamiltonian_matrix_element_threshold
     options["optimize_circuits"] = optimize_circuits
+    options["method"] = method
     options["n_trotter_steps"] = n_trotter_steps
     options["sim_times"] = sim_times
     options["mag_hamiltonian_use_electric_vacuum_transitions_only"] = mag_hamiltonian_use_electric_vacuum_transitions_only
@@ -377,7 +382,7 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
     Returns the results as a DataFrame.
     """
     # Set up objects needed for executing circuits and processing results.
-    simulator = AerSimulator(method='statevector')
+    simulator = AerSimulator(method=script_options['method'])
     n_ancilla_qubits = len(circuit.ancillas)
     n_total_qubits = len(circuit.qubits)
     n_data_qubits = n_total_qubits - n_ancilla_qubits
@@ -408,6 +413,7 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
         transpiled_circuit_with_final_measurement.measure_all()
         transpiled_circuit_with_final_measurement = transpile(transpiled_circuit_with_final_measurement, simulator, optimization_level=3)
         transpiled_circuits_with_assigned_params.append(transpiled_circuit_with_final_measurement)
+    print(f"Gate counts for circuit(s) after transpiling with set params for '{script_options['method']}' simulation method:\n{transpiled_circuits_with_assigned_params[0].count_ops()}")
 
     # Execute circuits.
     print("Running circuits...")
