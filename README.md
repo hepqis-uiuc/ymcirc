@@ -4,7 +4,9 @@ A Python package for generating quantum circuits to simulate lattice SU(N) gauge
 This codebase is currently at an 'alpha' stage of development. Breaking changes should be expected.
 
 ## Installation
-The Makefile is configured to automatically set up a Python virtual environment with version ~1.2 of qiskit. To use it:
+The Makefile is configured to automatically set up a Python virtual environment which can be used to run code in ymcirc. Note that you must use Python 3.10 or higher, which is not accounted for in the Makefile.
+
+To create a virtual environment using the included Makefile:
 
 1. Run `make venv` to create the Python virtual environment.
 2. Run `source .venv/bin/activate` to activate the virtual environment.
