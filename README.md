@@ -1,5 +1,5 @@
 # ymcirc
-A Python package for generating quantum circuits to simulate lattice SU(N) gauge theories.
+A Python package for generating quantum circuits to simulate lattice SU(3) gauge theories.
 
 This codebase is currently at an 'alpha' stage of development. Breaking changes should be expected.
 
