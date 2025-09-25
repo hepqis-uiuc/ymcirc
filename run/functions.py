@@ -283,7 +283,7 @@ def create_time_evol_circuit(script_options: dict[str, Any]) -> QuantumCircuit:
     described by script_options.
     """
     lattice_encoder, physical_plaquette_states, lattice_registers, circ_mgr, master_circuit = initialize_lattice_tools(script_options)
-    
+
     # Apply Trotter steps.
     for idx in range(script_options["n_trotter_steps"]):
         if script_options["do_magnetic_evolution"] is True:
@@ -349,7 +349,7 @@ def save_circuit(circuit: QuantumCircuit, simulation_identifier: str, script_opt
         circuit.draw(
             output="mpl",
             filename=diagram_file_path,
-            fold=False
+            fold=200
         )
 
 
@@ -399,20 +399,24 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
     # but in this case, we use the same dt for both at each total sim duration,
     # and use one value of the coupling g for all simulations.
     transpiled_circuits_with_assigned_params = []
+    transpiled_circuit_with_final_measurement = copy.deepcopy(circuit)
+    transpiled_circuit_with_final_measurement = transpile(transpiled_circuit_with_final_measurement, simulator, optimization_level=3)
+    transpiled_circuit_with_final_measurement.measure_all()
     for idx, sim_time in enumerate(script_options["sim_times"]):
         print(f"Setting parameters for circuit {idx+1}/{len(script_options['sim_times'])} (sim_time = {sim_time})")
         dt = sim_time / script_options["n_trotter_steps"]
-        transpiled_circuit_with_final_measurement = copy.deepcopy(circuit)
+        #transpiled_circuit_with_final_measurement = copy.deepcopy(circuit)
+        transpiled_circuit_with_assigned_params = copy.deepcopy(transpiled_circuit_with_final_measurement)
         parameter_values = dict()
-        for param in transpiled_circuit_with_final_measurement.parameters:
+        for param in transpiled_circuit_with_assigned_params.parameters:
             if 'dt' in param.name:
                 parameter_values[param.name] = dt
             elif 'coupling_g' in param.name:
                 parameter_values[param.name] = script_options['coupling_g']
-        transpiled_circuit_with_final_measurement.assign_parameters(parameter_values, inplace=True)
-        transpiled_circuit_with_final_measurement.measure_all()
-        transpiled_circuit_with_final_measurement = transpile(transpiled_circuit_with_final_measurement, simulator, optimization_level=3)
-        transpiled_circuits_with_assigned_params.append(transpiled_circuit_with_final_measurement)
+        transpiled_circuit_with_assigned_params.assign_parameters(parameter_values, inplace=True)
+        #transpiled_circuit_with_final_measurement.measure_all()
+        #transpiled_circuit_with_final_measurement = transpile(transpiled_circuit_with_final_measurement, simulator, optimization_level=3)
+        transpiled_circuits_with_assigned_params.append(transpiled_circuit_with_assigned_params)
     print(f"Gate counts for circuit(s) after transpiling with set params for '{script_options['method']}' simulation method:\n{transpiled_circuits_with_assigned_params[0].count_ops()}")
 
     # Execute circuits.

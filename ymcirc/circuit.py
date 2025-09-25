@@ -289,12 +289,15 @@ class LatticeCircuitManager:
 
         # Use the index of the local Pauli-decomposed electric hamiltonian to generate the Pauli bitstrings.
         pauli_bitstring_list = [str("{0:0" + str(N) + "b}").format(i) for i in range(len(hamiltonian))]
+        logger.info(f"Constructed {len(pauli_bitstring_list)} Pauli strings for decomposition of electric Hamiltonian.")
         pauli_decomposed_hamiltonian = zip(pauli_bitstring_list,hamiltonian)
         # Gray-Order the Pauli-bitstrings if electric_gray_order == True.
         if electric_gray_order is True:
+            logger.info("Gray ordering Pauli strings...")
             pauli_decomposed_hamiltonian = sorted(pauli_decomposed_hamiltonian,key=lambda x: gray_to_index(x[0]))
 
         # The parity circuit primitive of CXs and Zs.
+        logger.info("Constructing parity circuit primitive...")
         for pauli_bitstring, coeff in pauli_decomposed_hamiltonian:
             locs = [
                 loc
@@ -308,15 +311,19 @@ class LatticeCircuitManager:
             for j in locs[1:]:
                 local_circuit.cx(j, locs[0])
 
+        logger.info("Cancelling CX gates...")
         cancel_cx = PassManager([InverseCancellation([CXGate()])])
         local_circuit = cancel_cx.run(local_circuit)
 
         # Loop over links for electric Hamiltonian
+        logger.info("Electric evolution circuit done. Applying to all links...")
         for link_address in lattice.link_addresses:
+            logger.info(f"On link {link_address}")
             link_qubits = [
                 qubit for qubit in lattice.get_link((link_address[0], link_address[1]))
             ]
             master_circuit.compose(local_circuit, qubits=link_qubits, inplace=True)
+            
 
     def apply_magnetic_trotter_step(
         self,

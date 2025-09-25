@@ -36,12 +36,12 @@ if __name__ == "__main__":
     # NOTE for QPY files: Read/write for circuits WITH ANCILLAS broken
     # due to parse error in Qiskit's QPY serializer (see https://github.com/Qiskit/qiskit/issues/11619).
     script_options = configure_script_options(
-        dimensionality_string="d=3/2",
+        dimensionality_string="d=2",
         truncation_string="T1",
         lattice_size=2,
         sim_times=np.linspace(0.0, 2.5, num=20),
-        n_trotter_steps=2,
-        n_shots=10000,
+        n_trotter_steps=300,
+        n_shots=None,#10000,
         use_ancillas=True,
         control_fusion=True,
         prune_controls=True,
@@ -56,19 +56,20 @@ if __name__ == "__main__":
         serialized_circ_dir=PROJECT_ROOT / "serialized-circuits",
         plots_dir=PROJECT_ROOT / "plots",
         sim_results_dir=PROJECT_ROOT / "sim-results",
-        mag_hamiltonian_matrix_element_threshold=0.9
+        mag_hamiltonian_matrix_element_threshold=0.0
     )
 
     # Generate a descriptive prefix for all filenames based on simulation params.
     simulation_category_str_prefix = f"{script_options['lattice_def'].n_plaquettes}-plaquettes-in-d={script_options['lattice_def'].dim}-irrep_trunc={script_options['truncation_string']}-n_trotter_steps={script_options['n_trotter_steps']}-mat_elem_cut={script_options['mag_hamiltonian_matrix_element_threshold']}-vac_connected_only={script_options['mag_hamiltonian_use_electric_vacuum_transitions_only']}-vchain={script_options['use_ancillas']}-control_fusion={script_options['control_fusion']}-prune_controls={script_options['prune_controls']}"
 
     # Create or load circuit to simulate, optionally save to disk.
-    # Note that if we don't transpile the circuit,
-    # some of the larger mcx gates don't get saved when
-    # writing a QPY file.
     if script_options["load_circuit_from_file"] is None:
         simulation_circuit = create_time_evol_circuit(script_options)
-        simulation_circuit = transpile(simulation_circuit, optimization_level=3)
+        #simulation_circuit = transpile(simulation_circuit, optimization_level=3)
+        # print(simulation_circuit.count_ops())
+        # simulation_circuit = transpile(simulation_circuit, optimization_level=3)
+        # print(simulation_circuit.count_ops())
+        # breakpoint()
         # Save the circuit if desired.
         if ((script_options["save_circuit_to_qasm"] is True or
          script_options["save_circuit_to_qpy"] is True or
@@ -82,6 +83,14 @@ if __name__ == "__main__":
         simulation_circuit = load_circuit(circuit_load_path=circuit_file)
 
     print(f"Circuit ops count: {simulation_circuit.count_ops()}.")
+    cx_count = simulation_circuit.count_ops()['cx']
+    t_count =  simulation_circuit.count_ops()['t'] +  simulation_circuit.count_ops()['tdg'] if 'tdg' in  simulation_circuit.count_ops().keys() else simulation_circuit.count_ops()['t']
+    t_count = t_count
+    # print(f"{script_options['dimensionality_string']}, {script_options['truncation_string']}, size={script_options['lattice_size']}")
+    # print(f"Qubits: {len(simulation_circuit.qubits)}")
+    # print(f"CX total: {cx_count}")
+    # print(f"T total: {t_count}")
+    breakpoint()
 
     # Either run circuits or skip.
     if script_options["n_shots"] is not None:
