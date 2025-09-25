@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from qiskit import transpile, qpy
-from qiskit_aer.primitives import SamplerV2
+from qiskit_aer import AerSimulator
 from qiskit.circuit import QuantumCircuit
 from qiskit.qasm3 import dumps, load
 from typing import Any, Set
@@ -46,6 +46,7 @@ def configure_script_options(
         givens_have_independent_params: bool = False,
         mag_hamiltonian_matrix_element_threshold: float | int = 0,
         optimize_circuits: bool = False,
+        method: str = 'statevector',
         mag_hamiltonian_use_electric_vacuum_transitions_only: bool = False,
         warn_unphysical_links: bool = True,
         error_unphysical_links: bool = False,
@@ -121,6 +122,9 @@ def configure_script_options(
               threshold will be skipped during circuit construction.
         - optimize_circuits:
               Whether to run qiskit's circuit optimizer.
+        - method:
+              String specification of the simulation method to use to transpile/execute circuits.
+              See Qiskit Aer documentation for current list of valid options.
         - mag_hamiltonian_use_electric_vacuum_transitions_only:
               If True, all
               magnetic Hamiltonian matrix elements which don't induce transitions
@@ -185,6 +189,7 @@ def configure_script_options(
     options["givens_have_independent_params"] = givens_have_independent_params
     options["mag_hamiltonian_matrix_element_threshold"] = mag_hamiltonian_matrix_element_threshold
     options["optimize_circuits"] = optimize_circuits
+    options["method"] = method
     options["n_trotter_steps"] = n_trotter_steps
     options["sim_times"] = sim_times
     options["mag_hamiltonian_use_electric_vacuum_transitions_only"] = mag_hamiltonian_use_electric_vacuum_transitions_only
@@ -377,7 +382,7 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
     Returns the results as a DataFrame.
     """
     # Set up objects needed for executing circuits and processing results.
-    sampler = SamplerV2()
+    simulator = AerSimulator(method=script_options['method'])
     n_ancilla_qubits = len(circuit.ancillas)
     n_total_qubits = len(circuit.qubits)
     n_data_qubits = n_total_qubits - n_ancilla_qubits
@@ -406,19 +411,21 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
                 parameter_values[param.name] = script_options['coupling_g']
         transpiled_circuit_with_final_measurement.assign_parameters(parameter_values, inplace=True)
         transpiled_circuit_with_final_measurement.measure_all()
-        transpiled_circuit_with_final_measurement = transpile(transpiled_circuit_with_final_measurement, optimization_level=3)
+        transpiled_circuit_with_final_measurement = transpile(transpiled_circuit_with_final_measurement, simulator, optimization_level=3)
         transpiled_circuits_with_assigned_params.append(transpiled_circuit_with_final_measurement)
+    print(f"Gate counts for circuit(s) after transpiling with set params for '{script_options['method']}' simulation method:\n{transpiled_circuits_with_assigned_params[0].count_ops()}")
 
     # Execute circuits.
-    print("Executing circuits...")
-    job = sampler.run(transpiled_circuits_with_assigned_params, shots=script_options['n_shots'])
-    job_results = job.result()
+    print("Running circuits...")
+    job = simulator.run(transpiled_circuits_with_assigned_params, shots=script_options['n_shots'])
+    job_results = job.result().get_counts()
+    print("Done.")
 
     # Organize job results into dataframe.
     df_job_results = pd.DataFrame(columns=["vacuum_persistence_probability", "electric_energy"], index=script_options["sim_times"])
     for job_result, sim_time in zip(job_results, script_options["sim_times"]):
         # Strip out ancilla bits, and reverse to big-endian convention.
-        counts_dict_big_endian = {little_endian_state[::-1][:n_data_qubits]: count for little_endian_state, count in job_result.data.meas.get_counts().items()}
+        counts_dict_big_endian = {little_endian_state[::-1][:n_data_qubits]: count for little_endian_state, count in job_result.items()}
         for big_endian_state, counts in counts_dict_big_endian.items():
             df_job_results.loc[sim_time, big_endian_state] = counts
 

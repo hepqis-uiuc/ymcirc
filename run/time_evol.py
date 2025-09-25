@@ -31,6 +31,10 @@ if __name__ == "__main__":
     # Set simulation parameters here. See the docstring on
     # configure_script_options for an explanation of all
     # available options.
+    # NOTE for QASM files: Read/write for currently broken due to parse
+    # error in Qiskit's QASM serializer.
+    # NOTE for QPY files: Read/write for circuits WITH ANCILLAS broken
+    # due to parse error in Qiskit's QPY serializer (see https://github.com/Qiskit/qiskit/issues/11619).
     script_options = configure_script_options(
         dimensionality_string="d=3/2",
         truncation_string="T1",
@@ -41,6 +45,7 @@ if __name__ == "__main__":
         use_ancillas=True,
         control_fusion=True,
         prune_controls=True,
+        method='matrix_product_state',  # matrix_product_state, statevector, etc. See Qiskit Aer docs.
         cache_mag_evol_circuit=True,
         load_circuit_from_file=None,  # Replace with file path if desired.
         save_circuit_to_qasm=False,

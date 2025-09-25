@@ -670,9 +670,23 @@ def _CRXCircuit_with_MCX(
         mode = 'noancilla'
     circ_with_mcx.append(RZGate(-1.0*np.pi/2.0), [target])
     circ_with_mcx.append(RYGate(-2.0*angle/2.0), [target])
-    circ_with_mcx.mcx(ctrls, target, ancilla_qubits=plaquette_ancilla_qubits, ctrl_state = ctrl_state[::-1], mode=mode)
+    if mode == 'v-chain':
+        mcx_vchain = QuantumCircuit(len(circ_with_mcx.qubits) - num_ancillas)
+        mcx_vchain.add_register(plaquette_ancilla_qubits)
+        mcx_vchain.mcx(ctrls, target, ancilla_qubits=plaquette_ancilla_qubits, ctrl_state = ctrl_state[::-1], mode=mode)
+        mcx_vchain = mcx_vchain.decompose(reps=3)
+        circ_with_mcx.compose(mcx_vchain, inplace=True)
+    else:
+        circ_with_mcx.mcx(ctrls, target, ctrl_state=ctrl_state[::-1])
     circ_with_mcx.append(RYGate(2.0*angle/2.0), [target])
-    circ_with_mcx.mcx(ctrls, target, ancilla_qubits=plaquette_ancilla_qubits, ctrl_state = ctrl_state[::-1], mode=mode)
+    if mode == 'v-chain':
+        mcx_vchain = QuantumCircuit(len(circ_with_mcx.qubits) - num_ancillas)
+        mcx_vchain.add_register(plaquette_ancilla_qubits)
+        mcx_vchain.mcx(ctrls, target, ancilla_qubits=plaquette_ancilla_qubits, ctrl_state = ctrl_state[::-1], mode=mode)
+        mcx_vchain = mcx_vchain.decompose(reps=3)
+        circ_with_mcx.compose(mcx_vchain, inplace=True)
+    else:
+        circ_with_mcx.mcx(ctrls, target, ctrl_state=ctrl_state[::-1])
     circ_with_mcx.append(RZGate(1.0*np.pi/2.0), [target])
     return circ_with_mcx
 
