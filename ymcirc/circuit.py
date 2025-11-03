@@ -522,7 +522,8 @@ class LatticeCircuitManager:
                 with filename.open('w') as qasm_file:
                     qasm_file.write(qasm3.dumps(circ))
             case ".qpy":
-                raise NotImplementedError("QPY writes not yet implemented.")
+                with open(filename, 'wb') as qpy_file:
+                    qpy.dump(circ, qpy_file)
             case _:
                 raise ValueError(f"Unsupported file type: {filename.suffix}")
 
@@ -554,7 +555,9 @@ class LatticeCircuitManager:
                 # Automatically remove if present.
                 return LatticeCircuitManager._rename_registers_strip_prefix(qasm3.load(filename), prefix="esc_")
             case ".qpy":
-                raise NotImplementedError("QPY writes not yet implemented.")
+                with open(filename, "rb") as handle:
+                    loaded_circ = qpy.load(handle)[0]
+                return loaded_circ
             case _:
                 raise ValueError(f"Unsupported file type: {filename.suffix}")
 

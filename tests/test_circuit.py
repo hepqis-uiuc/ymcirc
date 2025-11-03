@@ -1282,8 +1282,26 @@ class TestCircuitSaveAndLoad:
         # Expecting a circuit with 1 H, 1 CX, and 1 X.
         assert reloaded_circ_filepath_as_path.count_ops() == {"cx": 1, "x": 1, "h": 1}, f"Circuit ops {reloaded_circ_filepath_as_path.count_ops()} contains unexpected gates."
 
-    def test_save_and_reload_circuit_no_ancillas_qpy(self):
-        raise AssertionError("Test not yet written.")
+    def test_save_and_reload_circuit_no_ancillas_qpy(self, sample_circuit_no_ancillas, tmp_path):
+        filepath_as_string = str(tmp_path / "my_circuit_str_write.qpy")
+        filepath_as_path = tmp_path / "my_circuit_path_write.qpy"
+        LatticeCircuitManager.save_circuit(sample_circuit_no_ancillas, filepath_as_string)
+        LatticeCircuitManager.save_circuit(sample_circuit_no_ancillas, filepath_as_path)
+
+        path_and_str_write_are_equivalent = filepath_as_path.read_bytes() == Path(filepath_as_string).read_bytes()
+        assert path_and_str_write_are_equivalent
+
+        reloaded_circ_filepath_as_string = LatticeCircuitManager.load_circuit(filepath_as_string)
+        reloaded_circ_filepath_as_path = LatticeCircuitManager.load_circuit(filepath_as_path)
+        path_and_string_load_are_equivalent = reloaded_circ_filepath_as_path == reloaded_circ_filepath_as_string
+        assert path_and_string_load_are_equivalent
+
+        saving_and_reloading_circ_gives_back_same_circ = reloaded_circ_filepath_as_path == sample_circuit_no_ancillas
+        assert saving_and_reloading_circ_gives_back_same_circ, f"Inequivalent circuits. Expected:\n {sample_circuit_no_ancillas}\nEncountered:\n{reloaded_circ_filepath_as_path}"
+
+        # Redundant, but a check that the test data hasn't been altered.
+        # Expecting a circuit with 1 H, 1 CX, and 1 X.
+        assert reloaded_circ_filepath_as_path.count_ops() == {"cx": 1, "x": 1, "h": 1}, f"Circuit ops {reloaded_circ_filepath_as_path.count_ops()} contains unexpected gates."
 
     def test_save_and_reload_circuit_with_ancillas_qasm(self):
         raise AssertionError("Test not yet written.")
