@@ -553,7 +553,11 @@ class LatticeCircuitManager:
             case ".qasm":
                 # QASM register names may have unwanted "esc_" prefixes on them.
                 # Automatically remove if present.
-                return LatticeCircuitManager._rename_registers_strip_prefix(qasm3.load(filename), prefix="esc_")
+                loaded_circ = qasm3.load(filename)
+                loaded_circ = LatticeCircuitManager._rename_registers_strip_prefix(loaded_circ, prefix="esc_")
+                if ancilla_reg_name is not None:
+                    loaded_circ = LatticeCircuitManager._convert_register_to_ancilla(loaded_circ, ancilla_reg_name)
+                return loaded_circ
             case ".qpy":
                 with open(filename, "rb") as handle:
                     loaded_circ = qpy.load(handle)[0]
@@ -774,6 +778,70 @@ class LatticeCircuitManager:
         new_circ = QuantumCircuit(*new_qregs, *new_cregs, name=orig_circ.name)
 
         # Copy instructions, mapping bits to the new registers' bits by index.
+        for instr, qargs, cargs in orig_circ.data:
+            mapped_qargs = []
+            for qb in qargs:
+                old_reg, qb_index = orig_circ.find_bit(qb).registers[0]
+                new_reg = qreg_map[old_reg]
+                mapped_qargs.append(new_reg[qb_index])
+            mapped_cargs = []
+            for cb in cargs:
+                old_reg, cb_index = orig_circ.find_bit(cb).registers[0]
+                new_reg = creg_map[old_reg]
+                mapped_cargs.append(new_reg[cb_index])
+            new_circ.append(instr, mapped_qargs, mapped_cargs)
+
+        return new_circ
+
+    @staticmethod
+    def _convert_register_to_ancilla(orig_circ: QuantumCircuit, reg_name: str) -> QuantumCircuit:
+        """
+        Return a new QuantumCircuit that's a copy of `orig_circ` but where the register
+        whose name equals `reg_name` (quantum register) is recreated as an AncillaRegister.
+        Other registers (quantum and classical) keep their original names, sizes and order.
+
+        Raises:
+          ValueError: if no quantum register with the given name exists in `orig_circ`.
+        """
+        # Collect old registers in order.
+        old_qregs = list(orig_circ.qregs)
+        old_cregs = list(orig_circ.cregs)
+
+        # Find index of target quantum register.
+        target_idx: int | None = None
+        for i, r in enumerate(old_qregs):
+            if r.name == reg_name:
+                target_idx = i
+                break
+        if target_idx is None:
+            raise ValueError(f"No quantum register named {reg_name!r} in circuit")
+
+        # Build new quantum registers: replace the target with AncillaRegister of same size/name.
+        new_qregs = []
+        for i, r in enumerate(old_qregs):
+            if i == target_idx:
+                new_qregs.append(AncillaRegister(len(r), name=r.name))
+            else:
+                new_qregs.append(QuantumRegister(len(r), name=r.name))
+
+        # Build new classical registers (preserve).
+        new_cregs = [ClassicalRegister(len(r), name=r.name) for r in old_cregs]
+
+        # Map old register objects to new register objects (positional).
+        qreg_map = {old_qregs[i]: new_qregs[i] for i in range(len(old_qregs))}
+        creg_map = {old_cregs[i]: new_cregs[i] for i in range(len(old_cregs))}
+
+        # Construct new circuit with same name and global settings.
+        new_circ = QuantumCircuit(*new_qregs, *new_cregs, name=orig_circ.name)
+
+        # Copy global circuit metadata if present (optional),
+        # preserve global phase, metadata, and header if present.
+        if hasattr(orig_circ, "global_phase"):
+            new_circ.global_phase = orig_circ.global_phase
+        if getattr(orig_circ, "metadata", None) is not None:
+            new_circ.metadata = orig_circ.metadata.copy()
+
+        # Copy instructions: qargs/cargs are Bit objects (use register mapping + index).
         for instr, qargs, cargs in orig_circ.data:
             mapped_qargs = []
             for qb in qargs:
