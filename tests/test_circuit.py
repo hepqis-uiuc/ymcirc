@@ -1,3 +1,4 @@
+from pathlib import Path
 import pytest
 import numpy as np
 from ymcirc._abstract import LatticeDef
@@ -5,7 +6,7 @@ from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.conventions import LatticeStateEncoder, ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT, IRREP_TRUNCATIONS, PHYSICAL_PLAQUETTE_STATES, load_magnetic_hamiltonian
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.utilities import _flatten_circuit, _check_circuits_logically_equivalent
-from qiskit.circuit import QuantumCircuit, AncillaRegister
+from qiskit.circuit import QuantumCircuit, QuantumRegister, AncillaRegister
 from qiskit.circuit.library.standard_gates import RXGate, RZGate, RYGate, MCXGate
 from qiskit.circuit.exceptions import CircuitError
 from qiskit.quantum_info import Operator, Statevector, DensityMatrix, partial_trace
@@ -1242,34 +1243,62 @@ def test_apply_mag_trotter_step_independent_params_multiple_lp_families():
     for idx, parameter in enumerate(master_circuit.parameters):
         assert parameter.name == f'theta[{idx}]'
 
+@pytest.fixture
+def sample_circuit_no_ancillas() -> QuantumCircuit:
+    data_reg_a = QuantumRegister(3, "RegA")
+    data_reg_b = QuantumRegister(2, "RegB")
+    test_circ = QuantumCircuit(data_reg_a, data_reg_b)
+    test_circ.cx(data_reg_a[1], data_reg_b[1])
+    test_circ.x(data_reg_a[1])
+    test_circ.h(data_reg_b[0])
+
+    return test_circ
+
+# TODO fixture for circuit with ancillas.
+
+# TODO fixture with QASM data (or perhaps this needs to be a test file).
+
+# TODO fixture with QPY data (or perhaps this needs to be a test file).
 
 class TestCircuitSaveAndLoad:
-    def test_save_circuit_no_ancillas_qasm():
+    def test_save_and_reload_circuit_no_ancillas_qasm(self, sample_circuit_no_ancillas, tmp_path):
+        filepath_as_string = str(tmp_path / "my_circuit_str_write.qasm")
+        filepath_as_path = tmp_path / "my_circuit_path_write.qasm"
+        LatticeCircuitManager.save_circuit(sample_circuit_no_ancillas, filepath_as_string)
+        LatticeCircuitManager.save_circuit(sample_circuit_no_ancillas, filepath_as_path)
+
+        path_and_str_write_are_equivalent = filepath_as_path.read_bytes() == Path(filepath_as_string).read_bytes()
+        assert path_and_str_write_are_equivalent
+
+        reloaded_circ_filepath_as_string = LatticeCircuitManager.load_circuit(filepath_as_string)
+        reloaded_circ_filepath_as_path = LatticeCircuitManager.load_circuit(filepath_as_path)
+        path_and_string_load_are_equivalent = reloaded_circ_filepath_as_path == reloaded_circ_filepath_as_string
+        assert path_and_string_load_are_equivalent
+
+        saving_and_reloading_circ_gives_back_same_circ = reloaded_circ_filepath_as_path == sample_circuit_no_ancillas
+        assert saving_and_reloading_circ_gives_back_same_circ, f"Inequivalent circuits. Expected:\n {sample_circuit_no_ancillas}\nEncountered:\n{reloaded_circ_filepath_as_path}"
+
+        # Redundant, but a check that the test data hasn't been altered.
+        # Expecting a circuit with 1 H, 1 CX, and 1 X.
+        assert reloaded_circ_filepath_as_path.count_ops() == {"cx": 1, "x": 1, "h": 1}, f"Circuit ops {reloaded_circ_filepath_as_path.count_ops()} contains unexpected gates."
+
+    def test_save_and_reload_circuit_no_ancillas_qpy(self):
         raise AssertionError("Test not yet written.")
 
-    def test_save_circuit_no_ancillas_qpy():
+    def test_save_and_reload_circuit_with_ancillas_qasm(self):
         raise AssertionError("Test not yet written.")
 
-    def test_save_circuit_with_ancillas_qasm():
+    def test_save_and_reload_circuit_with_ancillas_qpy_name_given(self):
         raise AssertionError("Test not yet written.")
 
-    def test_save_circuit_with_ancillas_qpy():
-        raise AssertionError("Test not yet written.")
-
-    def test_load_circuit_no_ancillas_qasm():
-        raise AssertionError("Test not yet written.")
-
-    def test_load_circuit_no_ancillas_qpy():
-        raise AssertionError("Test not yet written.")
-
-    def test_load_circuit_with_ancillas_qasm():
-        raise AssertionError("Test not yet written.")
-
-    def test_load_circuit_with_ancillas_qpy():
-        raise AssertionError("Test not yet written.")
-
-    def test_load_circuit_with_ancillas_qpy_no_name_given():
+    def test_save_and_reload_circuit_with_ancillas_qpy_no_name_given(self):
         # TODO decide behavior for handling deserialization error qiskit raises.
+        raise AssertionError("Test not yet written.")
+
+    def test_saving_unknown_filetype_raises_value_error(self):
+        raise AssertionError("Test not yet written.")
+
+    def test_loading_unknown_filetype_raises_value_error(self):
         raise AssertionError("Test not yet written.")
 
 # TODO: write a test to compare circuits with ancillas and without ancillas. Qiskit doesn't seem to have a clean way to "ignore" registers. 

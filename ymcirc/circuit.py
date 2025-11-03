@@ -4,6 +4,7 @@ A collection of utilities for building circuits.
 from __future__ import annotations
 import copy
 import logging
+from pathlib import Path
 from ymcirc.conventions import PlaquetteState, LatticeStateEncoder, ONE, THREE, THREE_BAR
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import (
@@ -20,6 +21,7 @@ from math import ceil
 from qiskit import transpile
 from qiskit.circuit import Parameter, ParameterVector, QuantumCircuit, QuantumRegister, AncillaRegister
 from qiskit.circuit.library.standard_gates import RXGate, CXGate
+from qiskit import qasm3, qpy
 from qiskit.transpiler import PassManager
 from qiskit.transpiler.passes import InverseCancellation
 from typing import List, Tuple, Set, Union, Dict
@@ -512,7 +514,17 @@ class LatticeCircuitManager:
         If ancilla_reg_name is None, then only registers of type
         AncillaRegister will be treated as ancillas.
         """
-        raise NotImplementedError("Method not yet implemented.")
+        if isinstance(filename, str):
+            filename = Path(filename)
+
+        match filename.suffix.lower():
+            case ".qasm":
+                with filename.open('w') as qasm_file:
+                    qasm_file.write(qasm3.dumps(circ))
+            case ".qpy":
+                raise NotImplementedError("QPY writes not yet implemented.")
+            case _:
+                raise ValueError(f"Unsupported file type: {filename.suffix}")
 
     @staticmethod
     def load_circuit(filename: str | Path, ancilla_reg_name: None | "str" = None) -> QuantumCircuit:
@@ -533,7 +545,18 @@ class LatticeCircuitManager:
         it is recommended to provide an ancilla register
         name anyway due to deserialization bugs that can occur with qiskit.
         """
-        raise NotImplementedError("Method not yet implemented.")
+        if isinstance(filename, str):
+            filename = Path(filename)
+
+        match filename.suffix.lower():
+            case ".qasm":
+                # QASM register names may have unwanted "esc_" prefixes on them.
+                # Automatically remove if present.
+                return LatticeCircuitManager._rename_registers_strip_prefix(qasm3.load(filename), prefix="esc_")
+            case ".qpy":
+                raise NotImplementedError("QPY writes not yet implemented.")
+            case _:
+                raise ValueError(f"Unsupported file type: {filename.suffix}")
 
     def _strip_redundant_controls_if_small_and_periodic_lattice(self, physical_states_for_control_pruning: set[str]) -> set[str] | None:
         """
@@ -715,6 +738,53 @@ class LatticeCircuitManager:
 
         plaquette_with_filtered_c_links = (vertex_multiplicities, a_links, physical_c_links)
         return plaquette_with_filtered_c_links
+
+    @staticmethod
+    def _rename_registers_strip_prefix(orig_circ: QuantumCircuit, prefix: str) -> QuantumCircuit:
+        """
+        Return a new QuantumCircuit where any quantum/classical register whose name
+        starts with `prefix` is renamed to the same name with that prefix removed.
+        Registers without the prefix keep their original names. Register sizes,
+        ordering, and all instructions are preserved.
+        """
+        # Build new quantum registers preserving order and sizes.
+        new_qregs = []
+        for reg in orig_circ.qregs:
+            name = reg.name
+            new_name = name[len(prefix):] if name.startswith(prefix) else name
+            new_qregs.append(QuantumRegister(len(reg), new_name))
+
+        # Build new classical registers preserving order and sizes.
+        new_cregs = []
+        for reg in orig_circ.cregs:
+            name = reg.name
+            new_name = name[len(prefix):] if name.startswith(prefix) else name
+            new_cregs.append(ClassicalRegister(len(reg), new_name))
+
+        # Create mapping from old register objects to new register objects.
+        old_qregs = list(orig_circ.qregs)
+        old_cregs = list(orig_circ.cregs)
+        qreg_map = {old_qregs[i]: new_qregs[i] for i in range(len(old_qregs))}
+        creg_map = {old_cregs[i]: new_cregs[i] for i in range(len(old_cregs))}
+
+        # Construct new circuit with same name and global metadata intact where applicable.
+        new_circ = QuantumCircuit(*new_qregs, *new_cregs, name=orig_circ.name)
+
+        # Copy instructions, mapping bits to the new registers' bits by index.
+        for instr, qargs, cargs in orig_circ.data:
+            mapped_qargs = []
+            for qb in qargs:
+                old_reg, qb_index = orig_circ.find_bit(qb).registers[0]
+                new_reg = qreg_map[old_reg]
+                mapped_qargs.append(new_reg[qb_index])
+            mapped_cargs = []
+            for cb in cargs:
+                old_reg, cb_index = orig_circ.find_bit(cb).registers[0]
+                new_reg = creg_map[old_reg]
+                mapped_cargs.append(new_reg[cb_index])
+            new_circ.append(instr, mapped_qargs, mapped_cargs)
+
+        return new_circ
 
     @staticmethod
     def _sort_matrix_elements_into_lp_bins(
