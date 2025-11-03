@@ -1242,5 +1242,35 @@ def test_apply_mag_trotter_step_independent_params_multiple_lp_families():
     for idx, parameter in enumerate(master_circuit.parameters):
         assert parameter.name == f'theta[{idx}]'
 
+
+class TestCircuitSaveAndLoad:
+    def test_save_circuit_no_ancillas_qasm():
+        raise AssertionError("Test not yet written.")
+
+    def test_save_circuit_no_ancillas_qpy():
+        raise AssertionError("Test not yet written.")
+
+    def test_save_circuit_with_ancillas_qasm():
+        raise AssertionError("Test not yet written.")
+
+    def test_save_circuit_with_ancillas_qpy():
+        raise AssertionError("Test not yet written.")
+
+    def test_load_circuit_no_ancillas_qasm():
+        raise AssertionError("Test not yet written.")
+
+    def test_load_circuit_no_ancillas_qpy():
+        raise AssertionError("Test not yet written.")
+
+    def test_load_circuit_with_ancillas_qasm():
+        raise AssertionError("Test not yet written.")
+
+    def test_load_circuit_with_ancillas_qpy():
+        raise AssertionError("Test not yet written.")
+
+    def test_load_circuit_with_ancillas_qpy_no_name_given():
+        # TODO decide behavior for handling deserialization error qiskit raises.
+        raise AssertionError("Test not yet written.")
+
 # TODO: write a test to compare circuits with ancillas and without ancillas. Qiskit doesn't seem to have a clean way to "ignore" registers. 
 # test_givens does have a test for givens rotation equivalence between with and without ancillas, so maybe this test would be redundant

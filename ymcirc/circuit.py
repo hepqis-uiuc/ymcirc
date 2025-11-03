@@ -499,6 +499,42 @@ class LatticeCircuitManager:
                     inplace=True
                 )
 
+    @staticmethod
+    def save_circuit(circ: QuantumCircuit, filename: str | Path, ancilla_reg_name: None | "str" = None) -> None:
+        """
+        Wrapper to save a lattice circuit to disk.
+
+        The serialization type will be inferred from the extension on
+        filename. Currently supported types are QASM and QPY.
+
+        If ancilla_reg_name is provided, then it is assumed that the
+        QuantumRegister instance with that name is an ancilla register.
+        If ancilla_reg_name is None, then only registers of type
+        AncillaRegister will be treated as ancillas.
+        """
+        raise NotImplementedError("Method not yet implemented.")
+
+    @staticmethod
+    def load_circuit(filename: str | Path, ancilla_reg_name: None | "str" = None) -> QuantumCircuit:
+        """
+        Wrapper to load a lattice circuit to disk.
+
+        The serialization type will be inferred from the extension on
+        filename. Currently supported types are QASM and QPY.
+
+        If ancilla_reg_name is provided, then it is assumed that a
+        quantum register with that name is an ancilla register. This is relevant
+        for QASM files, which do not have a specific ancilla register type.
+        If ancilla_reg_name is None, then only registers of type
+        AncillaRegister will be treated as ancillas. This is relevant
+        for QPY files.
+
+        If a circuit has been serialized as a QPY file and it has an ancilla register,
+        it is recommended to provide an ancilla register
+        name anyway due to deserialization bugs that can occur with qiskit.
+        """
+        raise NotImplementedError("Method not yet implemented.")
+
     def _strip_redundant_controls_if_small_and_periodic_lattice(self, physical_states_for_control_pruning: set[str]) -> set[str] | None:
         """
         For lattices that are small and periodic, it's possible that the same link might act
