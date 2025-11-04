@@ -74,7 +74,7 @@ if __name__ == "__main__":
         (script_options["load_circuit_from_file"] is None)):
             # We do NO optimization and specify the most generic basis gate set possible.
             # This maximizes the portability of the circuit when writing to disk.
-            sim_circ_max_portability = transpile(simulation_circuit, basis_gates=["u","cx"], optimization_level=0) #
+            sim_circ_max_portability = transpile(simulation_circuit, basis_gates=["u","cx"], optimization_level=0)
             save_circuit(simulation_circuit, simulation_category_str_prefix, script_options)
         # Now that any circuit saves requested are done, let's optimize the circuit a bit.
         simulation_circuit = transpile(simulation_circuit, optimization_level=3)
