@@ -336,13 +336,11 @@ def save_circuit(circuit: QuantumCircuit, simulation_identifier: str, script_opt
     if script_options["save_circuit_to_qasm"] is True and circuits_dir is not None:
         qasm_circuit_filename = simulation_identifier + ".qasm"
         qasm_file_path = circuits_dir / qasm_circuit_filename
-        with qasm_file_path.open('w') as qasm_file:
-            qasm_file.write(dumps(circuit))
+        LatticeCircuitManager.save_circuit(circuit, qasm_file_path)
     if script_options["save_circuit_to_qpy"] is True and circuits_dir is not None:
         qpy_circuit_filename = simulation_identifier + ".qpy"
         qpy_file_path = circuits_dir / qpy_circuit_filename
-        with open(qpy_file_path, "wb") as qpy_file:
-            qpy.dump(circuit, qpy_file)
+        LatticeCircuitManager.save_circuit(circuit, qpy_file_path)
     if script_options["save_circuit_diagrams"] is True and circuit_diagram_dir is not None:
         diagram_filename = simulation_identifier + ".pdf"
         diagram_file_path = circuit_diagram_dir / diagram_filename
@@ -353,7 +351,7 @@ def save_circuit(circuit: QuantumCircuit, simulation_identifier: str, script_opt
         )
 
 
-def load_circuit(circuit_load_path: str | Path) -> QuantumCircuit:
+def load_circuit(circuit_load_path: str | Path, script_options: dict[str, Any]) -> QuantumCircuit:
     """
     Load the circuit specified by circuit_load_path.
 
@@ -362,13 +360,11 @@ def load_circuit(circuit_load_path: str | Path) -> QuantumCircuit:
     circuit_load_path = Path(circuit_load_path)
     if circuit_load_path.exists() is False:
         raise FileExistsError(f"Tried to load nonexistent file: '{circuit_load_path}'")
-    if circuit_load_path.suffix == ".qpy":
-        with open(circuit_load_path, "rb") as handle:
-            simulation_circuit = qpy.load(handle)[0]
-    elif circuit_load_path.suffix == ".qasm":
-        simulation_circuit = load(circuit_load_path)
+
+    if script_options['use_ancillas'] is True:
+        simulation_circuit = LatticeCircuitManager.load_circuit(circuit_load_path, ancilla_reg_name='anc')
     else:
-        raise ValueError(f"Attempted to load circuit file of unknown type '{circuit_load_path.suffix}'.")
+        simulation_circuit = LatticeCircuitManager.load_circuit(circuit_load_path)
 
     return simulation_circuit
 
