@@ -1327,8 +1327,6 @@ class TestCircuitSaveAndLoad:
         filepath_as_path = tmp_path / "my_circuit_path_write.qasm"
         LatticeCircuitManager.save_circuit(sample_circuit_with_ancillas, filepath_as_string)
         LatticeCircuitManager.save_circuit(sample_circuit_with_ancillas, filepath_as_path)
-        print(sample_circuit_with_ancillas.count_ops())
-        print(sample_circuit_with_ancillas.draw())
 
         path_and_str_write_are_equivalent = filepath_as_path.read_bytes() == Path(filepath_as_string).read_bytes()
         assert path_and_str_write_are_equivalent
@@ -1342,21 +1340,50 @@ class TestCircuitSaveAndLoad:
         assert saving_and_reloading_circ_gives_back_same_circ, f"Inequivalent circuits. Expected:\n {sample_circ_drawn_str}\nEncountered:\n{reloaded_circ_filepath_as_path}"
 
         # Redundant, but a check that the test data hasn't been altered.
-        # Expecting a circuit with 1 H, 1 CX, and 1 X.
+        # Expecting a circuit with 3 H, 4 CX, and 1 X.
         assert reloaded_circ_filepath_as_path.count_ops() == {"cx": 4, "x": 1, "h": 3}, f"Circuit ops {reloaded_circ_filepath_as_path.count_ops()} contains unexpected gates."
 
-    def test_save_and_reload_circuit_with_ancillas_qpy_name_given(self):
-        raise AssertionError("Test not yet written.")
+    def test_save_and_reload_circuit_with_ancillas_qpy_name_given(self, sample_circuit_with_ancillas, tmp_path):
+        pytest.skip("The behavior for handling qiskit's deserialization error in this case has not yet been decided.")
+        
+        sample_circ_drawn_str = sample_circuit_with_ancillas.draw() # For use in error messages.
+        filepath_as_string = str(tmp_path / "my_circuit_str_write.qpy")
+        filepath_as_path = tmp_path / "my_circuit_path_write.qpy"
+        LatticeCircuitManager.save_circuit(sample_circuit_with_ancillas, filepath_as_string)
+        LatticeCircuitManager.save_circuit(sample_circuit_with_ancillas, filepath_as_path)
+
+        path_and_str_write_are_equivalent = filepath_as_path.read_bytes() == Path(filepath_as_string).read_bytes()
+        assert path_and_str_write_are_equivalent
+
+        reloaded_circ_filepath_as_string = LatticeCircuitManager.load_circuit(filepath_as_string, ancilla_reg_name='anc')
+        reloaded_circ_filepath_as_path = LatticeCircuitManager.load_circuit(filepath_as_path, ancilla_reg_name='anc')
+        path_and_string_load_are_equivalent = reloaded_circ_filepath_as_path == reloaded_circ_filepath_as_string
+        assert path_and_string_load_are_equivalent
+
+        saving_and_reloading_circ_gives_back_same_circ = reloaded_circ_filepath_as_path == sample_circuit_with_ancillas
+        assert saving_and_reloading_circ_gives_back_same_circ, f"Inequivalent circuits. Expected:\n {sample_circ_drawn_str}\nEncountered:\n{reloaded_circ_filepath_as_path}"
+
+        # Redundant, but a check that the test data hasn't been altered.
+        # Expecting a circuit with 3 H, 4 CX, and 1 X.
+        assert reloaded_circ_filepath_as_path.count_ops() == {"cx": 4, "x": 1, "h": 3}, f"Circuit ops {reloaded_circ_filepath_as_path.count_ops()} contains unexpected gates."
 
     def test_save_and_reload_circuit_with_ancillas_qpy_no_name_given(self):
-        # TODO decide behavior for handling deserialization error qiskit raises.
+        pytest.skip("The behavior for handling qiskit's deserialization error in this case has not yet been decided.")
+        
         raise AssertionError("Test not yet written.")
 
-    def test_saving_unknown_filetype_raises_value_error(self):
-        raise AssertionError("Test not yet written.")
+    def test_saving_unknown_filetype_raises_value_error(self, sample_circuit_no_ancillas, tmp_path):
+        with pytest.raises(ValueError) as e_info:
+            LatticeCircuitManager.save_circuit(sample_circuit_no_ancillas, tmp_path / "bad_filetype.txt")
 
-    def test_loading_unknown_filetype_raises_value_error(self):
-        raise AssertionError("Test not yet written.")
+    def test_loading_unknown_filetype_raises_value_error(self, tmp_path):
+        test_file_bad_filetype = tmp_path / Path("bad_filetype.txt")
+        with open(test_file_bad_filetype, "w") as file:
+            file.write("Test file.")
+        with pytest.raises(ValueError) as e_info:
+            LatticeCircuitManager.load_circuit(test_file_bad_filetype)
+
+
 
 # TODO: write a test to compare circuits with ancillas and without ancillas. Qiskit doesn't seem to have a clean way to "ignore" registers. 
 # test_givens does have a test for givens rotation equivalence between with and without ancillas, so maybe this test would be redundant
