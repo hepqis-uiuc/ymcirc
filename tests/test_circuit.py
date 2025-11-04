@@ -6,7 +6,7 @@ from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.conventions import LatticeStateEncoder, ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT, IRREP_TRUNCATIONS, PHYSICAL_PLAQUETTE_STATES, load_magnetic_hamiltonian
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.utilities import _flatten_circuit, _check_circuits_logically_equivalent
-from qiskit.circuit import QuantumCircuit, QuantumRegister, AncillaRegister
+from qiskit.circuit import Parameter, QuantumCircuit, QuantumRegister, AncillaRegister
 from qiskit.circuit.library.standard_gates import RXGate, RZGate, RYGate, MCXGate
 from qiskit.circuit.exceptions import CircuitError
 from qiskit.quantum_info import Operator, Statevector, DensityMatrix, partial_trace
@@ -1247,7 +1247,8 @@ def test_apply_mag_trotter_step_independent_params_multiple_lp_families():
 def sample_circuit_no_ancillas() -> QuantumCircuit:
     data_reg_a = QuantumRegister(3, "RegA")
     data_reg_b = QuantumRegister(2, "RegB")
-    test_circ = QuantumCircuit(data_reg_a, data_reg_b)
+    empty_reg = QuantumRegister(0, "RegEmpty")
+    test_circ = QuantumCircuit(data_reg_a, data_reg_b, empty_reg)
     test_circ.cx(data_reg_a[1], data_reg_b[1])
     test_circ.x(data_reg_a[1])
     test_circ.h(data_reg_b[0])
@@ -1271,6 +1272,25 @@ def sample_circuit_with_ancillas() -> QuantumCircuit:
     test_circ.cx(data_reg_a[1], ancillas[3])
 
     return test_circ
+
+@pytest.fixture
+def sample_circuit_with_parameter_and_parameter_expression() -> QuantumCircuit:
+    data_reg = QuantumRegister(3, "data")
+    ancillas = AncillaRegister(2, "anc")
+    test_circ = QuantumCircuit(data_reg, ancillas)
+    theta, phi, a, b, g = Parameter("theta"), Parameter("phi"), Parameter("a"), Parameter("b"), Parameter("g")
+    test_circ.x(data_reg[0])
+    test_circ.h(data_reg[0])
+    test_circ.cx(data_reg[0], ancillas[0])
+    test_circ.rx(theta, data_reg[1]) # Single parameter
+    test_circ.rz(theta * phi, ancillas[0]) # Parameter expression
+    test_circ.cx(ancillas[0], data_reg[1])
+    test_circ.ry(g * g,data_reg[2]) # Qiskit can't parse power operator, so doing this instead.
+    test_circ.ry(a + b, data_reg[2]) # Addition operator
+    test_circ.ry(2*a, data_reg[2]) # Scalar multiplication operator
+
+    return test_circ
+    
 
 # TODO fixture with QASM data (or perhaps this needs to be a test file).
 
@@ -1383,7 +1403,25 @@ class TestCircuitSaveAndLoad:
         with pytest.raises(ValueError) as e_info:
             LatticeCircuitManager.load_circuit(test_file_bad_filetype)
 
+    def test_save_and_reload_circuit_with_parameter_qasm(self, sample_circuit_with_parameter_and_parameter_expression, tmp_path):
+        sample_circ_drawn_str = sample_circuit_with_parameter_and_parameter_expression.draw()
+        filepath = tmp_path / "circ.qasm"
+        
+        LatticeCircuitManager.save_circuit(sample_circuit_with_parameter_and_parameter_expression, filepath)
 
+        reloaded_circ = LatticeCircuitManager.load_circuit(filepath, ancilla_reg_name='anc')
+
+        # Since the reloaded circ has different parameter instances, need to be less strict
+        # in checking circuit equality.
+        saving_and_reloading_circ_gives_same_gates = reloaded_circ.count_ops() == sample_circuit_with_parameter_and_parameter_expression.count_ops()
+        saving_and_reloading_circ_preserves_parameters = [param.name for param in reloaded_circ.parameters] == [param.name for param in sample_circuit_with_parameter_and_parameter_expression.parameters]
+        
+        assert saving_and_reloading_circ_gives_same_gates and saving_and_reloading_circ_preserves_parameters, f"Inequivalent circuits. Expected:\n {sample_circ_drawn_str}\nEncountered:\n{reloaded_circ}"
+
+        # Redundant, but a check that the test data hasn't been altered.
+        # Expecting a circuit with 3 RY, 2 CX, 1 X, 1 H, 1 RX, 1 RZ.
+        assert reloaded_circ.count_ops() == {'ry': 3, 'cx': 2, 'x': 1, 'h': 1, 'rx': 1, 'rz': 1}
+        assert sorted([param.name for param in reloaded_circ.parameters]) == sorted(['g', 'a', 'b', 'theta', 'phi'])
 
 # TODO: write a test to compare circuits with ancillas and without ancillas. Qiskit doesn't seem to have a clean way to "ignore" registers. 
 # test_givens does have a test for givens rotation equivalence between with and without ancillas, so maybe this test would be redundant

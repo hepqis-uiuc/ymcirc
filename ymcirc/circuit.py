@@ -286,7 +286,7 @@ class LatticeCircuitManager:
         coupling_g_ee_current = Parameter(f'coupling_g_ee{step_num_separator}{n_coupling_g_ee_params}')
 
         N = int(np.log2(len(hamiltonian)))
-        angle_mod = ((coupling_g_ee_current**2) / 2) * dt_ee_current
+        angle_mod = ((coupling_g_ee_current * coupling_g_ee_current) / 2) * dt_ee_current
         local_circuit = QuantumCircuit(N)
 
         # Use the index of the local Pauli-decomposed electric hamiltonian to generate the Pauli bitstrings.
@@ -887,7 +887,7 @@ class LatticeCircuitManager:
             bit_string_2,
             matrix_elem,
         ) in bitstrings_w_matrix_element:
-            angle = -matrix_elem * (1 /  (coupling_g**2)) * dt
+            angle = -matrix_elem * (1 /  (coupling_g * coupling_g)) * dt
             lp_fam = compute_LP_family(bit_string_1, bit_string_2)
             if lp_fam not in lp_bin.keys():
                 lp_bin[lp_fam] = []
