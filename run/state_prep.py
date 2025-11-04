@@ -38,6 +38,7 @@ if __name__ == "__main__":
         mag_hamiltonian_matrix_element_threshold=0.0,
         load_circuit_from_file=None,  # Replace with file name if desired.
         save_circuit_to_qpy=False,
+        save_circuit_to_qasm=False,
         serialized_circ_dir=PROJECT_ROOT / "serialized-circuits"
     )
     script_options['state_prep_method'] = "vqe"  # When there are more methods available, they will be added to configure_script_options.
@@ -59,17 +60,29 @@ if __name__ == "__main__":
                 cache_mag_evol_circuit=script_options['cache_mag_evol_circuit'],
                 givens_have_independent_params=script_options['givens_have_independent_params']
             )
-            state_prep_circuit = transpile(state_prep_circuit, optimization_level=3)  # Optimize decompose "v-chain" gates into their constituents.
         else:
             raise NotImplementedError(f"State prep method {script_options['state_prep_method']} unknown.")
 
         # Optionally save state prep circuit to disk.
-        if script_options['save_circuit_to_qpy'] is True:
+        if ((script_options["save_circuit_to_qasm"] is True or
+         script_options["save_circuit_to_qpy"] is True or
+         script_options["save_circuit_diagrams"] is True)
+        and
+        (script_options["load_circuit_from_file"] is None)):
+            # We do NO optimization and specify the most generic basis gate set possible.
+            # This maximizes the portability of the circuit when writing to disk.
+            # Setting the basis gate set to single qubit unitaries and CX should
+            # resolve any "v-chain" decomposition weirdness.
+            sim_circ_max_portability = transpile(state_prep_circuit, basis_gates=["u","cx"], optimization_level=0)
             save_circuit(state_prep_circuit, filename_str_prefix, script_options)
+
+        # Optimize decomposes "v-chain" gates into their constituents.
+        state_prep_circuit = transpile(state_prep_circuit, optimization_level=3)
     else:
         print(f"Skipping circuit creation, loading from disk.\nfile = {script_options['load_circuit_from_file']}")
         circuit_file = script_options['serialized_circ_dir'] / script_options['load_circuit_from_file']
-        state_prep_circuit = load_circuit(circuit_load_path=circuit_file)
+        state_prep_circuit = load_circuit(circuit_load_path=circuit_file, script_options=script_options)
+        state_prep_circuit = transpile(state_prep_circuit, optimization_level=3)
 
     print(f"Circuit ops count: {state_prep_circuit.count_ops()}.")
     print(f"Parameters ({len(state_prep_circuit.parameters)} total): {state_prep_circuit.parameters}")
