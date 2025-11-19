@@ -4,6 +4,7 @@ A collection of utilities for building circuits.
 from __future__ import annotations
 import copy
 import logging
+from pathlib import Path
 from ymcirc.conventions import PlaquetteState, LatticeStateEncoder, ONE, THREE, THREE_BAR
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import (
@@ -20,6 +21,7 @@ from math import ceil
 from qiskit import transpile
 from qiskit.circuit import Parameter, ParameterVector, QuantumCircuit, QuantumRegister, AncillaRegister
 from qiskit.circuit.library.standard_gates import RXGate, CXGate
+from qiskit import qasm3, qpy
 from qiskit.transpiler import PassManager
 from qiskit.transpiler.passes import InverseCancellation
 from typing import List, Tuple, Set, Union, Dict
@@ -284,7 +286,7 @@ class LatticeCircuitManager:
         coupling_g_ee_current = Parameter(f'coupling_g_ee{step_num_separator}{n_coupling_g_ee_params}')
 
         N = int(np.log2(len(hamiltonian)))
-        angle_mod = ((coupling_g_ee_current**2) / 2) * dt_ee_current
+        angle_mod = ((coupling_g_ee_current * coupling_g_ee_current) / 2) * dt_ee_current
         local_circuit = QuantumCircuit(N)
 
         # Use the index of the local Pauli-decomposed electric hamiltonian to generate the Pauli bitstrings.
@@ -499,6 +501,70 @@ class LatticeCircuitManager:
                     inplace=True
                 )
 
+    @staticmethod
+    def save_circuit(circ: QuantumCircuit, filename: str | Path, ancilla_reg_name: None | "str" = None) -> None:
+        """
+        Wrapper to save a lattice circuit to disk.
+
+        The serialization type will be inferred from the extension on
+        filename. Currently supported types are QASM and QPY.
+
+        If ancilla_reg_name is provided, then it is assumed that the
+        QuantumRegister instance with that name is an ancilla register.
+        If ancilla_reg_name is None, then only registers of type
+        AncillaRegister will be treated as ancillas.
+        """
+        if isinstance(filename, str):
+            filename = Path(filename)
+
+        match filename.suffix.lower():
+            case ".qasm":
+                with filename.open('w') as qasm_file:
+                    qasm_file.write(qasm3.dumps(circ))
+            case ".qpy":
+                with open(filename, 'wb') as qpy_file:
+                    qpy.dump(circ, qpy_file)
+            case _:
+                raise ValueError(f"Unsupported file type: {filename.suffix}")
+
+    @staticmethod
+    def load_circuit(filename: str | Path, ancilla_reg_name: None | "str" = None) -> QuantumCircuit:
+        """
+        Wrapper to load a lattice circuit to disk.
+
+        The serialization type will be inferred from the extension on
+        filename. Currently supported types are QASM and QPY.
+
+        If ancilla_reg_name is provided, then it is assumed that a
+        quantum register with that name is an ancilla register. This is relevant
+        for QASM files, which do not have a specific ancilla register type.
+        If ancilla_reg_name is None, then only registers of type
+        AncillaRegister will be treated as ancillas. This is relevant
+        for QPY files.
+
+        If a circuit has been serialized as a QPY file and it has an ancilla register,
+        it is recommended to provide an ancilla register
+        name anyway due to deserialization bugs that can occur with qiskit.
+        """
+        if isinstance(filename, str):
+            filename = Path(filename)
+
+        match filename.suffix.lower():
+            case ".qasm":
+                # QASM register names may have unwanted "esc_" prefixes on them.
+                # Automatically remove if present.
+                loaded_circ = qasm3.load(filename)
+                loaded_circ = LatticeCircuitManager._rename_registers_strip_prefix(loaded_circ, prefix="esc_")
+                if ancilla_reg_name is not None:
+                    loaded_circ = LatticeCircuitManager._convert_register_to_ancilla(loaded_circ, ancilla_reg_name)
+                return loaded_circ
+            case ".qpy":
+                with open(filename, "rb") as handle:
+                    loaded_circ = qpy.load(handle)[0]
+                return loaded_circ
+            case _:
+                raise ValueError(f"Unsupported file type: {filename.suffix}")
+
     def _strip_redundant_controls_if_small_and_periodic_lattice(self, physical_states_for_control_pruning: set[str]) -> set[str] | None:
         """
         For lattices that are small and periodic, it's possible that the same link might act
@@ -681,6 +747,117 @@ class LatticeCircuitManager:
         return plaquette_with_filtered_c_links
 
     @staticmethod
+    def _rename_registers_strip_prefix(orig_circ: QuantumCircuit, prefix: str) -> QuantumCircuit:
+        """
+        Return a new QuantumCircuit where any quantum/classical register whose name
+        starts with `prefix` is renamed to the same name with that prefix removed.
+        Registers without the prefix keep their original names. Register sizes,
+        ordering, and all instructions are preserved.
+        """
+        # Build new quantum registers preserving order and sizes.
+        new_qregs = []
+        for reg in orig_circ.qregs:
+            name = reg.name
+            new_name = name[len(prefix):] if name.startswith(prefix) else name
+            new_qregs.append(QuantumRegister(len(reg), new_name))
+
+        # Build new classical registers preserving order and sizes.
+        new_cregs = []
+        for reg in orig_circ.cregs:
+            name = reg.name
+            new_name = name[len(prefix):] if name.startswith(prefix) else name
+            new_cregs.append(ClassicalRegister(len(reg), new_name))
+
+        # Create mapping from old register objects to new register objects.
+        old_qregs = list(orig_circ.qregs)
+        old_cregs = list(orig_circ.cregs)
+        qreg_map = {old_qregs[i]: new_qregs[i] for i in range(len(old_qregs))}
+        creg_map = {old_cregs[i]: new_cregs[i] for i in range(len(old_cregs))}
+
+        # Construct new circuit with same name and global metadata intact where applicable.
+        new_circ = QuantumCircuit(*new_qregs, *new_cregs, name=orig_circ.name)
+
+        # Copy instructions, mapping bits to the new registers' bits by index.
+        for instr, qargs, cargs in orig_circ.data:
+            mapped_qargs = []
+            for qb in qargs:
+                old_reg, qb_index = orig_circ.find_bit(qb).registers[0]
+                new_reg = qreg_map[old_reg]
+                mapped_qargs.append(new_reg[qb_index])
+            mapped_cargs = []
+            for cb in cargs:
+                old_reg, cb_index = orig_circ.find_bit(cb).registers[0]
+                new_reg = creg_map[old_reg]
+                mapped_cargs.append(new_reg[cb_index])
+            new_circ.append(instr, mapped_qargs, mapped_cargs)
+
+        return new_circ
+
+    @staticmethod
+    def _convert_register_to_ancilla(orig_circ: QuantumCircuit, reg_name: str) -> QuantumCircuit:
+        """
+        Return a new QuantumCircuit that's a copy of `orig_circ` but where the register
+        whose name equals `reg_name` (quantum register) is recreated as an AncillaRegister.
+        Other registers (quantum and classical) keep their original names, sizes and order.
+
+        Raises:
+          ValueError: if no quantum register with the given name exists in `orig_circ`.
+        """
+        # Collect old registers in order.
+        old_qregs = list(orig_circ.qregs)
+        old_cregs = list(orig_circ.cregs)
+
+        # Find index of target quantum register.
+        target_idx: int | None = None
+        for i, r in enumerate(old_qregs):
+            if r.name == reg_name:
+                target_idx = i
+                break
+        if target_idx is None:
+            raise ValueError(f"No quantum register named {reg_name!r} in circuit")
+
+        # Build new quantum registers: replace the target with AncillaRegister of same size/name.
+        new_qregs = []
+        for i, r in enumerate(old_qregs):
+            if i == target_idx:
+                new_qregs.append(AncillaRegister(len(r), name=r.name))
+            else:
+                new_qregs.append(QuantumRegister(len(r), name=r.name))
+
+        # Build new classical registers (preserve).
+        new_cregs = [ClassicalRegister(len(r), name=r.name) for r in old_cregs]
+
+        # Map old register objects to new register objects (positional).
+        qreg_map = {old_qregs[i]: new_qregs[i] for i in range(len(old_qregs))}
+        creg_map = {old_cregs[i]: new_cregs[i] for i in range(len(old_cregs))}
+
+        # Construct new circuit with same name and global settings.
+        new_circ = QuantumCircuit(*new_qregs, *new_cregs, name=orig_circ.name)
+
+        # Copy global circuit metadata if present (optional),
+        # preserve global phase, metadata, and header if present.
+        if hasattr(orig_circ, "global_phase"):
+            new_circ.global_phase = orig_circ.global_phase
+        if getattr(orig_circ, "metadata", None) is not None:
+            new_circ.metadata = orig_circ.metadata.copy()
+
+        # Copy instructions: qargs/cargs are Bit objects (use register mapping + index).
+        for instr, qargs, cargs in orig_circ.data:
+            mapped_qargs = []
+            for qb in qargs:
+                old_reg, qb_index = orig_circ.find_bit(qb).registers[0]
+                new_reg = qreg_map[old_reg]
+                mapped_qargs.append(new_reg[qb_index])
+            mapped_cargs = []
+            for cb in cargs:
+                old_reg, cb_index = orig_circ.find_bit(cb).registers[0]
+                new_reg = creg_map[old_reg]
+                mapped_cargs.append(new_reg[cb_index])
+            new_circ.append(instr, mapped_qargs, mapped_cargs)
+
+        return new_circ
+
+    @staticmethod
     def _sort_matrix_elements_into_lp_bins(
         bitstrings_w_matrix_element: List[(str, str, float | Parameter)],
         coupling_g: float | Parameter,
@@ -710,7 +887,7 @@ class LatticeCircuitManager:
             bit_string_2,
             matrix_elem,
         ) in bitstrings_w_matrix_element:
-            angle = -matrix_elem * (1 /  (coupling_g**2)) * dt
+            angle = -matrix_elem * (1 /  (coupling_g * coupling_g)) * dt
             lp_fam = compute_LP_family(bit_string_1, bit_string_2)
             if lp_fam not in lp_bin.keys():
                 lp_bin[lp_fam] = []

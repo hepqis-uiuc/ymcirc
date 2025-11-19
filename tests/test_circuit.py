@@ -1,3 +1,4 @@
+from pathlib import Path
 import pytest
 import numpy as np
 from ymcirc._abstract import LatticeDef
@@ -5,7 +6,7 @@ from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.conventions import LatticeStateEncoder, ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT, IRREP_TRUNCATIONS, PHYSICAL_PLAQUETTE_STATES, load_magnetic_hamiltonian
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.utilities import _flatten_circuit, _check_circuits_logically_equivalent
-from qiskit.circuit import QuantumCircuit, AncillaRegister
+from qiskit.circuit import Parameter, QuantumCircuit, QuantumRegister, AncillaRegister
 from qiskit.circuit.library.standard_gates import RXGate, RZGate, RYGate, MCXGate
 from qiskit.circuit.exceptions import CircuitError
 from qiskit.quantum_info import Operator, Statevector, DensityMatrix, partial_trace
@@ -1241,6 +1242,186 @@ def test_apply_mag_trotter_step_independent_params_multiple_lp_families():
     assert len(master_circuit.parameters) == 7
     for idx, parameter in enumerate(master_circuit.parameters):
         assert parameter.name == f'theta[{idx}]'
+
+@pytest.fixture
+def sample_circuit_no_ancillas() -> QuantumCircuit:
+    data_reg_a = QuantumRegister(3, "RegA")
+    data_reg_b = QuantumRegister(2, "RegB")
+    empty_reg = QuantumRegister(0, "RegEmpty")
+    test_circ = QuantumCircuit(data_reg_a, data_reg_b, empty_reg)
+    test_circ.cx(data_reg_a[1], data_reg_b[1])
+    test_circ.x(data_reg_a[1])
+    test_circ.h(data_reg_b[0])
+
+    return test_circ
+
+@pytest.fixture
+def sample_circuit_with_ancillas() -> QuantumCircuit:
+    data_reg_a = QuantumRegister(3, "RegA")
+    data_reg_b = QuantumRegister(2, "RegB")
+    ancillas = AncillaRegister(4, "anc")
+    test_circ = QuantumCircuit(data_reg_a, data_reg_b, ancillas)
+    test_circ.cx(data_reg_a[1], data_reg_b[1])
+    test_circ.x(data_reg_a[1])
+    test_circ.h(data_reg_b[0])
+    test_circ.cx(data_reg_a[1], ancillas[3])
+    # Dummy "compute/uncompute" pattern using ancillas.
+    test_circ.h(ancillas[3])
+    test_circ.cx(ancillas[3], data_reg_b[0])
+    test_circ.h(ancillas[3])
+    test_circ.cx(data_reg_a[1], ancillas[3])
+
+    return test_circ
+
+@pytest.fixture
+def sample_circuit_with_parameter_and_parameter_expression() -> QuantumCircuit:
+    data_reg = QuantumRegister(3, "data")
+    ancillas = AncillaRegister(2, "anc")
+    test_circ = QuantumCircuit(data_reg, ancillas)
+    theta, phi, a, b, g = Parameter("theta"), Parameter("phi"), Parameter("a"), Parameter("b"), Parameter("g")
+    test_circ.x(data_reg[0])
+    test_circ.h(data_reg[0])
+    test_circ.cx(data_reg[0], ancillas[0])
+    test_circ.rx(theta, data_reg[1]) # Single parameter
+    test_circ.rz(theta * phi, ancillas[0]) # Parameter expression
+    test_circ.cx(ancillas[0], data_reg[1])
+    test_circ.ry(g * g,data_reg[2]) # Qiskit can't parse power operator, so doing this instead.
+    test_circ.ry(a + b, data_reg[2]) # Addition operator
+    test_circ.ry(2*a, data_reg[2]) # Scalar multiplication operator
+
+    return test_circ
+    
+
+# TODO fixture with QASM data (or perhaps this needs to be a test file).
+
+# TODO fixture with QPY data (or perhaps this needs to be a test file).
+
+class TestCircuitSaveAndLoad:
+    def test_save_and_reload_circuit_no_ancillas_qasm(self, sample_circuit_no_ancillas, tmp_path):
+        sample_circ_drawn_str = sample_circuit_no_ancillas.draw() # For use in error messages.
+        filepath_as_string = str(tmp_path / "my_circuit_str_write.qasm")
+        filepath_as_path = tmp_path / "my_circuit_path_write.qasm"
+        LatticeCircuitManager.save_circuit(sample_circuit_no_ancillas, filepath_as_string)
+        LatticeCircuitManager.save_circuit(sample_circuit_no_ancillas, filepath_as_path)
+
+        path_and_str_write_are_equivalent = filepath_as_path.read_bytes() == Path(filepath_as_string).read_bytes()
+        assert path_and_str_write_are_equivalent
+
+        reloaded_circ_filepath_as_string = LatticeCircuitManager.load_circuit(filepath_as_string)
+        reloaded_circ_filepath_as_path = LatticeCircuitManager.load_circuit(filepath_as_path)
+        path_and_string_load_are_equivalent = reloaded_circ_filepath_as_path == reloaded_circ_filepath_as_string
+        assert path_and_string_load_are_equivalent
+
+        saving_and_reloading_circ_gives_back_same_circ = reloaded_circ_filepath_as_path == sample_circuit_no_ancillas
+        assert saving_and_reloading_circ_gives_back_same_circ, f"Inequivalent circuits. Expected:\n {sample_circ_drawn_str}\nEncountered:\n{reloaded_circ_filepath_as_path}"
+
+        # Redundant, but a check that the test data hasn't been altered.
+        # Expecting a circuit with 1 H, 1 CX, and 1 X.
+        assert reloaded_circ_filepath_as_path.count_ops() == {"cx": 1, "x": 1, "h": 1}, f"Circuit ops {reloaded_circ_filepath_as_path.count_ops()} contains unexpected gates."
+
+    def test_save_and_reload_circuit_no_ancillas_qpy(self, sample_circuit_no_ancillas, tmp_path):
+        sample_circ_drawn_str = sample_circuit_no_ancillas.draw() # For use in error messages.
+        filepath_as_string = str(tmp_path / "my_circuit_str_write.qpy")
+        filepath_as_path = tmp_path / "my_circuit_path_write.qpy"
+        LatticeCircuitManager.save_circuit(sample_circuit_no_ancillas, filepath_as_string)
+        LatticeCircuitManager.save_circuit(sample_circuit_no_ancillas, filepath_as_path)
+
+        path_and_str_write_are_equivalent = filepath_as_path.read_bytes() == Path(filepath_as_string).read_bytes()
+        assert path_and_str_write_are_equivalent
+
+        reloaded_circ_filepath_as_string = LatticeCircuitManager.load_circuit(filepath_as_string)
+        reloaded_circ_filepath_as_path = LatticeCircuitManager.load_circuit(filepath_as_path)
+        path_and_string_load_are_equivalent = reloaded_circ_filepath_as_path == reloaded_circ_filepath_as_string
+        assert path_and_string_load_are_equivalent
+
+        saving_and_reloading_circ_gives_back_same_circ = reloaded_circ_filepath_as_path == sample_circuit_no_ancillas
+        assert saving_and_reloading_circ_gives_back_same_circ, f"Inequivalent circuits. Expected:\n {sample_circ_drawn_str}\nEncountered:\n{reloaded_circ_filepath_as_path}"
+
+        # Redundant, but a check that the test data hasn't been altered.
+        # Expecting a circuit with 1 H, 1 CX, and 1 X.
+        assert reloaded_circ_filepath_as_path.count_ops() == {"cx": 1, "x": 1, "h": 1}, f"Circuit ops {reloaded_circ_filepath_as_path.count_ops()} contains unexpected gates."
+
+    def test_save_and_reload_circuit_with_ancillas_qasm(self, sample_circuit_with_ancillas, tmp_path):
+        sample_circ_drawn_str = sample_circuit_with_ancillas.draw() # For use in error messages.
+        filepath_as_string = str(tmp_path / "my_circuit_str_write.qasm")
+        filepath_as_path = tmp_path / "my_circuit_path_write.qasm"
+        LatticeCircuitManager.save_circuit(sample_circuit_with_ancillas, filepath_as_string)
+        LatticeCircuitManager.save_circuit(sample_circuit_with_ancillas, filepath_as_path)
+
+        path_and_str_write_are_equivalent = filepath_as_path.read_bytes() == Path(filepath_as_string).read_bytes()
+        assert path_and_str_write_are_equivalent
+
+        reloaded_circ_filepath_as_string = LatticeCircuitManager.load_circuit(filepath_as_string, ancilla_reg_name='anc')
+        reloaded_circ_filepath_as_path = LatticeCircuitManager.load_circuit(filepath_as_path, ancilla_reg_name='anc')
+        path_and_string_load_are_equivalent = reloaded_circ_filepath_as_path == reloaded_circ_filepath_as_string
+        assert path_and_string_load_are_equivalent
+
+        saving_and_reloading_circ_gives_back_same_circ = reloaded_circ_filepath_as_path == sample_circuit_with_ancillas
+        assert saving_and_reloading_circ_gives_back_same_circ, f"Inequivalent circuits. Expected:\n {sample_circ_drawn_str}\nEncountered:\n{reloaded_circ_filepath_as_path}"
+
+        # Redundant, but a check that the test data hasn't been altered.
+        # Expecting a circuit with 3 H, 4 CX, and 1 X.
+        assert reloaded_circ_filepath_as_path.count_ops() == {"cx": 4, "x": 1, "h": 3}, f"Circuit ops {reloaded_circ_filepath_as_path.count_ops()} contains unexpected gates."
+
+    def test_save_and_reload_circuit_with_ancillas_qpy_name_given(self, sample_circuit_with_ancillas, tmp_path):
+        pytest.skip("The behavior for handling qiskit's deserialization error in this case has not yet been decided.")
+        
+        sample_circ_drawn_str = sample_circuit_with_ancillas.draw() # For use in error messages.
+        filepath_as_string = str(tmp_path / "my_circuit_str_write.qpy")
+        filepath_as_path = tmp_path / "my_circuit_path_write.qpy"
+        LatticeCircuitManager.save_circuit(sample_circuit_with_ancillas, filepath_as_string)
+        LatticeCircuitManager.save_circuit(sample_circuit_with_ancillas, filepath_as_path)
+
+        path_and_str_write_are_equivalent = filepath_as_path.read_bytes() == Path(filepath_as_string).read_bytes()
+        assert path_and_str_write_are_equivalent
+
+        reloaded_circ_filepath_as_string = LatticeCircuitManager.load_circuit(filepath_as_string, ancilla_reg_name='anc')
+        reloaded_circ_filepath_as_path = LatticeCircuitManager.load_circuit(filepath_as_path, ancilla_reg_name='anc')
+        path_and_string_load_are_equivalent = reloaded_circ_filepath_as_path == reloaded_circ_filepath_as_string
+        assert path_and_string_load_are_equivalent
+
+        saving_and_reloading_circ_gives_back_same_circ = reloaded_circ_filepath_as_path == sample_circuit_with_ancillas
+        assert saving_and_reloading_circ_gives_back_same_circ, f"Inequivalent circuits. Expected:\n {sample_circ_drawn_str}\nEncountered:\n{reloaded_circ_filepath_as_path}"
+
+        # Redundant, but a check that the test data hasn't been altered.
+        # Expecting a circuit with 3 H, 4 CX, and 1 X.
+        assert reloaded_circ_filepath_as_path.count_ops() == {"cx": 4, "x": 1, "h": 3}, f"Circuit ops {reloaded_circ_filepath_as_path.count_ops()} contains unexpected gates."
+
+    def test_save_and_reload_circuit_with_ancillas_qpy_no_name_given(self):
+        pytest.skip("The behavior for handling qiskit's deserialization error in this case has not yet been decided.")
+        
+        raise AssertionError("Test not yet written.")
+
+    def test_saving_unknown_filetype_raises_value_error(self, sample_circuit_no_ancillas, tmp_path):
+        with pytest.raises(ValueError) as e_info:
+            LatticeCircuitManager.save_circuit(sample_circuit_no_ancillas, tmp_path / "bad_filetype.txt")
+
+    def test_loading_unknown_filetype_raises_value_error(self, tmp_path):
+        test_file_bad_filetype = tmp_path / Path("bad_filetype.txt")
+        with open(test_file_bad_filetype, "w") as file:
+            file.write("Test file.")
+        with pytest.raises(ValueError) as e_info:
+            LatticeCircuitManager.load_circuit(test_file_bad_filetype)
+
+    def test_save_and_reload_circuit_with_parameter_qasm(self, sample_circuit_with_parameter_and_parameter_expression, tmp_path):
+        sample_circ_drawn_str = sample_circuit_with_parameter_and_parameter_expression.draw()
+        filepath = tmp_path / "circ.qasm"
+        
+        LatticeCircuitManager.save_circuit(sample_circuit_with_parameter_and_parameter_expression, filepath)
+
+        reloaded_circ = LatticeCircuitManager.load_circuit(filepath, ancilla_reg_name='anc')
+
+        # Since the reloaded circ has different parameter instances, need to be less strict
+        # in checking circuit equality.
+        saving_and_reloading_circ_gives_same_gates = reloaded_circ.count_ops() == sample_circuit_with_parameter_and_parameter_expression.count_ops()
+        saving_and_reloading_circ_preserves_parameters = [param.name for param in reloaded_circ.parameters] == [param.name for param in sample_circuit_with_parameter_and_parameter_expression.parameters]
+        
+        assert saving_and_reloading_circ_gives_same_gates and saving_and_reloading_circ_preserves_parameters, f"Inequivalent circuits. Expected:\n {sample_circ_drawn_str}\nEncountered:\n{reloaded_circ}"
+
+        # Redundant, but a check that the test data hasn't been altered.
+        # Expecting a circuit with 3 RY, 2 CX, 1 X, 1 H, 1 RX, 1 RZ.
+        assert reloaded_circ.count_ops() == {'ry': 3, 'cx': 2, 'x': 1, 'h': 1, 'rx': 1, 'rz': 1}
+        assert sorted([param.name for param in reloaded_circ.parameters]) == sorted(['g', 'a', 'b', 'theta', 'phi'])
 
 # TODO: write a test to compare circuits with ancillas and without ancillas. Qiskit doesn't seem to have a clean way to "ignore" registers. 
 # test_givens does have a test for givens rotation equivalence between with and without ancillas, so maybe this test would be redundant
