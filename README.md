@@ -48,7 +48,7 @@ uv remove numpy
 ```
 
 ### Locking and syncing
-The uv tool should automatically lock (generate a machine-readable description of the environment) and sync (update your actual virtual environment) as needed. However, if you run in to issues environment issues, you might try executing these commands manually as debug steps:
+The uv tool should automatically lock (generate a machine-readable description of the environment) and sync (update your actual virtual environment) as needed. However, if you run in to environment issues, you might try executing these commands manually as debug steps:
 ```shell
 uv lock
 uv sync
