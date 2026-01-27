@@ -4,23 +4,55 @@ A Python package for generating quantum circuits to simulate lattice SU(3) gauge
 This codebase is currently at an 'alpha' stage of development. Breaking changes should be expected.
 
 ## Installation
-The Makefile is configured to automatically set up a Python virtual environment which can be used to run code in ymcirc. Note that you must use Python 3.10 or higher, which is not accounted for in the Makefile.
+This project uses [uv](https://docs.astral.sh/uv/getting-started/) for environment (packages, Python version) management. Ensure that you have uv installed (instructions for various operating systems available at the previously linked-to docs).
 
-To create a virtual environment using the included Makefile:
+Once you have uv installed, use it to execute project scripts, and the correct virtual environment will automatically be used. For example:
 
-1. Run `make venv` to create the Python virtual environment.
-2. Run `source .venv/bin/activate` to activate the virtual environment.
-3. If you want to deactivate the virtual environment, run `deactivate`.
-4. Run `make clean` to remove the Python virtual environment. Make sure you deactive the virtual environment before doing this!
+``` shell
+uv run -m run.time_evol
+```
+The `-m` flag is necessary since we are executing a module file. For standalone scripts, use the syntax `uv run some_script.py`.
 
-Alternatively, you can use the `requirements.txt` file to set up a virtual environment with your favored environment management tool.
+There is no need to manually activate or deactivate the virtual environment. Information about the virtual environment is documented in `pyproject.toml`, and can be viewed by running
+```shell
+uv pip list
+```
 
 ### Installation for Windows subsystem for Linux (WSL)
 After setting up WSL there is a checklist of programs you will need before proceeding with the regular installation instructions above:
 
 1. Download / update Git by running `sudo apt-get install git`.
 2. Download / update Python3 by running `sudo apt install python3 python3-pip`
-3. Download the venv package by running `sudo apt install python3.10-venv`
+
+## Adding, updating, and removing dependencies
+To add a package to the project (for example, `numpy`):
+
+``` shell
+uv add numpy
+```
+This automatically updates the `pyproject.toml` file as well as the `uv.lock` file. The former is human readable/editable, while the latter is intended for consumption/editing by uv itself only. (Don't touch it!) Don't use `uv pip` to install packages, because this doesn't automatically update the lockfile.
+
+To add a package to the project that's only needed for development (for example, `pytest`):
+```shell
+uv add --dev pytest
+```
+
+If you want to update a package to a newer version:
+```shell
+uv add --upgrade numpy
+```
+
+To remove a package:
+```shell
+uv remove numpy
+```
+
+### Locking and syncing
+The uv tool should automatically lock (generate a machine-readable description of the environment) and sync (update your actual virtual environment) as needed. However, if you run in to issues environment issues, you might try executing these commands manually as debug steps:
+```shell
+uv lock
+uv sync
+```
 
 ## Tests
 The project uses [pytest](https://docs.pytest.org/en/stable/).
@@ -34,18 +66,18 @@ Note that all test files must be named `test_[something].py`!
 ### Running tests
 If you want to run all tests in the `test` directory, activate the virtual environment and then type:
 ```
-pytest -v
+uv run pytest -v
 ```
 The `-v` flag is optional and simply outputs additional debug info. Another useful flag is `-s`, which enables displaying all print statements generated while tests are running.
 
 If you want to run all tests in a specific file:
 ```
-pytest tests/test_[file].py
+uv run pytest tests/test_[file].py
 ```
 
 If you want to run *just one* test:
 ```
-pytest tests/test_mod.py::test_func.
+uv run pytest tests/test_mod.py::test_func.
 ```
 
 There's also more complete documentation on [how to invoke pytest](https://docs.pytest.org/en/stable/how-to/usage.html) which presents some additional features.
@@ -60,12 +92,12 @@ def test_this_is_some_slow_test():
 
 `conftest.py` is set up so that any test marked this way will be skipped by default. To include slow tests in a test run:
 ```
-pytest --runslow
+uv run pytest --runslow
 ```
 
 ## Usage
 See the `run` directory for example usage and logging configuration of ymcirc. To run the modules within `run`, call (for example):
 ```
-python -m run.time_evol
+uv run -m run.time_evol
 ```
 Replace `run.time_evol` with the particular desired module in the `run` directory.
