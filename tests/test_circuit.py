@@ -1450,3 +1450,49 @@ def test_measure_link_adds_correct_classical_register():
     # Should have exactly 2 measure instructions
     measure_ops = [inst for inst in circuit.data if inst.operation.name == "measure"]
     assert len(measure_ops) == encoder.expected_link_bit_string_length
+
+
+def test_measure_vertex_adds_correct_classical_register():
+    """measure_vertex should add measurement only for the specified vertex register."""
+    link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    physical_plaquette_states = [
+        ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
+        ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
+    ]
+    lattice_def = LatticeDef(1.5, 2)
+    encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
+    mag_ham = [("0000000000000000", "1010010110100101", 1.0)]
+    lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
+    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
+
+    vertex_address = (0, 0)
+    circ_mgr.measure_vertex(circuit, lattice, vertex_address)
+
+    # For T1 d=3/2, vertex registers have 0 qubits, so no measurements should be added.
+    assert len(circuit.cregs) == 0
+    measure_ops = [inst for inst in circuit.data if inst.operation.name == "measure"]
+    assert len(measure_ops) == 0
+
+
+def test_measure_vertex_with_vertex_qubits():
+    """measure_vertex on a lattice with non-trivial vertex registers."""
+    link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    physical_plaquette_states = [
+        ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
+        ((0, 0, 0, 1), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
+        ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
+    ]
+    lattice_def = LatticeDef(1.5, 2)
+    encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
+    mag_ham = [("00000000000000000000", "01010010101010010101", 1.0)]
+    lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
+    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
+
+    vertex_address = (0, 0)
+    circ_mgr.measure_vertex(circuit, lattice, vertex_address)
+
+    # vertex_bitmap should have 1 qubit per vertex
+    assert len(circuit.cregs) == 1
+    assert circuit.cregs[0].size == encoder.expected_vertex_bit_string_length

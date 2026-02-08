@@ -257,6 +257,30 @@ class LatticeCircuitManager:
         circuit.add_register(creg)
         circuit.measure(qreg, creg)
 
+    def measure_vertex(
+        self,
+        circuit: QuantumCircuit,
+        lattice: LatticeRegisters,
+        vertex_address: tuple,
+    ) -> None:
+        """
+        Append a measurement of the specified vertex register to the circuit.
+
+        If the vertex register has 0 qubits (e.g., d=3/2 T1 where vertex
+        multiplicities are trivial), this is a no-op.
+
+        Arguments:
+            - circuit: The QuantumCircuit to append measurements to.
+            - lattice: LatticeRegisters instance for qubit lookup.
+            - vertex_address: Lattice vector of the vertex to measure, e.g. (0, 0).
+        """
+        qreg = lattice.get_vertex(vertex_address)
+        if len(qreg) == 0:
+            return
+        creg = ClassicalRegister(len(qreg), name=f"meas_{qreg.name}")
+        circuit.add_register(creg)
+        circuit.measure(qreg, creg)
+
     def apply_electric_trotter_step(
         self,
         master_circuit: QuantumCircuit,
