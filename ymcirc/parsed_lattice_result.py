@@ -119,8 +119,25 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
 
     @property
     def global_lattice_measurement_bit_string(self) -> str:
-        """Return the global lattice measurement bit string used to initialize the ParsedLatticeResult instance."""
-        return self._global_lattice_measurement_bit_string
+        """
+        Return the global lattice measurement bit string.
+
+        For instances created via __init__ (full measurement), returns the
+        original bit string. For instances created via factory methods
+        (partial measurement), reconstructs the bit string from internal
+        data using get_traversal_order(), with "X" placeholders for
+        unmeasured degrees of freedom.
+        """
+        if self._global_lattice_measurement_bit_string is not None:
+            return self._global_lattice_measurement_bit_string
+
+        # Reconstruct from traversal order using undecoded (bitstring) data.
+        bitstring = ""
+        for vertex_addr, link_addrs in self.get_traversal_order():
+            bitstring += self.get_vertex(vertex_addr, get_bit_string=True)
+            for link_addr in link_addrs:
+                bitstring += self.get_link(link_addr, get_bit_string=True)
+        return bitstring
 
     def get_vertex(self, lattice_vector: LatticeVector, get_bit_string: bool = False) -> MeasurementData:
         """

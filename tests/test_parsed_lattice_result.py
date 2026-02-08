@@ -814,3 +814,39 @@ def test_from_partial_measurement_plaquette(
 
     # Links not in this plaquette should be None
     assert plr.get_link(((2, 0), 1)) is None
+
+
+def test_global_bitstring_reconstructed_for_partial(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """global_lattice_measurement_bit_string should reconstruct from partial data."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    # Only measure link ((0,0),1) = THREE = "10"
+    links_dict = {((0, 0), 1): THREE}
+    plr = ParsedLatticeResult.from_links_and_vertices(links_dict=links_dict, encoder=encoder)
+
+    bitstring = plr.global_lattice_measurement_bit_string
+    # d=3/2, L=2, T1: 6 links * 2 qubits = 12 total data qubits
+    assert len(bitstring) == 12
+    # First 2 chars should be "10" (link ((0,0),1) = THREE)
+    assert bitstring[:2] == "10"
+    # Remaining should be "XX" placeholders
+    assert all(c == "X" for c in bitstring[2:])
+
+
+def test_global_bitstring_unchanged_for_full_measurement(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """Full-measurement ParsedLatticeResult should return the original bitstring."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    original = "110001101000"
+    plr = ParsedLatticeResult(1.5, 2, original, encoder)
+    assert plr.global_lattice_measurement_bit_string == original
