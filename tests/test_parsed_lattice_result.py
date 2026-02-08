@@ -872,3 +872,59 @@ def test_get_link_electric_energy(
     assert plr.get_link_electric_energy(((0, 0), 1)) == pytest.approx(4.0 / 3.0)
     assert plr.get_link_electric_energy(((0, 0), 2)) == pytest.approx(0.0)
     assert plr.get_link_electric_energy(((1, 0), 1)) is None  # Not measured
+
+
+import warnings
+
+def test_get_lattice_electric_energy_total(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """get_lattice_electric_energy with average_result=False returns total energy."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    # All links vacuum = all C_2 = 0
+    plr_vacuum = ParsedLatticeResult(1.5, 2, "000000000000", encoder)
+    assert plr_vacuum.get_lattice_electric_energy(average_result=False) == pytest.approx(0.0)
+
+    # Set all 6 links to THREE (C_2=4/3): total = 6 * 4/3 = 8.0
+    all_three = {addr: THREE for addr in encoder.lattice_def.link_addresses}
+    plr_three = ParsedLatticeResult.from_links_and_vertices(links_dict=all_three, encoder=encoder)
+    assert plr_three.get_lattice_electric_energy(average_result=False) == pytest.approx(8.0)
+
+
+def test_get_lattice_electric_energy_average(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """get_lattice_electric_energy with average_result=True divides by number of links."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    all_three = {addr: THREE for addr in encoder.lattice_def.link_addresses}
+    plr = ParsedLatticeResult.from_links_and_vertices(links_dict=all_three, encoder=encoder)
+    # 6 links, each C_2=4/3; average = 4/3
+    assert plr.get_lattice_electric_energy(average_result=True) == pytest.approx(4.0 / 3.0)
+
+
+def test_get_lattice_electric_energy_warns_on_none(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """get_lattice_electric_energy warns when unmeasured links are encountered."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    # Only measure one link
+    plr = ParsedLatticeResult.from_links_and_vertices(
+        links_dict={((0, 0), 1): THREE}, encoder=encoder)
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        energy = plr.get_lattice_electric_energy(average_result=False)
+        assert len(w) >= 1
+        assert "None" in str(w[0].message) or "unmeasured" in str(w[0].message).lower()

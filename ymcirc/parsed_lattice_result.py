@@ -2,6 +2,7 @@
 from __future__ import annotations
 import copy
 import logging
+import warnings
 from typing import Dict, List, Union
 from ymcirc._abstract.lattice_data import (
     LatticeData, LatticeDef, Plaquette, DimensionalitySpecifier, LatticeVector,
@@ -444,3 +445,42 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         if link_state is None:
             return None
         return gt_pattern_iweight_to_casimir(link_state)
+
+    def get_lattice_electric_energy(self, average_result: bool = False) -> float:
+        """
+        Return the total (or average) electric Casimir energy across all links.
+
+        Iterates over all link addresses using get_traversal_order and sums
+        get_link_electric_energy for each link. If average_result is True,
+        divides the total by the number of links.
+
+        Emits a warning if any links return None from get_link_electric_energy
+        (unmeasured or unphysical). None-valued links contribute 0 to the sum.
+
+        Arguments:
+            - average_result: If True, return energy per link; if False, total.
+        """
+        total_energy = 0.0
+        none_count = 0
+        link_count = 0
+
+        for vertex_addr, link_addrs in self.get_traversal_order():
+            for link_addr in link_addrs:
+                link_count += 1
+                energy = self.get_link_electric_energy(link_addr)
+                if energy is None:
+                    none_count += 1
+                else:
+                    total_energy += energy
+
+        if none_count > 0:
+            warnings.warn(
+                f"Encountered {none_count} unmeasured/unphysical link(s) "
+                f"(out of {link_count} total) while computing lattice electric energy. "
+                f"None-valued links contributed 0 to the sum."
+            )
+
+        if average_result:
+            return total_energy / link_count
+
+        return total_energy
