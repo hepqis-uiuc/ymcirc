@@ -928,3 +928,76 @@ def test_get_lattice_electric_energy_warns_on_none(
         energy = plr.get_lattice_electric_energy(average_result=False)
         assert len(w) >= 1
         assert "None" in str(w[0].message) or "unmeasured" in str(w[0].message).lower()
+
+
+def test_from_partial_measurement_d2_plaquette_control_link_ordering(
+        T1_link_bitmap, good_physical_plaquette_states_d_2_T1_one_vertex_qubit):
+    """Verify control link ordering in from_partial_measurement for d=2.
+
+    d=2 vertices have 2 control link directions each. This test ensures
+    the canonical ordering from _CONTROL_LINK_DIRS_PER_VERTEX_MAP is used
+    (not dict insertion order from set iteration).
+    """
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_2_T1_one_vertex_qubit,
+        LatticeDef(2, 2))
+
+    # Build a full measurement from a known bitstring.
+    full_bitstring = "0" + "0000" + "1" + "0011" + "0" + "0110" + "0" + "1010"
+    full_plr = ParsedLatticeResult(2, 2, full_bitstring, encoder)
+
+    # Get the plaquette at (0,0) from the full measurement (both decoded and bitstring).
+    full_plaq = full_plr.get_plaquettes((0, 0))
+    full_plaq_bs = full_plr.get_plaquettes((0, 0), get_bit_string=True)
+
+    # Construct plaquette bitstring directly from bit-level data in canonical order:
+    # |v1 v2 v3 v4 l1 l2 l3 l4 c1... c2... c3... c4...|
+    plaq_bitstring = ""
+    for v_bs in full_plaq_bs.vertices:
+        plaq_bitstring += v_bs
+    for l_bs in full_plaq_bs.active_links:
+        plaq_bitstring += l_bs
+    for c_bs in full_plaq_bs.control_links_ordered:
+        plaq_bitstring += c_bs
+
+    # Reconstruct from partial measurement and verify control links match.
+    plr_partial = ParsedLatticeResult.from_partial_measurement(
+        [(((0, 0), 1, 2), plaq_bitstring)], encoder
+    )
+    partial_plaq = plr_partial.get_plaquettes((0, 0))
+    assert partial_plaq.control_links_ordered == full_plaq.control_links_ordered
+    assert partial_plaq.active_links == full_plaq.active_links
+    assert partial_plaq.vertices == full_plaq.vertices
+
+
+def test_from_partial_measurement_wrong_link_bitstring_length(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """from_partial_measurement should raise ValueError for wrong bitstring length."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    # Link bitstring should be length 2 (T1), but we pass length 1.
+    with pytest.raises(ValueError, match="length"):
+        ParsedLatticeResult.from_partial_measurement(
+            [(((0, 0), 1), "1")], encoder
+        )
+
+
+def test_from_partial_measurement_wrong_vertex_bitstring_length(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_vertex_data_needed):
+    """from_partial_measurement should raise ValueError for wrong vertex bitstring length."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    # Vertex bitstring should be length 1, but we pass length 3.
+    with pytest.raises(ValueError, match="length"):
+        ParsedLatticeResult.from_partial_measurement(
+            [((0, 0), "010")], encoder
+        )

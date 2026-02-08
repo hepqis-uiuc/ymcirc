@@ -180,9 +180,24 @@ def test_mps_transition_probability_nonzero_at_late_time():
         links_dict=excited_links, encoder=encoder
     )
 
-    transition_prob = mr.get_transition_probability(excited_state)
-    # At late times, there should be some nonzero probability of excitation.
-    # This may be small depending on evolution parameters, so just check > 0.
-    # If the exact state doesn't appear, check that SOME non-vacuum state exists.
+    # At late times, some non-vacuum states should exist.
     non_vacuum_prob = 1.0 - mr.vacuum_persistence_probability
     assert non_vacuum_prob > 0.0, "Expected some non-vacuum states at late times"
+
+    # Verify get_transition_probability consistency: a fully-specified vacuum
+    # partial state should give the same result as vacuum_persistence_probability.
+    vacuum_partial = ParsedLatticeResult.from_links_and_vertices(
+        links_dict={addr: ONE for addr in encoder.lattice_def.link_addresses},
+        encoder=encoder,
+    )
+    assert mr.get_transition_probability(vacuum_partial) == pytest.approx(
+        mr.vacuum_persistence_probability
+    )
+
+    # Partial state matching: any shot with THREE on link ((0,0),1) should match.
+    partial_three_on_link = ParsedLatticeResult.from_links_and_vertices(
+        links_dict={((0, 0), 1): THREE}, encoder=encoder
+    )
+    three_prob = mr.get_transition_probability(partial_three_on_link)
+    # At late times with g=1.0, some excitations should appear.
+    assert three_prob >= 0.0  # Should not raise; may be small but non-negative

@@ -354,11 +354,21 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
             addr_type = ParsedLatticeResult._classify_address(addr)
 
             if addr_type == "vertex":
+                if encoder.expected_vertex_bit_string_length > 0 and len(bitstring) != encoder.expected_vertex_bit_string_length:
+                    raise ValueError(
+                        f"Vertex bitstring at {addr} has length {len(bitstring)}, "
+                        f"expected {encoder.expected_vertex_bit_string_length}."
+                    )
                 vertex_addr = tuple(addr)
                 instance._bit_strings_vertices[vertex_addr] = bitstring
                 instance._decoded_vertices[vertex_addr] = encoder.decode_bit_string_to_vertex_state(bitstring)
 
             elif addr_type == "link":
+                if len(bitstring) != encoder.expected_link_bit_string_length:
+                    raise ValueError(
+                        f"Link bitstring at {addr} has length {len(bitstring)}, "
+                        f"expected {encoder.expected_link_bit_string_length}."
+                    )
                 link_addr = instance._normalize_link_address(addr)
                 instance._bit_strings_links[link_addr] = bitstring
                 instance._decoded_links[link_addr] = encoder.decode_bit_string_to_link_state(bitstring)
@@ -404,12 +414,17 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
                     instance._decoded_links[normalized] = a_links[i]
                     plaq_bits_idx += link_len
 
-                # Populate control link data using Plaquette class.
-                plaquette_obj = Plaquette(
-                    lattice=instance, bottom_left_vertex=v1, plane=(e1, e2)
-                )
-                for c_link_addr_dict in plaquette_obj.control_links.values():
-                    for c_link_addr in c_link_addr_dict.keys():
+                # Populate control link data in canonical ordering.
+                # Must use _CONTROL_LINK_DIRS_PER_VERTEX_MAP to match the
+                # bitstring encoding order (same as control_links_ordered).
+                # Using control_links.values() would rely on dict insertion
+                # order from set iteration, which may not match the canonical
+                # encoding order for d>=2 where vertices have multiple
+                # control link directions.
+                control_link_dirs = Plaquette._CONTROL_LINK_DIRS_PER_VERTEX_MAP[encoder.lattice_def.dim]
+                for vertex_idx, v_addr in enumerate(vertex_addrs):
+                    for link_dir in control_link_dirs[vertex_idx]:
+                        c_link_addr = (v_addr, link_dir)
                         normalized = instance._normalize_link_address(c_link_addr)
                         c_bits = bitstring[plaq_bits_idx:plaq_bits_idx + link_len]
                         instance._bit_strings_links[normalized] = c_bits

@@ -81,3 +81,41 @@ def test_get_transition_probability(encoder_d32_L2_T1):
     assert mr.get_transition_probability(plr_vacuum) == pytest.approx(0.6)
     assert mr.get_transition_probability(plr_excited) == pytest.approx(0.4)
     assert mr.get_transition_probability(plr_other) == pytest.approx(0.0)
+
+
+def test_get_transition_probability_with_partial_state(encoder_d32_L2_T1):
+    """get_transition_probability should match partial states against full states."""
+    encoder = encoder_d32_L2_T1
+    plr_vacuum = ParsedLatticeResult(1.5, 2, "000000000000", encoder)
+    plr_excited = ParsedLatticeResult(1.5, 2, "100000000000", encoder)
+
+    counts = {plr_vacuum: 60, plr_excited: 40}
+    mr = MeasurementResults(counts, encoder)
+
+    # Partial state: only specifies link ((0,0),1) = THREE.
+    # Should match plr_excited (which has THREE on that link) but not plr_vacuum.
+    partial_excited = ParsedLatticeResult.from_links_and_vertices(
+        links_dict={((0, 0), 1): THREE}, encoder=encoder
+    )
+    assert mr.get_transition_probability(partial_excited) == pytest.approx(0.4)
+
+    # Partial state matching vacuum: only specifies link ((0,0),1) = ONE.
+    # Should match plr_vacuum only.
+    partial_vacuum = ParsedLatticeResult.from_links_and_vertices(
+        links_dict={((0, 0), 1): ONE}, encoder=encoder
+    )
+    assert mr.get_transition_probability(partial_vacuum) == pytest.approx(0.6)
+
+    # Fully-specified partial state matching all 6 links to ONE.
+    # Should exactly match vacuum.
+    full_vacuum = ParsedLatticeResult.from_links_and_vertices(
+        links_dict={addr: ONE for addr in encoder.lattice_def.link_addresses},
+        encoder=encoder
+    )
+    assert mr.get_transition_probability(full_vacuum) == pytest.approx(0.6)
+
+
+def test_measurement_results_empty_counts_raises(encoder_d32_L2_T1):
+    """MeasurementResults should raise ValueError for empty counts."""
+    with pytest.raises(ValueError):
+        MeasurementResults({}, encoder_d32_L2_T1)

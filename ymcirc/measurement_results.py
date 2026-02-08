@@ -30,9 +30,13 @@ class MeasurementResults:
         counts: Dict[ParsedLatticeResult, int],
         encoder: LatticeStateEncoder,
     ):
+        if not counts:
+            raise ValueError("counts must be non-empty.")
         self._counts = dict(counts)
         self._encoder = encoder
         self._total_shots = sum(counts.values())
+        if self._total_shots <= 0:
+            raise ValueError("Total shot count must be positive.")
 
     def get_link_electric_energy(self, link_address: LinkAddress) -> float:
         """
@@ -99,7 +103,36 @@ class MeasurementResults:
         """
         Return the empirical probability of the given state.
 
+        Supports both full and partial states. For partial states (created
+        via factory methods like from_links_and_vertices), matches against
+        all measured (non-None) degrees of freedom.
+
         Arguments:
-            - state: A ParsedLatticeResult to look up in the counts dict.
+            - state: A ParsedLatticeResult to match against the counts.
         """
-        return self._counts.get(state, 0) / self._total_shots
+        matching_shots = 0
+        for parsed, count in self._counts.items():
+            if self._states_match(state, parsed):
+                matching_shots += count
+        return matching_shots / self._total_shots
+
+    @staticmethod
+    def _states_match(query: ParsedLatticeResult, candidate: ParsedLatticeResult) -> bool:
+        """
+        Check if all measured (non-None) DOFs in query match candidate.
+
+        Returns True if every link and vertex that is not None in query
+        has the same decoded value in candidate. Unmeasured (None) DOFs
+        in query are treated as wildcards.
+        """
+        if query.dim != candidate.dim or query.shape != candidate.shape:
+            return False
+        for link_addr in query.link_addresses:
+            q_state = query.get_link(link_addr)
+            if q_state is not None and q_state != candidate.get_link(link_addr):
+                return False
+        for vertex_addr in query.vertex_addresses:
+            q_state = query.get_vertex(vertex_addr)
+            if q_state is not None and q_state != candidate.get_vertex(vertex_addr):
+                return False
+        return True
