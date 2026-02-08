@@ -850,3 +850,25 @@ def test_global_bitstring_unchanged_for_full_measurement(
     original = "110001101000"
     plr = ParsedLatticeResult(1.5, 2, original, encoder)
     assert plr.global_lattice_measurement_bit_string == original
+
+
+from ymcirc.electric_helper import gt_pattern_iweight_to_casimir
+
+def test_get_link_electric_energy(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """get_link_electric_energy returns Casimir for measured links, None for unmeasured."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    links_dict = {
+        ((0, 0), 1): THREE,      # C_2 = 4/3
+        ((0, 0), 2): ONE,        # C_2 = 0
+    }
+    plr = ParsedLatticeResult.from_links_and_vertices(links_dict=links_dict, encoder=encoder)
+
+    assert plr.get_link_electric_energy(((0, 0), 1)) == pytest.approx(4.0 / 3.0)
+    assert plr.get_link_electric_energy(((0, 0), 2)) == pytest.approx(0.0)
+    assert plr.get_link_electric_energy(((1, 0), 1)) is None  # Not measured

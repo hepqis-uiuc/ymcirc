@@ -428,3 +428,19 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         elif all(isinstance(x, int) for x in addr):
             return "vertex"
         raise ValueError(f"Cannot classify address: {addr}")
+
+    def get_link_electric_energy(self, link_address: LinkAddress) -> Union[float, None]:
+        """
+        Return the electric Casimir energy for the specified link.
+
+        Returns gt_pattern_iweight_to_casimir(irrep) for the link's irrep,
+        or None if the link was not measured or decoded to an unphysical state.
+
+        Arguments:
+            - link_address: Address of the link, e.g. ((0,0), 1).
+        """
+        from ymcirc.electric_helper import gt_pattern_iweight_to_casimir
+        link_state = self.get_link(link_address)
+        if link_state is None:
+            return None
+        return gt_pattern_iweight_to_casimir(link_state)
