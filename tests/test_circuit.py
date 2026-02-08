@@ -1496,3 +1496,51 @@ def test_measure_vertex_with_vertex_qubits():
     # vertex_bitmap should have 1 qubit per vertex
     assert len(circuit.cregs) == 1
     assert circuit.cregs[0].size == encoder.expected_vertex_bit_string_length
+
+
+def test_measure_plaquette_measures_all_dofs():
+    """measure_plaquette should measure all vertices, active links, and control links."""
+    link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    physical_plaquette_states = [
+        ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
+        ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
+    ]
+    lattice_def = LatticeDef(1.5, 4)
+    encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
+    mag_ham = [("0000000000000000", "1010010110100101", 1.0)]
+    lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
+    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
+
+    circ_mgr.measure_plaquette(circuit, lattice, (0, 0), 1, 2)
+
+    # d=3/2 plaquette 0 has: 4 vertices (0 qubits each for T1), 4 active links (2 qubits each),
+    # and 4 control links (2 qubits each). Total measured qubits = 0 + 8 + 8 = 16.
+    # That's 8 registers of 2 qubits each = 8 classical registers.
+    measure_ops = [inst for inst in circuit.data if inst.operation.name == "measure"]
+    total_measured_qubits = len(measure_ops)
+    # 4 active links * 2 qubits + 4 control links * 2 qubits = 16
+    assert total_measured_qubits == 16
+
+
+def test_measure_plaquette_deduplicates_shared_registers():
+    """On a small periodic lattice, shared control links should be measured only once."""
+    link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    physical_plaquette_states = [
+        ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
+        ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
+    ]
+    lattice_def = LatticeDef(1.5, 2)
+    encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
+    mag_ham = [("0000000000000000", "1010010110100101", 1.0)]
+    lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
+    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
+
+    circ_mgr.measure_plaquette(circuit, lattice, (0, 0), 1, 2)
+
+    # L=2 d=3/2 periodic: c1==c2 and c3==c4 (shared vertical links).
+    # 4 active links + 2 unique control links = 6 unique link registers.
+    # With 0 vertex qubits, total measured qubits = 6 * 2 = 12.
+    measure_ops = [inst for inst in circuit.data if inst.operation.name == "measure"]
+    assert len(measure_ops) == 12
