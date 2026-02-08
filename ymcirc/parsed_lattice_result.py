@@ -304,3 +304,110 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
                 instance._bit_strings_vertices[vertex_addr] = encoder.encode_vertex_state_as_bit_string(mult_idx)
 
         return instance
+
+    @staticmethod
+    def from_partial_measurement(
+        measurements: List[tuple],
+        encoder: LatticeStateEncoder,
+    ) -> ParsedLatticeResult:
+        """
+        Create a ParsedLatticeResult from partial measurement data.
+
+        Each element of measurements is a 2-tuple (address, bitstring) where:
+        - address is a LatticeVector for vertex measurements (e.g., (0, 0))
+        - address is a LinkAddress for link measurements (e.g., ((0, 0), 1))
+        - address is (LatticeVector, e1, e2) for plaquette measurements
+          (e.g., ((0, 0), 1, 2))
+
+        For plaquette measurements, the bitstring follows the plaquette encoding
+        convention: |v1 v2 v3 v4 l1 l2 l3 l4 c1... c2... c3... c4...>.
+
+        Unmeasured degrees of freedom return None (decoded) or "X"-padded
+        strings (undecoded bitstring).
+
+        Arguments:
+            - measurements: List of (address, bitstring) tuples.
+            - encoder: LatticeStateEncoder for decoding and lattice geometry.
+        """
+        instance = ParsedLatticeResult._create_partial(encoder)
+        lattice_def = encoder.lattice_def
+
+        for addr, bitstring in measurements:
+            addr_type = ParsedLatticeResult._classify_address(addr)
+
+            if addr_type == "vertex":
+                vertex_addr = tuple(addr)
+                instance._bit_strings_vertices[vertex_addr] = bitstring
+                instance._decoded_vertices[vertex_addr] = encoder.decode_bit_string_to_vertex_state(bitstring)
+
+            elif addr_type == "link":
+                link_addr = instance._normalize_link_address(addr)
+                instance._bit_strings_links[link_addr] = bitstring
+                instance._decoded_links[link_addr] = encoder.decode_bit_string_to_link_state(bitstring)
+
+            elif addr_type == "plaquette":
+                bottom_left_vertex = tuple(addr[0])
+                e1, e2 = addr[1], addr[2]
+
+                # Decode the full plaquette bitstring.
+                decoded_plaq = encoder.decode_bit_string_to_plaquette_state(bitstring)
+                vertex_mults, a_links, c_links = decoded_plaq
+
+                # Compute plaquette vertex and link addresses.
+                v1 = bottom_left_vertex
+                v2 = tuple(lattice_def.add_unit_vector_to_vertex_vector(v1, e1))
+                v3 = tuple(lattice_def.add_unit_vector_to_vertex_vector(v2, e2))
+                v4 = tuple(lattice_def.add_unit_vector_to_vertex_vector(v1, e2))
+                vertex_addrs = [v1, v2, v3, v4]
+
+                active_link_addrs = [
+                    (v1, e1),     # l1
+                    (v2, e2),     # l2
+                    (v4, e1),     # l3
+                    (v1, e2),     # l4
+                ]
+
+                # Populate vertex data.
+                link_len = encoder.expected_link_bit_string_length
+                vertex_len = encoder.expected_vertex_bit_string_length
+                plaq_bits_idx = 0
+                for i, v_addr in enumerate(vertex_addrs):
+                    if vertex_len > 0:
+                        v_bits = bitstring[plaq_bits_idx:plaq_bits_idx + vertex_len]
+                        instance._bit_strings_vertices[v_addr] = v_bits
+                        instance._decoded_vertices[v_addr] = vertex_mults[i]
+                        plaq_bits_idx += vertex_len
+
+                # Populate active link data.
+                for i, l_addr in enumerate(active_link_addrs):
+                    normalized = instance._normalize_link_address(l_addr)
+                    l_bits = bitstring[plaq_bits_idx:plaq_bits_idx + link_len]
+                    instance._bit_strings_links[normalized] = l_bits
+                    instance._decoded_links[normalized] = a_links[i]
+                    plaq_bits_idx += link_len
+
+                # Populate control link data using Plaquette class.
+                plaquette_obj = Plaquette(
+                    lattice=instance, bottom_left_vertex=v1, plane=(e1, e2)
+                )
+                for c_link_addr_dict in plaquette_obj.control_links.values():
+                    for c_link_addr in c_link_addr_dict.keys():
+                        normalized = instance._normalize_link_address(c_link_addr)
+                        c_bits = bitstring[plaq_bits_idx:plaq_bits_idx + link_len]
+                        instance._bit_strings_links[normalized] = c_bits
+                        instance._decoded_links[normalized] = encoder.decode_bit_string_to_link_state(c_bits)
+                        plaq_bits_idx += link_len
+
+        return instance
+
+    @staticmethod
+    def _classify_address(addr) -> str:
+        """Classify an address as 'vertex', 'link', or 'plaquette'."""
+        if isinstance(addr[0], (list, tuple)):
+            if len(addr) == 2:
+                return "link"
+            elif len(addr) == 3:
+                return "plaquette"
+        elif all(isinstance(x, int) for x in addr):
+            return "vertex"
+        raise ValueError(f"Cannot classify address: {addr}")

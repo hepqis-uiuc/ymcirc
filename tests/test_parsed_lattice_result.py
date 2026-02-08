@@ -750,3 +750,67 @@ def test_from_links_and_vertices_with_vertices(
     assert plr.get_vertex((1, 0)) == 1
     assert plr.get_vertex((0, 1)) is None  # Not provided
     assert plr.get_link(((0, 0), 1)) == ONE
+
+
+def test_from_partial_measurement_link(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """from_partial_measurement with a single link measurement."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    measurements = [(((0, 0), 1), "10")]  # Link ((0,0),1) measured as "10" = THREE
+
+    plr = ParsedLatticeResult.from_partial_measurement(measurements, encoder)
+
+    assert plr.get_link(((0, 0), 1)) == THREE
+    assert plr.get_link(((0, 0), 1), get_bit_string=True) == "10"
+    assert plr.get_link(((0, 0), 2)) is None  # Not measured
+    assert plr.get_link(((0, 0), 2), get_bit_string=True) == "XX"
+
+
+def test_from_partial_measurement_vertex(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_vertex_data_needed):
+    """from_partial_measurement with a vertex measurement."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    measurements = [((0, 0), "0")]  # Vertex (0,0) measured as "0" = multiplicity 0
+
+    plr = ParsedLatticeResult.from_partial_measurement(measurements, encoder)
+
+    assert plr.get_vertex((0, 0)) == 0
+    assert plr.get_vertex((0, 0), get_bit_string=True) == "0"
+    assert plr.get_vertex((1, 0)) is None  # Not measured
+
+
+def test_from_partial_measurement_plaquette(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """from_partial_measurement with a plaquette measurement."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 4))
+
+    # Plaquette 0 in vacuum: all links = ONE = "00". No vertex qubits.
+    # Active links: 4 * "00" = "00000000", control links: 4 * "00" = "00000000"
+    # Total plaquette bitstring: "0000000000000000"
+    plaq_bitstring = "0000000000000000"
+    measurements = [(((0, 0), 1, 2), plaq_bitstring)]
+
+    plr = ParsedLatticeResult.from_partial_measurement(measurements, encoder)
+
+    # All 4 active links of plaquette 0 should be ONE
+    assert plr.get_link(((0, 0), 1)) == ONE   # l1
+    assert plr.get_link(((1, 0), 2)) == ONE   # l2
+    assert plr.get_link(((0, 1), 1)) == ONE   # l3
+    assert plr.get_link(((0, 0), 2)) == ONE   # l4
+
+    # Links not in this plaquette should be None
+    assert plr.get_link(((2, 0), 1)) is None
