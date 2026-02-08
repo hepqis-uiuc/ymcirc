@@ -20,7 +20,7 @@ from ymcirc._abstract.lattice_data import Plaquette
 from ymcirc.utilities import _check_circuits_logically_equivalent, _flatten_circuit, eta_update, fmt_td
 from math import ceil
 from qiskit import transpile
-from qiskit.circuit import Parameter, ParameterVector, QuantumCircuit, QuantumRegister, AncillaRegister
+from qiskit.circuit import Parameter, ParameterVector, QuantumCircuit, QuantumRegister, AncillaRegister, ClassicalRegister
 from qiskit.circuit.library.standard_gates import RXGate, CXGate
 from qiskit import qasm3, qpy
 from qiskit.transpiler import PassManager
@@ -234,6 +234,28 @@ class LatticeCircuitManager:
         Note that this mutates the circuit!
         """
         master_circuit.add_register(AncillaRegister(self.num_ancillas, "anc"))
+
+    def measure_link(
+        self,
+        circuit: QuantumCircuit,
+        lattice: LatticeRegisters,
+        link_address: tuple,
+    ) -> None:
+        """
+        Append a measurement of the specified link register to the circuit.
+
+        Adds a ClassicalRegister sized to match the link's QuantumRegister,
+        then appends measure gates for each qubit in the link.
+
+        Arguments:
+            - circuit: The QuantumCircuit to append measurements to.
+            - lattice: LatticeRegisters instance for qubit lookup.
+            - link_address: Address of the link to measure, e.g. ((0,0), 1).
+        """
+        qreg = lattice.get_link(link_address)
+        creg = ClassicalRegister(len(qreg), name=f"meas_{qreg.name}")
+        circuit.add_register(creg)
+        circuit.measure(qreg, creg)
 
     def apply_electric_trotter_step(
         self,

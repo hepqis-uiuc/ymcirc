@@ -1423,5 +1423,30 @@ class TestCircuitSaveAndLoad:
         assert reloaded_circ.count_ops() == {'ry': 3, 'cx': 2, 'x': 1, 'h': 1, 'rx': 1, 'rz': 1}
         assert sorted([param.name for param in reloaded_circ.parameters]) == sorted(['g', 'a', 'b', 'theta', 'phi'])
 
-# TODO: write a test to compare circuits with ancillas and without ancillas. Qiskit doesn't seem to have a clean way to "ignore" registers. 
+# TODO: write a test to compare circuits with ancillas and without ancillas. Qiskit doesn't seem to have a clean way to "ignore" registers.
 # test_givens does have a test for givens rotation equivalence between with and without ancillas, so maybe this test would be redundant
+
+
+def test_measure_link_adds_correct_classical_register():
+    """measure_link should add a ClassicalRegister and measurement only for the specified link."""
+    link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    physical_plaquette_states = [
+        ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
+        ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
+    ]
+    lattice_def = LatticeDef(1.5, 2)
+    encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
+    mag_ham = [("0000000000000000", "1010010110100101", 1.0)]
+    lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
+    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
+
+    link_address = ((0, 0), 1)
+    circ_mgr.measure_link(circuit, lattice, link_address)
+
+    # Should have exactly 1 classical register with 2 bits (matching link qubit count)
+    assert len(circuit.cregs) == 1
+    assert circuit.cregs[0].size == encoder.expected_link_bit_string_length
+    # Should have exactly 2 measure instructions
+    measure_ops = [inst for inst in circuit.data if inst.operation.name == "measure"]
+    assert len(measure_ops) == encoder.expected_link_bit_string_length
