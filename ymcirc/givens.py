@@ -87,13 +87,14 @@ def givens(
     a pre/post computation circuit consisting of CX gates. The pre/post
     computation is essentially just a change of basis for the MCRX.
 
-    If a set physical_control_qubits consisting is provided which
-    contains data indexing qubits in a QuantumRegister, only
-    those qubits appearing in physical_control_qubits will be
-    used when adding controls to construct the givens rotation. This is
-    relevant for "control pruning" where we allow the givens rotation
-    to rotate pairs of unphysical states into each other in addition
-    to the target states bit_string_1 and bit_string_2.
+    If a set encoded_physical_states is provided which
+    consists of all the physical states encoded as bit strings,
+    then control pruning will be performed (i.e. a greedy
+    algorithm will run which eliminates controls which
+    don't actually distinguish between the set of physical states).
+    This algorithm is described in more detail in
+    https://journals.aps.org/prd/abstract/10.1103/k8f6-yft8.
+    When this argument is None, no pruning is performed.
 
     If num_ancillas > 0, circuit construction uses v-chain
     gate synthesis using the provided number of ancillas. This
