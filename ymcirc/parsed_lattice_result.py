@@ -233,3 +233,74 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
             and self.shape == other.shape
             and self.periodic_boundary_conds == other.periodic_boundary_conds
         )
+
+    @classmethod
+    def _create_partial(cls, encoder: LatticeStateEncoder) -> ParsedLatticeResult:
+        """
+        Create a partially-initialized instance with placeholder data.
+
+        All links and vertices are initialized with None (decoded) and
+        "X"-padded bitstrings (undecoded). Factory methods should overwrite
+        entries for measured degrees of freedom.
+
+        Internal use only -- not part of the public API.
+        """
+        lattice_def = encoder.lattice_def
+        size = lattice_def.shape[0]
+        instance = cls.__new__(cls)
+        LatticeDef.__init__(instance, lattice_def.dim, size, lattice_def.periodic_boundary_conds)
+
+        instance._decoded_links = {}
+        instance._decoded_vertices = {}
+        instance._bit_strings_links = {}
+        instance._bit_strings_vertices = {}
+
+        # Pre-fill all addresses with placeholders.
+        for vertex_addr in lattice_def.vertex_addresses:
+            vertex_addr = tuple(vertex_addr)
+            instance._decoded_vertices[vertex_addr] = None
+            instance._bit_strings_vertices[vertex_addr] = "X" * encoder.expected_vertex_bit_string_length
+
+        for link_addr in lattice_def.link_addresses:
+            instance._decoded_links[link_addr] = None
+            instance._bit_strings_links[link_addr] = "X" * encoder.expected_link_bit_string_length
+
+        instance._global_lattice_measurement_bit_string = None
+        instance._lattice_def = encoder.lattice_def
+        instance._encoder = copy.deepcopy(encoder)
+        instance._lattice_encoder_repr = repr(encoder)
+
+        return instance
+
+    @staticmethod
+    def from_links_and_vertices(
+        links_dict: Dict[LinkAddress, IrrepWeight],
+        vertices_dict: Union[Dict[LatticeVector, MultiplicityIndex], None] = None,
+        *,
+        encoder: LatticeStateEncoder,
+    ) -> ParsedLatticeResult:
+        """
+        Create a ParsedLatticeResult from decoded link and vertex data.
+
+        Links and vertices not present in the input dicts will return None
+        when queried (decoded) or "X"-padded strings (undecoded bitstring).
+
+        Arguments:
+            - links_dict: Maps LinkAddress -> IrrepWeight (decoded link state).
+            - vertices_dict: Optional. Maps LatticeVector -> MultiplicityIndex.
+            - encoder: LatticeStateEncoder for encoding/decoding and lattice geometry.
+        """
+        instance = ParsedLatticeResult._create_partial(encoder)
+
+        for link_addr, link_state in links_dict.items():
+            normalized = instance._normalize_link_address(link_addr)
+            instance._decoded_links[normalized] = link_state
+            instance._bit_strings_links[normalized] = encoder.encode_link_state_as_bit_string(link_state)
+
+        if vertices_dict is not None:
+            for vertex_addr, mult_idx in vertices_dict.items():
+                vertex_addr = tuple(vertex_addr)
+                instance._decoded_vertices[vertex_addr] = mult_idx
+                instance._bit_strings_vertices[vertex_addr] = encoder.encode_vertex_state_as_bit_string(mult_idx)
+
+        return instance

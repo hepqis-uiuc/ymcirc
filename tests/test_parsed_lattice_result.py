@@ -687,3 +687,66 @@ def test_parsed_lattice_result_equality(
     # Different bitstring -> not equal
     plr3 = ParsedLatticeResult(1.5, 2, "100000000000", encoder)
     assert plr1 != plr3
+
+
+def test_from_links_and_vertices_basic(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """from_links_and_vertices should create a ParsedLatticeResult from decoded data."""
+    link_bitmap = T1_link_bitmap
+    physical_plaquette_states = good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed
+    lattice = LatticeDef(1.5, 2)
+    encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
+
+    links_dict = {
+        ((0, 0), 1): THREE,
+        ((0, 0), 2): ONE,
+        ((1, 0), 1): THREE_BAR,
+    }
+
+    plr = ParsedLatticeResult.from_links_and_vertices(
+        links_dict=links_dict, encoder=encoder
+    )
+
+    # Provided links should decode correctly
+    assert plr.get_link(((0, 0), 1)) == THREE
+    assert plr.get_link(((0, 0), 2)) == ONE
+    assert plr.get_link(((1, 0), 1)) == THREE_BAR
+
+    # Bitstrings for provided links should be correct
+    assert plr.get_link(((0, 0), 1), get_bit_string=True) == "10"
+    assert plr.get_link(((0, 0), 2), get_bit_string=True) == "00"
+
+    # Unprovided links should return None (decoded) and "XX" (bitstring)
+    assert plr.get_link(((1, 0), 2)) is None
+    assert plr.get_link(((1, 0), 2), get_bit_string=True) == "XX"
+
+    # Unprovided vertices (no vertex qubits in T1 d=3/2): decoded=None, bitstring=""
+    assert plr.get_vertex((0, 0)) is None
+    assert plr.get_vertex((0, 0), get_bit_string=True) == ""
+
+    # Lattice geometry should be correct
+    assert plr.dim == 1.5
+    assert plr.shape == (2, 2)
+
+
+def test_from_links_and_vertices_with_vertices(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_vertex_data_needed):
+    """from_links_and_vertices with explicit vertex data."""
+    link_bitmap = T1_link_bitmap
+    physical_plaquette_states = good_physical_plaquette_states_d_3_2_T1_vertex_data_needed
+    lattice = LatticeDef(1.5, 2)
+    encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
+
+    links_dict = {((0, 0), 1): ONE}
+    vertices_dict = {(0, 0): 0, (1, 0): 1}
+
+    plr = ParsedLatticeResult.from_links_and_vertices(
+        links_dict=links_dict, vertices_dict=vertices_dict, encoder=encoder
+    )
+
+    assert plr.get_vertex((0, 0)) == 0
+    assert plr.get_vertex((1, 0)) == 1
+    assert plr.get_vertex((0, 1)) is None  # Not provided
+    assert plr.get_link(((0, 0), 1)) == ONE
