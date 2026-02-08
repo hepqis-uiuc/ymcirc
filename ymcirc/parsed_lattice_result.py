@@ -99,6 +99,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         # Let's keep these around too. They're handy to have.
         self._global_lattice_measurement_bit_string = global_lattice_measurement_bit_string
         self._lattice_def = lattice_encoder.lattice_def
+        self._encoder = copy.deepcopy(lattice_encoder)
         self._lattice_encoder_repr = lattice_encoder.__repr__()
 
     def __repr__(self):
@@ -110,9 +111,6 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         link_measurements = {link_address: self.get_link(link_address) for link_address in self.link_addresses}
         vertex_measurements = {vertex_address: self.get_vertex(vertex_address) for vertex_address in self.vertex_addresses}
         return f"A parsed measurement of registers for simulation circuit ({self._lattice_def}).\nLink measurements (link address: iweight):\n{link_measurements}\nVertex measurements (vertex address: multiplicity index):\n{vertex_measurements}"
-    
-
-        logger.debug(f"Parsed lattice measurement bit string '{global_lattice_measurement_bit_string}'.")
 
     @property
     def lattice_def(self) -> LatticeDef:
@@ -224,3 +222,14 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
     def __hash__(self):
         """Hash based on measurement string, and data that uniquely specifies lattice geometry."""
         return hash((self.global_lattice_measurement_bit_string, self.lattice_def.dim, self.lattice_def.shape, self.lattice_def.periodic_boundary_conds))
+
+    def __eq__(self, other) -> bool:
+        """Equality based on the same fields used by __hash__."""
+        if not isinstance(other, ParsedLatticeResult):
+            return NotImplemented
+        return (
+            self.global_lattice_measurement_bit_string == other.global_lattice_measurement_bit_string
+            and self.dim == other.dim
+            and self.shape == other.shape
+            and self.periodic_boundary_conds == other.periodic_boundary_conds
+        )

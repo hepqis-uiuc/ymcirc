@@ -665,3 +665,25 @@ def test_global_bit_string_has_bad_chars(
             size=2,
             global_lattice_measurement_bit_string=global_meas_bit_string,
             lattice_encoder=lattice_encoder)
+
+
+def test_parsed_lattice_result_equality(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """Two ParsedLatticeResult instances with the same data should be equal."""
+    link_bitmap = T1_link_bitmap
+    physical_plaquette_states = good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed
+    lattice = LatticeDef(1.5, 2)
+    encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
+    bitstring = "000000000000"
+
+    plr1 = ParsedLatticeResult(1.5, 2, bitstring, encoder)
+    plr2 = ParsedLatticeResult(1.5, 2, bitstring, encoder)
+
+    assert plr1 == plr2
+    assert plr1 is not plr2
+    assert hash(plr1) == hash(plr2)
+
+    # Different bitstring -> not equal
+    plr3 = ParsedLatticeResult(1.5, 2, "100000000000", encoder)
+    assert plr1 != plr3
