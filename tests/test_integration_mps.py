@@ -97,13 +97,7 @@ def test_mps_time_evolution_observables_change():
     physical_states = PHYSICAL_PLAQUETTE_STATES["d=3/2"][trunc]
     encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_def)
 
-    # Load magnetic Hamiltonian. Try threshold 0.9 first, fall back to 0.6.
-    try:
-        mag_ham = load_magnetic_hamiltonian("d=3/2", trunc, encoder,
-                                           mag_hamiltonian_matrix_element_threshold=0.9)
-    except Exception:
-        mag_ham = load_magnetic_hamiltonian("d=3/2", trunc, encoder,
-                                           mag_hamiltonian_matrix_element_threshold=0.6)
+    mag_ham = load_magnetic_hamiltonian("d=3/2", trunc, encoder, mag_hamiltonian_matrix_element_threshold=0.6) # Somewhat high threshold to make test faster.
 
     g = 1.0
     n_data_qubits = encoder.lattice_def.n_links * encoder.expected_link_bit_string_length
@@ -146,12 +140,7 @@ def test_mps_transition_probability_nonzero_at_late_time():
     physical_states = PHYSICAL_PLAQUETTE_STATES["d=3/2"][trunc]
     encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_def)
 
-    try:
-        mag_ham = load_magnetic_hamiltonian("d=3/2", trunc, encoder,
-                                           mag_hamiltonian_matrix_element_threshold=0.9)
-    except Exception:
-        mag_ham = load_magnetic_hamiltonian("d=3/2", trunc, encoder,
-                                           mag_hamiltonian_matrix_element_threshold=0.6)
+    mag_ham = load_magnetic_hamiltonian("d=3/2", trunc, encoder, mag_hamiltonian_matrix_element_threshold=0.6)
 
     g = 1.0
     n_data_qubits = encoder.lattice_def.n_links * encoder.expected_link_bit_string_length
