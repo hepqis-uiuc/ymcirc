@@ -323,7 +323,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
 
     @staticmethod
     def from_partial_measurement(
-        measurements: List[tuple],
+        measurements: List[tuple[LatticeVector, str] | tuple[LinkAddress, str] | tuple[tuple[LinkAddress, LinkUnitVectorLabel, LinkUnitVectorLabel], str]],
         encoder: LatticeStateEncoder,
     ) -> ParsedLatticeResult:
         """
@@ -334,6 +334,9 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         - address is a LinkAddress for link measurements (e.g., ((0, 0), 1))
         - address is (LatticeVector, e1, e2) for plaquette measurements
           (e.g., ((0, 0), 1, 2))
+
+        If an address which doesn't fit into one of these three categories is
+        encountered, a ValueError will be raised.
 
         For plaquette measurements, the bitstring follows the plaquette encoding
         convention: |v1 v2 v3 v4 l1 l2 l3 l4 c1... c2... c3... c4...>.
@@ -349,7 +352,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         lattice_def = encoder.lattice_def
 
         for addr, bitstring in measurements:
-            addr_type = ParsedLatticeResult._classify_address(addr)
+            addr_type = ParsedLatticeResult._classify_address(addr) # Raises ValueError for unknown addr.
 
             if addr_type == "vertex":
                 if encoder.expected_vertex_bit_string_length > 0 and len(bitstring) != encoder.expected_vertex_bit_string_length:
