@@ -27,12 +27,24 @@ class MeasurementResults:
 
     def __init__(
         self,
-        counts: Dict[ParsedLatticeResult, int],
+        counts: Dict[ParsedLatticeResult, int] | Dict[str, int],
         encoder: LatticeStateEncoder,
     ):
         if not counts:
             raise ValueError("counts must be non-empty.")
-        self._counts: Dict[ParsedLatticeResult, int] = copy.deepcopy(dict(counts))
+        self._counts = {}
+        for state_key, n_obs in counts.items():
+            if isinstance(state_key, str):
+                lattice_has_non_tuple_size_param = len(set(encoder.lattice_def.shape)) == 1 # Implies lattice was created with an integer "size" parameter.
+                if not lattice_has_non_tuple_size_param:
+                    raise NotImplementedError("Converting state bit strings for lattices with tuple-valued shape not yet supported.")
+                size = encoder.lattice_def.shape[0]
+                plr_from_state_key = ParsedLatticeResult(encoder.lattice_def.dim, size, state_key, encoder, encoder.lattice_def.periodic_boundary_conds)
+                self._counts[plr_from_state_key] = n_obs
+            elif isinstance(state_key, ParsedLatticeResult):
+                self._counts[state_key] = n_obs
+            else:
+                raise ValueError(f"Key of type {type(state_key)} encountered. Must be str or {ParsedLatticeResult.__name__}")
         self._encoder: LatticeStateEncoder = copy.deepcopy(encoder)
         self._total_shots: int = sum(counts.values())
         if self._total_shots <= 0:

@@ -29,6 +29,27 @@ def encoder_d2_L2_T1():
     return LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
 
 
+def test_measurement_results_polymorphic_init(encoder_d32_L2_T1):
+    """Should be able to initialize with either ParsedLatticeResult or string keys."""
+    encoder = encoder_d32_L2_T1
+    vac_string = "000000000000"
+    excited_string = "000000000001"
+    counts_str_keys = {vac_string: 10, excited_string: 90}
+    counts_plr_keys = {
+        ParsedLatticeResult(1.5, 2, vac_string, encoder): 10,
+        ParsedLatticeResult(1.5, 2, excited_string, encoder): 90
+    }
+
+    mr_from_str_dict = MeasurementResults(counts_str_keys, encoder)
+    mr_from_plr_dict = MeasurementResults(counts_plr_keys, encoder)
+
+    for link_address in encoder.lattice_def.link_addresses:
+        assert mr_from_str_dict.get_link_electric_energy(link_address) == mr_from_plr_dict.get_link_electric_energy(link_address)
+    assert mr_from_str_dict.get_lattice_electric_energy() == mr_from_plr_dict.get_lattice_electric_energy()
+    assert mr_from_str_dict.vacuum_persistence_probability() == pytest.approx(0.1)
+    assert mr_from_plr_dict.vacuum_persistence_probability() == pytest.approx(0.1)
+    
+
 def test_get_lattice_electric_energy_warns_on_none(encoder_d32_L2_T1):
     """get_lattice_electric_energy warns when unmeasured links are encountered and flag is on."""
     encoder = encoder_d32_L2_T1
