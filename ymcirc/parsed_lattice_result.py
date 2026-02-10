@@ -456,7 +456,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         Arguments:
             - link_address: Address of the link, e.g. ((0,0), 1).
         """
-        from ymcirc.electric_helper import gt_pattern_iweight_to_casimir
+        from ymcirc.electric_helper import gt_pattern_iweight_to_casimir # TODO: import in method to avoid circuilar import; kinda nasty and would be nice to avoid
         link_state = self.get_link(link_address)
         if link_state is None:
             return None
@@ -471,7 +471,9 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         divides the total by the number of links.
 
         Emits a warning if any links return None from get_link_electric_energy
-        (unmeasured or unphysical). None-valued links contribute 0 to the sum.
+        (unmeasured or unphysical). None-valued links contribute 0 to the sum,
+        and if average_result is True, they are also excluded from the
+        total link count used to compute the average.
 
         Arguments:
             - average_result: If True, return energy per link; if False, total.
