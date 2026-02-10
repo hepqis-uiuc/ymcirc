@@ -43,9 +43,8 @@ def test_measurement_results_lattice_electric_energy(encoder_d32_L2_T1):
     counts = {plr_vacuum: 70, plr_excited: 30}
     mr = MeasurementResults(counts, encoder)
 
-    # Total: 70 * 0.0 + 30 * 4/3 = 40/3. Expectation = 40/300 = 2/15
-    # Wait -- lattice energy is sum over ALL links. plr_excited has THREE on
-    # link ((0,0),1) (C_2=4/3) and ONE on all others. So lattice energy = 4/3.
+    # plr_excited has THREE on link ((0,0),1) (C_2=4/3) and ONE on all others.
+    # So lattice energy = 4/3.
     # Average over shots: (70 * 0 + 30 * 4/3) / 100 = 40/100 = 0.4
     assert mr.get_lattice_electric_energy(average_result=False) == pytest.approx(0.4)
 
