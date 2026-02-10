@@ -32,15 +32,24 @@ class MeasurementResults:
     ):
         if not counts:
             raise ValueError("counts must be non-empty.")
-        self._counts = dict(counts)
-        self._encoder = encoder
-        self._total_shots = sum(counts.values())
+        self._counts: Dict[ParsedLatticeResult, int] = dict(counts)
+        self._encoder: LatticeStateEncoder = encoder
+        self._total_shots: int = sum(counts.values())
         if self._total_shots <= 0:
             raise ValueError("Total shot count must be positive.")
 
-    @property
-    def counts(self) -> Dict[ParsedLatticeResult, int]:
-        return copy.deepcopy(self._counts)
+    def get_counts(self, str_keys: bool = False) -> Dict[ParsedLatticeResult, int] | Dict[str, int]:
+        """
+        Return a copy of the underlying measurement data as a dict.
+
+        Optionally, use (encoded state) bit strings as the keys.
+        """
+        if str_keys is False:
+            counts_data = copy.deepcopy(self._counts)
+        else:
+            counts_data = {plr.global_lattice_measurement_bit_string: n_obs for plr, n_obs in copy.deepcopy(self._counts).items()}
+
+        return counts_data
 
     def get_link_electric_energy(self, link_address: LinkAddress) -> float:
         """
