@@ -1,5 +1,7 @@
 """This script demonstrates one way of building a simulation pipeline with ymcirc."""
 from __future__ import annotations
+from ymcirc.measurement_results import MeasurementResults
+from ymcirc.parsed_lattice_result import ParsedLatticeResult
 
 # Hacky way to make ymcirc imports work.
 import sys
@@ -422,7 +424,8 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
     for job_result, sim_time in zip(job_results, script_options["sim_times"]):
         # Strip out ancilla bits, and reverse to big-endian convention.
         counts_dict_big_endian = {little_endian_state[::-1][:n_data_qubits]: count for little_endian_state, count in job_result.items()}
-        for big_endian_state, counts in counts_dict_big_endian.items():
+        mr = MeasurementResults(counts_dict_big_endian, lattice_encoder)
+        for big_endian_state, counts in mr.get_counts(str_keys=True).items():
             df_job_results.loc[sim_time, big_endian_state] = counts
 
         # Ensure existence of vacuum state data.
@@ -430,11 +433,8 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
             df_job_results.loc[sim_time, vacuum_state] = 0
 
         # Compute vacuum persistence probability and average electric energy per link.
-        df_job_results.loc[sim_time, "vacuum_persistence_probability"] = df_job_results.loc[sim_time, vacuum_state] / script_options["n_shots"]
-        avg_electric_energy = 0
-        for state, counts in counts_dict_big_endian.items():
-            avg_electric_energy += convert_bitstring_to_evalue(state, lattice_encoder, script_options["warn_unphysical_links"], script_options["error_unphysical_links"]) * (counts / script_options["n_shots"]) / script_options["lattice_def"].n_links
-        df_job_results.loc[sim_time, "electric_energy"] = avg_electric_energy
+        df_job_results.loc[sim_time, "vacuum_persistence_probability"] = mr.vacuum_persistence_probability()
+        df_job_results.loc[sim_time, "electric_energy"] = mr.get_lattice_electric_energy(average_result=True, warn_on_unphysical=script_options["warn_unphysical_links"])
 
     return df_job_results
 
@@ -475,7 +475,7 @@ def plot_data(data: pd.DataFrame, col: str, title: str, script_options: dict[str
     return fig
 
 
-def create_lattice_encoder(script_options: dict[str, Any]) -> None:
+def create_lattice_encoder(script_options: dict[str, Any]) -> LatticeStateEncoder:
     lattice_encoder = LatticeStateEncoder(
         link_bitmap=script_options["link_bitmap"],
         physical_plaquette_states=PHYSICAL_PLAQUETTE_STATES[script_options["dimensionality_string"]][script_options["truncation_string"]],
