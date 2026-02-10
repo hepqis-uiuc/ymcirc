@@ -1,8 +1,7 @@
 import pytest
-import warnings
 from ymcirc._abstract import LatticeDef
 from ymcirc.conventions import (
-    LatticeStateEncoder, ONE, THREE, THREE_BAR, IrrepWeight
+    LatticeStateEncoder, ONE, THREE, THREE_BAR
 )
 from ymcirc.parsed_lattice_result import ParsedLatticeResult
 from ymcirc.measurement_results import MeasurementResults
