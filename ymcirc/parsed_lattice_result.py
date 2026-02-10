@@ -462,7 +462,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
             return None
         return gt_pattern_iweight_to_casimir(link_state)
 
-    def get_lattice_electric_energy(self, average_result: bool = False) -> float:
+    def get_lattice_electric_energy(self, average_result: bool = False, warn_on_unphysical: bool = False) -> float:
         """
         Return the total (or average) electric Casimir energy across all links.
 
@@ -470,8 +470,9 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         get_link_electric_energy for each link. If average_result is True,
         divides the total by the number of links.
 
-        Emits a warning if any links return None from get_link_electric_energy
-        (unmeasured or unphysical). None-valued links contribute 0 to the sum,
+        If warn_on_unphysical is True, emits a warning if any links return None
+        from get_link_electric_energy (unmeasured or unphysical).
+        None-valued links contribute 0 to the sum,
         and if average_result is True, they are also excluded from the
         total link count used to compute the average.
 
@@ -491,7 +492,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
                 else:
                     total_energy += energy
 
-        if none_count > 0:
+        if none_count > 0 and warn_on_unphysical is True:
             warnings.warn(
                 f"Encountered {none_count} unmeasured/unphysical link(s) "
                 f"(out of {link_count} total) while computing lattice electric energy. "

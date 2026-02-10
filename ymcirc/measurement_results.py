@@ -69,7 +69,7 @@ class MeasurementResults:
                 total += energy * count
         return total / self._total_shots
 
-    def get_lattice_electric_energy(self, average_result: bool = False) -> float:
+    def get_lattice_electric_energy(self, average_result: bool = False, warn_on_unphysical: bool = False) -> float:
         """
         Return the expectation value of the lattice electric energy.
 
@@ -83,10 +83,13 @@ class MeasurementResults:
             - average_result: Passed to each ParsedLatticeResult instance.
               If True, each instance returns energy per link.
               If False, each instance returns total energy.
+            - warn_on_unphysical: Passed to each ParsedLatticeResult instance.
+              If True, a warning is emitted whenever an unphysical link is encountered.
+              If False, no warning.
         """
         total = 0.0
         for parsed, count in self._counts.items():
-            energy = parsed.get_lattice_electric_energy(average_result=average_result)
+            energy = parsed.get_lattice_electric_energy(average_result=average_result, warn_on_unphysical=warn_on_unphysical)
             total += energy * count
         return total / self._total_shots
 

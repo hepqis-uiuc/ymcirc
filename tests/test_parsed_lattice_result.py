@@ -925,7 +925,7 @@ def test_get_lattice_electric_energy_average(
 def test_get_lattice_electric_energy_warns_on_none(
         T1_link_bitmap,
         good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
-    """get_lattice_electric_energy warns when unmeasured links are encountered."""
+    """get_lattice_electric_energy warns when unmeasured links are encountered and flag is on."""
     encoder = LatticeStateEncoder(
         T1_link_bitmap,
         good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
@@ -935,9 +935,16 @@ def test_get_lattice_electric_energy_warns_on_none(
     plr = ParsedLatticeResult.from_links_and_vertices(
         links_dict={((0, 0), 1): THREE}, encoder=encoder)
 
+    # No warnings when flag is off (default behavior)
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         energy = plr.get_lattice_electric_energy(average_result=False)
+        assert len(w) == 0
+
+    # warnings when flag is on
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        energy = plr.get_lattice_electric_energy(average_result=False, warn_on_unphysical=True)
         assert len(w) >= 1
         assert "None" in str(w[0].message) or "unmeasured" in str(w[0].message).lower()
 

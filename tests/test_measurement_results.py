@@ -1,4 +1,5 @@
 import pytest
+import warnings
 from ymcirc._abstract import LatticeDef
 from ymcirc.conventions import (
     LatticeStateEncoder, ONE, THREE, THREE_BAR
@@ -26,6 +27,31 @@ def encoder_d2_L2_T1():
     ]
     lattice = LatticeDef(2, 2)
     return LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
+
+
+def test_get_lattice_electric_energy_warns_on_none(encoder_d32_L2_T1):
+    """get_lattice_electric_energy warns when unmeasured links are encountered and flag is on."""
+    encoder = encoder_d32_L2_T1
+    # 70 shots of vacuum (all ONE), 30 shots of an unphysical state on link ((0,0),1)
+    plr_vacuum = ParsedLatticeResult(1.5, 2, "000000000000", encoder)
+    plr_unphysical = ParsedLatticeResult(1.5, 2, "110000000000", encoder)
+
+    counts = {plr_vacuum: 70, plr_unphysical: 30}
+    mr = MeasurementResults(counts, encoder)
+
+
+    # No warnings when flag is off (default behavior)
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        energy = mr.get_lattice_electric_energy(average_result=False)
+        assert len(w) == 0
+
+    # warnings when flag is on
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        energy = mr.get_lattice_electric_energy(average_result=False, warn_on_unphysical=True)
+        assert len(w) >= 1 # An unphysical link should be encountered 30 times
+        assert "None" in str(w[0].message) or "unmeasured" in str(w[0].message).lower()
 
 
 def test_measurement_results_link_electric_energy(encoder_d32_L2_T1):
