@@ -1,8 +1,8 @@
 """Class for aggregating and analyzing measurement results from lattice quantum circuits."""
 from __future__ import annotations
 import logging
-import warnings
-from typing import Dict, Union
+from typing import Dict
+import copy
 from ymcirc._abstract.lattice_data import LinkAddress
 from ymcirc.conventions import LatticeStateEncoder, ONE
 from ymcirc.parsed_lattice_result import ParsedLatticeResult
@@ -37,6 +37,10 @@ class MeasurementResults:
         self._total_shots = sum(counts.values())
         if self._total_shots <= 0:
             raise ValueError("Total shot count must be positive.")
+
+    @property
+    def counts(self) -> Dict[ParsedLatticeResult, int]:
+        return copy.deepcopy(self._counts)
 
     def get_link_electric_energy(self, link_address: LinkAddress) -> float:
         """
