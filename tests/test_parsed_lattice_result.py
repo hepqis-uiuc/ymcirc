@@ -956,6 +956,7 @@ def test_from_partial_measurement_d2_plaquette_control_link_ordering(
         LatticeDef(2, 2))
 
     # Build a full measurement from a known bitstring.
+    # Note that the traversal order is defined in ymcirc._abstract.lattice_data.
     full_bitstring = "0" + "0000" + "1" + "0011" + "0" + "0110" + "0" + "1010"
     full_plr = ParsedLatticeResult(2, 2, full_bitstring, encoder)
 
@@ -981,6 +982,12 @@ def test_from_partial_measurement_d2_plaquette_control_link_ordering(
     assert partial_plaq.control_links_ordered == full_plaq.control_links_ordered
     assert partial_plaq.active_links == full_plaq.active_links
     assert partial_plaq.vertices == full_plaq.vertices
+
+    # Spot check some vertices and links
+    assert full_plr.get_link(((0, 1), 2)) is None
+    assert full_plr.get_link(((0, 1), 2), get_bit_string=True) == "11"
+    assert full_plr.get_vertex((0, 1)) == 1
+    assert full_plr.get_vertex((0, 1), get_bit_string=True) == "1"
 
 
 def test_from_partial_measurement_wrong_link_bitstring_length(
