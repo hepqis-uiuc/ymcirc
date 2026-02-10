@@ -127,8 +127,8 @@ def test_mps_time_evolution_observables_change():
     mr_late = _counts_to_measurement_results(counts_late, encoder, n_data_qubits)
 
     # Vacuum persistence should decrease with time.
-    vpp_early = mr_early.vacuum_persistence_probability
-    vpp_late = mr_late.vacuum_persistence_probability
+    vpp_early = mr_early.vacuum_persistence_probability()
+    vpp_late = mr_late.vacuum_persistence_probability()
     assert vpp_early > vpp_late, (
         f"Vacuum persistence should decrease: early={vpp_early}, late={vpp_late}"
     )
@@ -163,7 +163,7 @@ def test_mps_transition_probability_nonzero_at_late_time():
     mr = _counts_to_measurement_results(counts, encoder, n_data_qubits)
 
     # At late times, some non-vacuum states should exist.
-    non_vacuum_prob = 1.0 - mr.vacuum_persistence_probability
+    non_vacuum_prob = 1.0 - mr.vacuum_persistence_probability()
     assert not non_vacuum_prob == pytest.approx(0.0) and non_vacuum_prob > 0, "Expected some non-vacuum states at late times"
 
     # Verify get_transition_probability consistency: a fully-specified vacuum
@@ -173,7 +173,7 @@ def test_mps_transition_probability_nonzero_at_late_time():
         encoder=encoder,
     )
     assert mr.get_transition_probability(vacuum_partial) == pytest.approx(
-        mr.vacuum_persistence_probability
+        mr.vacuum_persistence_probability()
     )
 
     # Partial state matching: any shot with THREE on link ((0,0),1) should match.

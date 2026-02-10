@@ -90,12 +90,15 @@ class MeasurementResults:
             total += energy * count
         return total / self._total_shots
 
-    @property
-    def vacuum_persistence_probability(self) -> float:
+    def vacuum_persistence_probability(self, strict_equality: bool = False) -> float:
         """
         Return the empirical probability for the entire lattice to be in vacuum.
 
         Vacuum is defined as all links being in the singlet state ONE = (0,0,0).
+
+        If strict_equality is True and there are vertex data, then only
+        states where all the multiplicity indices are zero will be counted
+        toward the vacuum persistence probability.
         """
         vacuum_shots = 0
         for parsed, count in self._counts.items():
@@ -106,13 +109,18 @@ class MeasurementResults:
                     if link_state != ONE:
                         is_vacuum = False
                         break
+                    if strict_equality is True and self._encoder.expected_vertex_bit_string_length > 0:
+                        vertex_multiplicity = parsed.get_vertex(vertex_addr)
+                        if vertex_multiplicity != 0:
+                            is_vacuum = False
+                            break
                 if not is_vacuum:
                     break
             if is_vacuum:
                 vacuum_shots += count
         return vacuum_shots / self._total_shots
 
-    def get_transition_probability(self, state: ParsedLatticeResult) -> float:
+    def get_transition_probability(self, state: ParsedLatticeResult, strict_equality: bool = False) -> float:
         """
         Return the empirical probability of the given state.
 
@@ -120,24 +128,33 @@ class MeasurementResults:
         via factory methods like from_links_and_vertices), matches against
         all measured (non-None) degrees of freedom.
 
+        If strict_equality is True, then ALL data must agree (including which
+        data weren't measured, or are unphysical).
+
         Arguments:
             - state: A ParsedLatticeResult to match against the counts.
         """
         matching_shots = 0
         for parsed, count in self._counts.items():
-            if self._states_match(state, parsed):
+            if self._states_match(state, parsed, strict_equality=strict_equality):
                 matching_shots += count
         return matching_shots / self._total_shots
 
     @staticmethod
-    def _states_match(query: ParsedLatticeResult, candidate: ParsedLatticeResult) -> bool:
+    def _states_match(query: ParsedLatticeResult, candidate: ParsedLatticeResult, strict_equality: bool = False) -> bool:
         """
         Check if all measured (non-None) DOFs in query match candidate.
 
         Returns True if every link and vertex that is not None in query
         has the same decoded value in candidate. Unmeasured (None) DOFs
         in query are treated as wildcards.
+
+        If strict_equality is True, then ALL data must agree (including which
+        data weren't measured, or are unphysical). This means the wildcard
+        behavior gets disabled.
         """
+        if strict_equality is True:
+            return query == candidate
         if query.dim != candidate.dim or query.shape != candidate.shape:
             return False
         for link_addr in query.link_addresses:

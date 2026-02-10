@@ -17,6 +17,16 @@ def encoder_d32_L2_T1():
     lattice = LatticeDef(1.5, 2)
     return LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
 
+@pytest.fixture
+def encoder_d2_L2_T1():
+    link_bitmap = {ONE: "00", THREE: "10", THREE_BAR: "01"}
+    physical_plaquette_states = [
+        ((0, 1, 0, 0), (ONE, ONE, ONE, ONE), (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)),
+        ((0, 0, 0, 1), (THREE, THREE, THREE_BAR, THREE_BAR), (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)),
+    ]
+    lattice = LatticeDef(2, 2)
+    return LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
+
 
 def test_measurement_results_link_electric_energy(encoder_d32_L2_T1):
     """get_link_electric_energy returns weighted average over all shots."""
@@ -63,7 +73,23 @@ def test_vacuum_persistence_probability(encoder_d32_L2_T1):
     counts = {plr_vacuum: 80, plr_excited: 20}
     mr = MeasurementResults(counts, encoder)
 
-    assert mr.vacuum_persistence_probability == pytest.approx(0.8)
+    assert mr.vacuum_persistence_probability() == pytest.approx(0.8)
+
+def test_vacuum_persistence_probability_some_nontrivial_multiplicities(encoder_d2_L2_T1):
+    """
+    vacuum_persistence_probability should be the fraction in vacuum state,
+    with the ability to ignore bad multiplicities if desired.
+    """
+    encoder = encoder_d2_L2_T1
+    plr_vacuum = ParsedLatticeResult(2, 2, "0" + "0000" + "0" + "0000" + "0" + "0000" + "0" + "0000", encoder)
+    plr_vacuum_nontrivial_multiplicities = ParsedLatticeResult(2, 2, "1" + "0000" + "0" + "0000" + "0" + "0000" + "0" + "0000", encoder)
+    plr_excited = ParsedLatticeResult(2, 2, "0" + "1000" + "0" + "0000" + "0" + "0000" + "0" + "0000", encoder)
+
+    counts = {plr_vacuum: 70, plr_vacuum_nontrivial_multiplicities: 20, plr_excited: 10}
+    mr = MeasurementResults(counts, encoder)
+
+    assert mr.vacuum_persistence_probability() == pytest.approx(0.9)
+    assert mr.vacuum_persistence_probability(strict_equality=True) == pytest.approx(0.7)
 
 
 def test_get_transition_probability(encoder_d32_L2_T1):
@@ -104,6 +130,9 @@ def test_get_transition_probability_with_partial_state(encoder_d32_L2_T1):
     )
     assert mr.get_transition_probability(partial_vacuum) == pytest.approx(0.6)
 
+    # If we request strict equality, then instead there should be no matches.
+    assert mr.get_transition_probability(partial_vacuum, strict_equality=True) == pytest.approx(0.0)
+
     # Fully-specified partial state matching all 6 links to ONE.
     # Should exactly match vacuum.
     full_vacuum = ParsedLatticeResult.from_links_and_vertices(
@@ -111,6 +140,10 @@ def test_get_transition_probability_with_partial_state(encoder_d32_L2_T1):
         encoder=encoder
     )
     assert mr.get_transition_probability(full_vacuum) == pytest.approx(0.6)
+
+    # If we request strict equality, this time the probability should be
+    # unaffected.
+    assert mr.get_transition_probability(full_vacuum, strict_equality=True) == pytest.approx(0.6)
 
 
 def test_measurement_results_empty_counts_raises(encoder_d32_L2_T1):
