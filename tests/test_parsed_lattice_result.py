@@ -1,4 +1,4 @@
-import copy
+import warnings
 import pytest
 from typing import Dict, List
 from ymcirc._abstract import LatticeDef
@@ -868,8 +868,6 @@ def test_global_bitstring_unchanged_for_full_measurement(
     assert plr.global_lattice_measurement_bit_string == original
 
 
-from ymcirc.electric_helper import gt_pattern_iweight_to_casimir
-
 def test_get_link_electric_energy(
         T1_link_bitmap,
         good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
@@ -889,8 +887,6 @@ def test_get_link_electric_energy(
     assert plr.get_link_electric_energy(((0, 0), 2)) == pytest.approx(0.0)
     assert plr.get_link_electric_energy(((1, 0), 1)) is None  # Not measured
 
-
-import warnings
 
 def test_get_lattice_electric_energy_total(
         T1_link_bitmap,
