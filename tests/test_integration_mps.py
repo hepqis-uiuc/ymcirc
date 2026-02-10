@@ -168,4 +168,4 @@ def test_mps_transition_probability_nonzero_at_late_time():
     )
     three_prob = mr.get_transition_probability(partial_three_on_link)
     # At late times with g=1.0, some excitations should appear.
-    assert three_prob >= 0.0  # Should not raise; may be small but non-negative
+    assert not three_prob == pytest.approx(0.0) and three_prob > 0  # Should not raise; may be small but non-negative
