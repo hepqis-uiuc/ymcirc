@@ -106,7 +106,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
     def __repr__(self):
         class_name = type(self).__name__
         size = self.shape[0]
-        return f"{class_name}(dimensions={self.dim}, size={size}, global_lattice_measurement_bit_string={self._global_lattice_measurement_bit_string}, lattice_encoder={self._lattice_encoder_repr}, periodic_boundary_conds={self.periodic_boundary_conds})"
+        return f"{class_name}(dimensions={self.dim}, size={size}, global_lattice_measurement_bit_string={self.global_lattice_measurement_bit_string}, lattice_encoder={self._lattice_encoder_repr}, periodic_boundary_conds={self.periodic_boundary_conds})"
 
     def __str__(self):
         link_measurements = {link_address: self.get_link(link_address) for link_address in self.link_addresses}

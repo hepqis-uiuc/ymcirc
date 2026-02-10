@@ -149,3 +149,9 @@ class MeasurementResults:
             if q_state is not None and q_state != candidate.get_vertex(vertex_addr):
                 return False
         return True
+
+    def __repr__(self):
+        return f"{type(self).__name__}(counts={self.get_counts(str_keys=False)}, encoder={self._encoder})"
+    
+    def __str__(self):
+        return f"{type(self).__name__}({self.get_counts(str_keys=True)})"
