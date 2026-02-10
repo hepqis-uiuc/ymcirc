@@ -16,7 +16,7 @@ from ymcirc.givens import (
     compute_p_tilde,
     gray_to_index,
 )
-from ymcirc._abstract.lattice_data import Plaquette, LinkUnitVectorLabel
+from ymcirc._abstract.lattice_data import Plaquette, LinkUnitVectorLabel, LinkAddress, LatticeVector
 from ymcirc.utilities import _check_circuits_logically_equivalent, _flatten_circuit, eta_update, fmt_td
 from math import ceil
 from qiskit import transpile
@@ -239,7 +239,7 @@ class LatticeCircuitManager:
         self,
         circuit: QuantumCircuit,
         lattice: LatticeRegisters,
-        link_address: tuple,
+        link_address: LinkAddress,
     ) -> None:
         """
         Append a measurement of the specified link register to the circuit.
@@ -261,7 +261,7 @@ class LatticeCircuitManager:
         self,
         circuit: QuantumCircuit,
         lattice: LatticeRegisters,
-        vertex_address: tuple,
+        vertex_address: LatticeVector,
     ) -> None:
         """
         Append a measurement of the specified vertex register to the circuit.
@@ -285,7 +285,7 @@ class LatticeCircuitManager:
         self,
         circuit: QuantumCircuit,
         lattice: LatticeRegisters,
-        bottom_left_vertex: tuple,
+        bottom_left_vertex: LatticeVector,
         e1: LinkUnitVectorLabel,
         e2: LinkUnitVectorLabel,
     ) -> None:
