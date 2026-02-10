@@ -99,7 +99,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
 
         # Let's keep these around too. They're handy to have.
         self._global_lattice_measurement_bit_string = global_lattice_measurement_bit_string
-        self._lattice_def = lattice_encoder.lattice_def
+        self._lattice_def = copy.deepcopy(lattice_encoder.lattice_def)
         self._encoder = copy.deepcopy(lattice_encoder)
         self._lattice_encoder_repr = lattice_encoder.__repr__()
 
@@ -260,8 +260,6 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         All links and vertices are initialized with None (decoded) and
         "X"-padded bitstrings (undecoded). Factory methods should overwrite
         entries for measured degrees of freedom.
-
-        Internal use only -- not part of the public API.
         """
         lattice_def = encoder.lattice_def
         size = lattice_def.shape[0]
@@ -284,7 +282,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
             instance._bit_strings_links[link_addr] = "X" * encoder.expected_link_bit_string_length
 
         instance._global_lattice_measurement_bit_string = None
-        instance._lattice_def = encoder.lattice_def
+        instance._lattice_def = copy.deepcopy(encoder.lattice_def)
         instance._encoder = copy.deepcopy(encoder)
         instance._lattice_encoder_repr = repr(encoder)
 
