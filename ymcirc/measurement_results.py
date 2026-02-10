@@ -32,8 +32,8 @@ class MeasurementResults:
     ):
         if not counts:
             raise ValueError("counts must be non-empty.")
-        self._counts: Dict[ParsedLatticeResult, int] = dict(counts)
-        self._encoder: LatticeStateEncoder = encoder
+        self._counts: Dict[ParsedLatticeResult, int] = copy.deepcopy(dict(counts))
+        self._encoder: LatticeStateEncoder = copy.deepcopy(encoder)
         self._total_shots: int = sum(counts.values())
         if self._total_shots <= 0:
             raise ValueError("Total shot count must be positive.")
