@@ -8,7 +8,6 @@ Verifies that:
    excited states at later times.
 """
 import pytest
-import warnings
 from ymcirc._abstract import LatticeDef
 from ymcirc.conventions import (
     LatticeStateEncoder, IRREP_TRUNCATIONS, PHYSICAL_PLAQUETTE_STATES,
@@ -77,10 +76,7 @@ def _counts_to_measurement_results(counts, encoder, n_data_qubits):
         ymcirc_bitstring = qiskit_bitstring[::-1]
         # Strip ancilla bits.
         data_bitstring = ymcirc_bitstring[:n_data_qubits]
-        try:
-            parsed = ParsedLatticeResult(1.5, 2, data_bitstring, encoder)
-        except (ValueError, TypeError):
-            continue
+        parsed = ParsedLatticeResult(1.5, 2, data_bitstring, encoder)
         if parsed in parsed_counts:
             parsed_counts[parsed] += count
         else:
@@ -152,26 +148,9 @@ def test_mps_transition_probability_nonzero_at_late_time():
     counts = _run_mps_simulation(circuit, shots=8192)
     mr = _counts_to_measurement_results(counts, encoder, n_data_qubits)
 
-    # Create an excited state with THREE on bottom links, THREE_BAR on top links.
-    # d=3/2, L=2: traversal order gives links as:
-    #   ((0,0),1), ((0,0),2), ((0,1),1), ((1,0),1), ((1,0),2), ((1,1),1)
-    # "Bottom" = horizontal links at y=0: ((0,0),1) and ((1,0),1)
-    # "Top" = horizontal links at y=1: ((0,1),1) and ((1,1),1)
-    excited_links = {
-        ((0, 0), 1): THREE,
-        ((1, 0), 1): THREE,
-        ((0, 1), 1): THREE_BAR,
-        ((1, 1), 1): THREE_BAR,
-        ((0, 0), 2): ONE,      # vertical links stay vacuum
-        ((1, 0), 2): ONE,
-    }
-    excited_state = ParsedLatticeResult.from_links_and_vertices(
-        links_dict=excited_links, encoder=encoder
-    )
-
     # At late times, some non-vacuum states should exist.
     non_vacuum_prob = 1.0 - mr.vacuum_persistence_probability
-    assert non_vacuum_prob > 0.0, "Expected some non-vacuum states at late times"
+    assert not non_vacuum_prob == pytest.approx(0.0) and non_vacuum_prob > 0, "Expected some non-vacuum states at late times"
 
     # Verify get_transition_probability consistency: a fully-specified vacuum
     # partial state should give the same result as vacuum_persistence_probability.
