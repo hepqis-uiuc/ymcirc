@@ -798,19 +798,35 @@ def test_from_partial_measurement_plaquette(
         good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
         LatticeDef(1.5, 4))
 
-    # Plaquette 0 in vacuum: all links = ONE = "00". No vertex qubits.
-    # Active links: 4 * "00" = "00000000", control links: 4 * "00" = "00000000"
-    # Total plaquette bitstring: "0000000000000000"
-    plaq_bitstring = "0000000000000000"
+    # Plaquette 0 in the state:
+    #    ----- 0 (c4) ------ 0 (l3) ----- 3 (c3) --
+    #                   |              |
+    #                   |              |
+    #                None (l4)     3 (l2)
+    #                   |              |
+    #                   |              |
+    #    -- None (c1) ----- ~3 (l1) ----- 0 (c2) --
+    # First substring labels active links CCW
+    # starting from bottom left.
+    # Second substring labels control links attached
+    # to vertices starting from bottom left, also CCW.
+    # No vertex data present.
+    plaq_bitstring = "01100011" + "11001000"
     measurements = [(((0, 0), 1, 2), plaq_bitstring)]
 
     plr = ParsedLatticeResult.from_partial_measurement(measurements, encoder)
 
-    # All 4 active links of plaquette 0 should be ONE
-    assert plr.get_link(((0, 0), 1)) == ONE   # l1
-    assert plr.get_link(((1, 0), 2)) == ONE   # l2
-    assert plr.get_link(((0, 1), 1)) == ONE   # l3
-    assert plr.get_link(((0, 0), 2)) == ONE   # l4
+    # Check active links
+    assert plr.get_link(((0, 0), 1)) == THREE_BAR  # l1
+    assert plr.get_link(((1, 0), 2)) == THREE      # l2
+    assert plr.get_link(((0, 1), 1)) == ONE        # l3
+    assert plr.get_link(((0, 0), 2)) is None       # l4
+
+    # Check control links
+    assert plr.get_link(((3, 0), 1)) is None  # c1
+    assert plr.get_link(((1, 0), 1)) == ONE      # c2
+    assert plr.get_link(((1, 1), 1)) == THREE       # c3
+    assert plr.get_link(((3, 1), 1)) is ONE       # c4
 
     # Links not in this plaquette should be None
     assert plr.get_link(((2, 0), 1)) is None
