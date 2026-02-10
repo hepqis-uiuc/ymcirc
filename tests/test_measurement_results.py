@@ -70,8 +70,8 @@ def test_get_transition_probability(encoder_d32_L2_T1):
     """get_transition_probability returns the empirical probability of a state."""
     encoder = encoder_d32_L2_T1
     plr_vacuum = ParsedLatticeResult(1.5, 2, "000000000000", encoder)
-    plr_excited = ParsedLatticeResult(1.5, 2, "100000000000", encoder)
-    plr_other = ParsedLatticeResult(1.5, 2, "010101010101", encoder)
+    plr_excited = ParsedLatticeResult(1.5, 2, "100100000010", encoder)
+    plr_other = ParsedLatticeResult(1.5, 2, "011101110101", encoder)
 
     counts = {plr_vacuum: 60, plr_excited: 40}
     mr = MeasurementResults(counts, encoder)
@@ -85,7 +85,7 @@ def test_get_transition_probability_with_partial_state(encoder_d32_L2_T1):
     """get_transition_probability should match partial states against full states."""
     encoder = encoder_d32_L2_T1
     plr_vacuum = ParsedLatticeResult(1.5, 2, "000000000000", encoder)
-    plr_excited = ParsedLatticeResult(1.5, 2, "100000000000", encoder)
+    plr_excited = ParsedLatticeResult(1.5, 2, "100000000111", encoder)
 
     counts = {plr_vacuum: 60, plr_excited: 40}
     mr = MeasurementResults(counts, encoder)
