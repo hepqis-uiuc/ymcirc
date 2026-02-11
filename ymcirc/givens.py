@@ -74,6 +74,7 @@ def givens(
     encoded_physical_states: Set[str] | None = None,
     num_ancillas: int = 0,
     reverse: bool = False,
+    precomputed_p_tilde: Set[str] | None = None,
 ) -> QuantumCircuit:
     """
     Build QuantumCircuit rotating two bit strings into each other by angle.
@@ -99,6 +100,10 @@ def givens(
     If num_ancillas > 0, circuit construction uses v-chain
     gate synthesis using the provided number of ancillas. This
     increases qubit cost in order to reduce CX gate depth.
+
+    If precomputed_p_tilde is provided, it is passed through to
+    prune_controls for efficiency when the caller has already
+    computed it for the LP bin (via compute_p_tilde).
     """
     logger.debug(f"Constructing Givens rotation circuit by angle {angle} for '{bit_string_1}' <-> '{bit_string_2}'.")
     # Input validation and sanity checks.
@@ -132,7 +137,8 @@ def givens(
         # Note that this step will become redundant when control_pruning is turned off
         # i.e., when encoded_physical_states = None.
         pruned_ctrls, pruned_ctrl_state = prune_controls(
-            lp_fam, ctrls, ctrl_state, encoded_physical_states
+            lp_fam, ctrls, ctrl_state, encoded_physical_states,
+            precomputed_p_tilde=precomputed_p_tilde,
         )
 
         # adds an ancilla register is num_ancillas > 0
@@ -161,6 +167,7 @@ def givens_fused_controls(
     encoded_physical_states: Set[str] | None,
     num_ancillas: int = 0,
     reverse: bool = False,
+    precomputed_p_tilde: Set[str] | None = None,
 ) -> QuantumCircuit:
     """
     Implements givens rotation using the same logic as the givens function but for fused multiRX's.
@@ -168,11 +175,14 @@ def givens_fused_controls(
     Inputs:
         - lp_bin_w_angle: list of bitstrings of the same LP family and the angle they have to be rotated by.
         - lp_bin: the LP family the bitstrings in the bin belong to.
-        - encoded_physical_states: the set of physical states for control pruning 
+        - encoded_physical_states: the set of physical states for control pruning
         - num_ancillas: the number of ancillas to use in the local circuit. If num_ancillas > 0, circuit construction uses v-chain
                         gate synthesis using the provided number of ancillas. This
                         increases qubit cost in order to reduce CX gate depth.
         - reverse: optional argument to deal with endianess issues
+        - precomputed_p_tilde: if provided, passed through to prune_controls
+                for efficiency when the caller has already computed it for
+                the LP bin (via compute_p_tilde).
 
     Output:
         QuantumCircuit object that has the necessary givens rotation.
@@ -217,7 +227,8 @@ def givens_fused_controls(
             continue
         for ctrls, ctrl_state in ctrl_list:
             pruned_ctrls, pruned_ctrl_state = prune_controls(
-                lp_bin, ctrls, ctrl_state, encoded_physical_states
+                lp_bin, ctrls, ctrl_state, encoded_physical_states,
+                precomputed_p_tilde=precomputed_p_tilde,
             )
             crxcircuit = _CRXCircuit_with_MCX([pruned_ctrl_state, pruned_ctrls], 
         angle, target, num_qubits, num_ancillas)
@@ -302,11 +313,41 @@ def _build_Xcirc(lp_fam: LPFamily, control: int) -> QuantumCircuit:
     return Xcirc
 
 
+def compute_p_tilde(
+    lp_fam: LPFamily,
+    encoded_physical_states: Set[str],
+) -> Set[str]:
+    """
+    Apply the LP-family CX change-of-basis transformation to every physical state.
+
+    This produces the set P_tilde used in control pruning. It is the
+    hoistable portion of prune_controls — it depends only on the LP family
+    and the set of physical states, not on the specific controls of any
+    individual Givens rotation. Computing it once per LP bin and passing
+    the result into prune_controls via the precomputed_p_tilde parameter
+    avoids redundant recomputation.
+
+    Input:
+        - lp_fam: the LP family defining the CX change-of-basis.
+        - encoded_physical_states: the set of physical states encoded as
+          bit strings.
+
+    Output:
+        - The set of transformed bit strings (P_tilde).
+    """
+    q_prime_idx = _determine_target_of_lp_fam(lp_fam)
+    return {
+        _apply_LP_family_to_bit_string(lp_fam, q_prime_idx, phys_state)
+        for phys_state in encoded_physical_states
+    }
+
+
 def prune_controls(
     lp_fam: LPFamily,
     ctrls: List[int],
     ctrl_state: str,
     encoded_physical_states: Set[str] | None,
+    precomputed_p_tilde: Set[str] | None = None,
 ) -> Tuple[List[int], str]:
     """
     Perform control pruning on circ to reduce multi-control unitaries (MCUs).
@@ -325,22 +366,29 @@ def prune_controls(
                 Note that a list of controls post-fusion can also be used here.
         - ctrl_state: The control state corresponding to the list of controls
         - encoded_physical_states: a set of physical states encoded in a bit string.
+        - precomputed_p_tilde: if provided, the LP-family transformation of
+                physical states is skipped (assumed already done by caller via
+                compute_p_tilde). This avoids redundant recomputation when
+                multiple prune_controls calls share the same LP bin.
     Output:
         - A tuple of pruned controls and the corresponding control state.
 
     """
 
-    if encoded_physical_states == None:
+    if encoded_physical_states is None and precomputed_p_tilde is None:
         return (ctrls, ctrl_state)
     else:
         q_prime_idx = _determine_target_of_lp_fam(lp_fam)
 
         # Use the LP family and q', compute the states tilde_p after the prefix
         # circuit. Do this to the representative too.
-        P_tilde = {
-            _apply_LP_family_to_bit_string(lp_fam, q_prime_idx, phys_state)
-            for phys_state in encoded_physical_states
-        }
+        if precomputed_p_tilde is not None:
+            P_tilde = precomputed_p_tilde
+        else:
+            P_tilde = {
+                _apply_LP_family_to_bit_string(lp_fam, q_prime_idx, phys_state)
+                for phys_state in encoded_physical_states
+            }
 
         # if there is a control missing from the ctrls list, we can remove that qubit from
         # all physical states in P_tilde

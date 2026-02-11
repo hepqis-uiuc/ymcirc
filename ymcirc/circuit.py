@@ -13,6 +13,7 @@ from ymcirc.givens import (
     bitstring_value_of_LP_family,
     givens_fused_controls,
     compute_LP_family,
+    compute_p_tilde,
     gray_to_index,
 )
 from ymcirc._abstract.lattice_data import Plaquette
@@ -662,9 +663,17 @@ class LatticeCircuitManager:
             eta_msg = "More iterations needed to estimate time remaining." if idx == 0 else f"Estimated time remaining: {fmt_td(eta)}"
             logger.info(iter_msg)
             logger.info(eta_msg)
+
+            # Compute P_tilde once per LP bin for control pruning.
+            if physical_states_for_control_pruning is not None:
+                p_tilde = compute_p_tilde(lp_fam, physical_states_for_control_pruning)
+            else:
+                p_tilde = None
+
             if control_fusion is True:
                 fused_circ_for_lp_fam = givens_fused_controls(
                     lp_bin_w_angle, lp_fam, physical_states_for_control_pruning, self.num_ancillas,
+                    precomputed_p_tilde=p_tilde,
                 )
                 plaquette_local_rotation_circuit.compose(
                     fused_circ_for_lp_fam, inplace=True
@@ -675,6 +684,7 @@ class LatticeCircuitManager:
                 for bs1, bs2, angle in lp_bin_w_angle:
                     bs1_bs2_circuit = givens(
                         bs1, bs2, angle, physical_states_for_control_pruning, self.num_ancillas,
+                        precomputed_p_tilde=p_tilde,
                     )
                     plaquette_local_rotation_circuit.compose(
                         bs1_bs2_circuit, inplace=True
