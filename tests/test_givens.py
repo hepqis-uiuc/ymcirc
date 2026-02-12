@@ -9,7 +9,7 @@ from scipy.linalg import expm
 from ymcirc.givens import (
     givens, compute_LP_family, LPFamily, _build_Xcirc,
     _compute_ctrls_and_state_for_givens_MCRX, _CRXCircuit_with_MCX,
-    _apply_LP_family_to_bit_string, prune_controls,
+    _apply_LP_family_to_bit_string, prune_controls, compute_p_tilde,
     _eliminate_phys_states_that_differ_from_rep_at_Q_idx,
     fuse_controls, gray_to_index, givens_fused_controls, bitstring_value_of_LP_family,
     LPOperator
@@ -748,6 +748,76 @@ def test_LPOperator_works():
     lp_op = LPOperator("L")
     with pytest.raises(FrozenInstanceError) as e_info:
         lp_op.value = "P"
+
+
+def test_prune_controls_with_precomputed_p_tilde():
+    """Verify that precomputed_p_tilde produces identical results to the default path."""
+    # Case 1 (from test_prune_controls_acts_as_expected)
+    bs1 = "11001001"
+    bs2 = "11000110"
+    ctrls, ctrl_state = _compute_ctrls_and_state_for_givens_MCRX(bs1, bs2, 4)
+    phys_states = {bs1, bs2, "11111111"}
+    lp_fam = compute_LP_family(bs1, bs2)
+
+    p_tilde = compute_p_tilde(lp_fam, phys_states)
+
+    result_with_precomputed = prune_controls(
+        lp_fam, ctrls, ctrl_state, encoded_physical_states=None,
+        precomputed_p_tilde=p_tilde,
+    )
+    result_without_precomputed = prune_controls(
+        lp_fam, ctrls, ctrl_state, phys_states,
+    )
+
+    assert result_with_precomputed == result_without_precomputed, (
+        f"Precomputed path gave {result_with_precomputed}, "
+        f"default path gave {result_without_precomputed}"
+    )
+    # Also check against known expected values.
+    assert result_with_precomputed == ([2], "0")
+
+    # Case 2 (from test_prune_controls_acts_as_expected)
+    bs1 = "11000011"
+    bs2 = "11001001"
+    ctrls, ctrl_state = _compute_ctrls_and_state_for_givens_MCRX(bs1, bs2, 4)
+    phys_states = {bs1, bs2, "11111111", "00000000"}
+    lp_fam = compute_LP_family(bs1, bs2)
+
+    p_tilde = compute_p_tilde(lp_fam, phys_states)
+
+    result_with_precomputed = prune_controls(
+        lp_fam, ctrls, ctrl_state, encoded_physical_states=None,
+        precomputed_p_tilde=p_tilde,
+    )
+    result_without_precomputed = prune_controls(
+        lp_fam, ctrls, ctrl_state, phys_states,
+    )
+
+    assert result_with_precomputed == result_without_precomputed, (
+        f"Precomputed path gave {result_with_precomputed}, "
+        f"default path gave {result_without_precomputed}"
+    )
+    assert result_with_precomputed == ([6], "1")
+
+
+def test_givens_with_precomputed_p_tilde():
+    """Verify that givens() with precomputed_p_tilde is operator-equivalent to the default path."""
+    bs1 = "11001001"
+    bs2 = "11000110"
+    angle = 0.7
+    phys_states = {bs1, bs2, "11111111"}
+    lp_fam = compute_LP_family(bs1, bs2)
+
+    p_tilde = compute_p_tilde(lp_fam, phys_states)
+
+    circ_with = givens(bs1, bs2, angle, encoded_physical_states=None, precomputed_p_tilde=p_tilde)
+    circ_without = givens(bs1, bs2, angle, phys_states)
+
+    op_with = Operator(circ_with)
+    op_without = Operator(circ_without)
+    assert op_with.equiv(op_without), (
+        "Circuits with and without precomputed_p_tilde are not operator-equivalent."
+    )
 
 
 def test_LPFamily_works():
