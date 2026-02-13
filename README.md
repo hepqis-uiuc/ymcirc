@@ -24,6 +24,18 @@ After setting up WSL there is a checklist of programs you will need before proce
 1. Download / update Git by running `sudo apt-get install git`.
 2. Download / update Python3 by running `sudo apt install python3 python3-pip`
 
+## Usage/citations
+If you use this code in a paper, please cite:
+```bibtex
+@misc{balaji-2025-perturbat-su,
+  author = {Balaji, Praveen and Conefrey-Shinozaki, Cianan and Draper, Patrick and Elhaderi, Jason K. and Gupta, Drishti and Hidalgo, Luis and Lytle, Andrew},
+  title = {Perturbation theory, irrep truncations, and state preparation methods for quantum simulations of SU(3) lattice gauge theory},
+  year = {2025},
+  doi = {10.48550/ARXIV.2509.25865},
+  url = {https://arxiv.org/abs/2509.25865},
+}
+```
+
 ## Adding, updating, and removing dependencies
 To add a package to the project (for example, `numpy`):
 
