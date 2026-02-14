@@ -777,8 +777,8 @@ def test_control_link_registers_have_correct_ordering():
             "expected control link names ordered": [
                 "l:((3, 6), 1)",
                 "l:((4, 5), 2)",
-                "l:((5, 5), 2)",
                 "l:((5, 6), 1)",
+                "l:((5, 5), 2)",
                 "l:((5, 7), 1)",
                 "l:((5, 7), 2)",
                 "l:((4, 7), 2)",
@@ -791,8 +791,8 @@ def test_control_link_registers_have_correct_ordering():
             "expected control link names ordered": [
                 "l:((1, 0), 1)",
                 "l:((0, 1), 2)",
-                "l:((1, 1), 2)",
                 "l:((1, 0), 1)",
+                "l:((1, 1), 2)",
                 "l:((1, 1), 1)",
                 "l:((1, 1), 2)",
                 "l:((0, 1), 2)",

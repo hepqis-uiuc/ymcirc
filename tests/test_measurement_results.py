@@ -12,8 +12,8 @@ from ymcirc.measurement_results import MeasurementResults
 def encoder_d32_L2_T1():
     link_bitmap = {ONE: "00", THREE: "10", THREE_BAR: "01"}
     physical_plaquette_states = [
-        ((0, 0, 0, 0), (ONE, ONE, ONE, ONE), (ONE, ONE, ONE, ONE)),
-        ((0, 0, 0, 0), (THREE, THREE, THREE_BAR, THREE_BAR), (ONE, ONE, ONE, ONE)),
+        ((0, 0, 0, 0), (ONE, ONE, ONE, ONE), ((ONE,), (ONE,), (ONE,), (ONE,))),
+        ((0, 0, 0, 0), (THREE, THREE, THREE_BAR, THREE_BAR), ((ONE,), (ONE,), (ONE,), (ONE,))),
     ]
     lattice = LatticeDef(1.5, 2)
     return LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
@@ -22,8 +22,8 @@ def encoder_d32_L2_T1():
 def encoder_d2_L2_T1():
     link_bitmap = {ONE: "00", THREE: "10", THREE_BAR: "01"}
     physical_plaquette_states = [
-        ((0, 1, 0, 0), (ONE, ONE, ONE, ONE), (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)),
-        ((0, 0, 0, 1), (THREE, THREE, THREE_BAR, THREE_BAR), (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)),
+        ((0, 1, 0, 0), (ONE, ONE, ONE, ONE), ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))),
+        ((0, 0, 0, 1), (THREE, THREE, THREE_BAR, THREE_BAR), ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))),
     ]
     lattice = LatticeDef(2, 2)
     return LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)

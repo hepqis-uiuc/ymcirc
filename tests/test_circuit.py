@@ -27,51 +27,51 @@ def test_create_blank_full_lattice_circuit_has_promised_register_order():
         (
             (0, 0, 0, 0),
             (iweight_one, iweight_one, iweight_three, iweight_one),
-            (iweight_one, iweight_one, iweight_one, iweight_one)
+            ((iweight_one,), (iweight_one,), (iweight_one,), (iweight_one,))
         ),
         (
             (0, 0, 0, 0),
             (iweight_one, iweight_three, iweight_three, iweight_three),
-            (iweight_three, iweight_one, iweight_one, iweight_one)
+            ((iweight_three,), (iweight_one,), (iweight_one,), (iweight_one,))
         )
     ]
     physical_plaquette_states_3halves = [
         (
             (0, 0, 0, 0),
             (iweight_one, iweight_one, iweight_three, iweight_one),
-            (iweight_one, iweight_one, iweight_one, iweight_one)
+            ((iweight_one,), (iweight_one,), (iweight_one,), (iweight_one,))
         ),
         (
             (1, 1, 1, 1),
             (iweight_one, iweight_one, iweight_three, iweight_one),
-            (iweight_one, iweight_one, iweight_one, iweight_one)
+            ((iweight_one,), (iweight_one,), (iweight_one,), (iweight_one,))
         ),
         (
             (2, 2, 2, 2),
             (iweight_one, iweight_one, iweight_three, iweight_one),
-            (iweight_one, iweight_one, iweight_one, iweight_one)
+            ((iweight_one,), (iweight_one,), (iweight_one,), (iweight_one,))
         ),
         (
             (0, 0, 0, 0),
             (iweight_one, iweight_three, iweight_three, iweight_three),
-            (iweight_three, iweight_one, iweight_one, iweight_one)
+            ((iweight_three,), (iweight_one,), (iweight_one,), (iweight_one,))
         )
     ]
     physical_plaquette_states_2d = [
         (
             (0, 0, 0, 0),
             (iweight_one, iweight_one, iweight_three, iweight_one),
-            (iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one)
+            ((iweight_one, iweight_one), (iweight_one, iweight_one), (iweight_one, iweight_one), (iweight_one, iweight_one))
         ),
         (
             (1, 1, 1, 1),
             (iweight_one, iweight_one, iweight_three, iweight_one),
-            (iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one)
+            ((iweight_one, iweight_one), (iweight_one, iweight_one), (iweight_one, iweight_one), (iweight_one, iweight_one))
         ),
         (
             (0, 0, 0, 0),
             (iweight_one, iweight_three, iweight_three, iweight_three),
-            (iweight_three, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one)
+            ((iweight_three, iweight_one), (iweight_one, iweight_one), (iweight_one, iweight_one), (iweight_one, iweight_one))
         )
     ]
     # Hamiltonian bitstrings take the form vertex_bits + active link bits + c link bits.
@@ -210,12 +210,12 @@ def test_apply_magnetic_trotter_step_d_3_2_large_lattice():
         (  # Matches the first encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (ONE, THREE, ONE, ONE),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (  # Matches the second encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, ONE),
-            (THREE, THREE_BAR, THREE, THREE)
+            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
         )
     ]
     expected_master_circuit = QuantumCircuit(18)
@@ -327,17 +327,17 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice():
         (  # Matches the first encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (ONE, THREE, ONE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (  # Matches the second encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE_BAR, THREE, THREE)
+            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
         ),
         (  # Matches the third encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE, ONE, ONE)
+            ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
     expected_master_circuit = QuantumCircuit(12)
@@ -444,12 +444,12 @@ def test_apply_magnetic_trotter_step_d_2_large_lattice():
         (  # Matches the first encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (ONE, THREE, ONE, ONE),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, THREE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, THREE))
         ),
         (  # Matches the second encoded state in the dummy magnetic hamiltonian.
             (0, 0, 1, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, ONE),
-            (THREE, THREE_BAR, THREE, THREE, ONE, ONE, ONE, THREE)
+            ((THREE, THREE_BAR), (THREE, THREE), (ONE, ONE), (ONE, THREE))
         )
     ]
     expected_master_circuit = QuantumCircuit(45)
@@ -591,12 +591,12 @@ def test_apply_magnetic_trotter_step_d_2_small_lattice():
         (  # Matches the first encoded state in the dummy magnetic hamiltonian that isn't discarded.
             (0, 0, 0, 0),
             (ONE, THREE, ONE, ONE),
-            (ONE, ONE, ONE, ONE, THREE, ONE, ONE, THREE)
+            ((ONE, ONE), (ONE, ONE), (THREE, ONE), (ONE, THREE))
         ),
         (  # Matches the second encoded state in the dummy magnetic hamiltonian that isn't discarded.
             (0, 0, 1, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, ONE),
-            (THREE, THREE_BAR, THREE, THREE, ONE, THREE, THREE_BAR, ONE)
+            ((THREE, THREE_BAR), (THREE, THREE), (ONE, THREE), (THREE_BAR, ONE))
         )
     ]
     expected_master_circuit = QuantumCircuit(20)
@@ -694,12 +694,12 @@ def test_apply_electric_trotter_step_d_3_2_lattice():
         (
             (0,0,0,0),
             (ONE, THREE, ONE, THREE_BAR),
-            (THREE_BAR, THREE_BAR, THREE, THREE)
+            ((THREE_BAR,), (THREE_BAR,), (THREE,), (THREE,))
         ),
         (
             (0,0,0,0),
             (EIGHT,SIX,EIGHT,SIX_BAR),
-            (SIX_BAR,SIX_BAR,SIX,SIX)
+            ((SIX_BAR,),(SIX_BAR,),(SIX,),(SIX,))
         )
     ]
     lattice_def = LatticeDef(1.5,3)
@@ -886,17 +886,17 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice_with_ancillas():
         (  # Matches the first encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (ONE, THREE, ONE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (  # Matches the second encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE_BAR, THREE, THREE)
+            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
         ),
         (  # Matches the third encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE, ONE, ONE)
+            ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
     expected_master_circuit = QuantumCircuit(12)
@@ -1011,17 +1011,17 @@ def test_num_ancillas_setter_works_nonnegative_ints():
         (
             (0, 0, 0, 0),
             (ONE, THREE, ONE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE_BAR, THREE, THREE)
+            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE, ONE, ONE)
+            ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
     lattice_def = LatticeDef(1.5, 2)
@@ -1053,17 +1053,17 @@ def test_num_ancillas_setter_fails_for_non_int():
         (
             (0, 0, 0, 0),
             (ONE, THREE, ONE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE_BAR, THREE, THREE)
+            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE, ONE, ONE)
+            ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
     lattice_def = LatticeDef(1.5, 2)
@@ -1089,17 +1089,17 @@ def test_num_ancillas_setter_fails_for_negative_int():
         (
             (0, 0, 0, 0),
             (ONE, THREE, ONE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE_BAR, THREE, THREE)
+            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE, ONE, ONE)
+            ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
     lattice_def = LatticeDef(1.5, 2)
@@ -1125,17 +1125,17 @@ def test_adding_ancilla_register_fails_if_already_exists():
         (
             (0, 0, 0, 0),
             (ONE, THREE, ONE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE_BAR, THREE, THREE)
+            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE, ONE, ONE)
+            ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
     lattice_def = LatticeDef(1.5, 2)
@@ -1171,17 +1171,17 @@ def test_apply_mag_trotter_step_independent_params_for_givens_rotations():
         (
             (0, 0, 0, 0),
             (ONE, THREE, ONE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE_BAR, THREE, THREE)
+            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE, ONE, ONE)
+            ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
     lattice_def = LatticeDef(1.5, 3)
@@ -1215,17 +1215,17 @@ def test_apply_mag_trotter_step_independent_params_multiple_lp_families():
         (
             (0, 0, 0, 0),
             (ONE, THREE, ONE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE_BAR, THREE, THREE)
+            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE, ONE, ONE)
+            ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
     lattice_def = LatticeDef(1.5, 3)
@@ -1431,8 +1431,8 @@ def test_measure_link_adds_correct_classical_register():
     """measure_link should add a ClassicalRegister and measurement only for the specified link."""
     link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
     physical_plaquette_states = [
-        ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
-        ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
+        ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
+        ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
     ]
     lattice_def = LatticeDef(1.5, 2)
     encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
@@ -1456,8 +1456,8 @@ def test_measure_vertex_adds_correct_classical_register():
     """measure_vertex should add measurement only for the specified vertex register."""
     link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
     physical_plaquette_states = [
-        ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
-        ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
+        ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
+        ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
     ]
     lattice_def = LatticeDef(1.5, 2)
     encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
@@ -1479,9 +1479,9 @@ def test_measure_vertex_with_vertex_qubits():
     """measure_vertex on a lattice with non-trivial vertex registers."""
     link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
     physical_plaquette_states = [
-        ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
-        ((0, 0, 0, 1), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
-        ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
+        ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
+        ((0, 0, 0, 1), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
+        ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
     ]
     lattice_def = LatticeDef(1.5, 2)
     encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
@@ -1502,8 +1502,8 @@ def test_measure_plaquette_measures_all_dofs():
     """measure_plaquette should measure all vertices, active links, and control links."""
     link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
     physical_plaquette_states = [
-        ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
-        ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
+        ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
+        ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
     ]
     lattice_def = LatticeDef(1.5, 4)
     encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
@@ -1527,8 +1527,8 @@ def test_measure_plaquette_deduplicates_shared_registers():
     """On a small periodic lattice, shared control links should be measured only once."""
     link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
     physical_plaquette_states = [
-        ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
-        ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), ((0,0,0), (0,0,0), (0,0,0), (0,0,0))),
+        ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
+        ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
     ]
     lattice_def = LatticeDef(1.5, 2)
     encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)

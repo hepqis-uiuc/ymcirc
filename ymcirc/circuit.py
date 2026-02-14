@@ -566,22 +566,31 @@ class LatticeCircuitManager:
                 for register in plaquette.active_links:
                     for qubit in register:
                         a_link_qubits.append(qubit)
-                for c_link_idx, register in enumerate(plaquette.control_links_ordered):
-                    # If lattice is small and has PBCs, skip redundant c_link registers.
-                    if (self._lattice_is_small is True) and (self._lattice_is_periodic is True):
-                        redundant_c_link_idxes_by_dim_dict = {
-                            1.5 : [1, 3],
-                            2: [3, 5, 6, 7]
-                        }
-                        try:
-                            current_c_link_is_redundant = c_link_idx in redundant_c_link_idxes_by_dim_dict[self._encoder.lattice_def.dim]
-                        except KeyError:
-                            raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
-                        if current_c_link_is_redundant is True:
-                            continue
+                for vertex_idx, vertex_controls in enumerate(plaquette.control_links_per_vertex):
+                    for ctrl_idx, register in enumerate(vertex_controls):
+                        # If lattice is small and has PBCs, skip redundant c_link registers.
+                        if (self._lattice_is_small is True) and (self._lattice_is_periodic is True):
+                            should_skip = False
+                            match self._encoder.lattice_def.dim:
+                                case 1.5:
+                                    # Skip v2 (idx 1) and v4 (idx 3) entirely.
+                                    should_skip = vertex_idx in (1, 3)
+                                case 2:
+                                    # v2: skip first control (idx 0), keep second (idx 1)
+                                    # v3: skip second control (idx 1), keep first (idx 0)
+                                    # v4: skip all
+                                    should_skip = (
+                                        (vertex_idx == 1 and ctrl_idx == 0) or
+                                        (vertex_idx == 2 and ctrl_idx == 1) or
+                                        (vertex_idx == 3)
+                                    )
+                                case _:
+                                    raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
+                            if should_skip is True:
+                                continue
 
-                    for qubit in register:
-                        c_link_qubits.append(qubit)
+                        for qubit in register:
+                            c_link_qubits.append(qubit)
 
                 # Now that we have the qubits for the current plaquette,
                 # Stitch the local magnetic evolution circuit into master circuit.
@@ -795,9 +804,15 @@ class LatticeCircuitManager:
         """
         True if "shared" control links have different states; False otherwise.
 
-        For d=3/2, this corresponds to c1 == c2 and c3 == c4.
+        For d=3/2 with per-vertex c_links: v1 controls == v2 controls, v3 controls == v4 controls.
 
-        For d=2, this corresponds to c1 == c4, c2 == c7, c3 == c6, and c5 == c8.
+        For d=2 with per-vertex c_links and default FORDER [1,2,3,-1,-2,-3]:
+        Control dirs per vertex: v1=(-1,-2), v2=(+1,-2), v3=(+1,+2), v4=(+2,-1).
+        On size-2 periodic lattice, physical link sharing:
+        - v1[0]=dir(-1) shares with v2[0]=dir(+1)
+        - v1[1]=dir(-2) shares with v4[0]=dir(+2)
+        - v2[1]=dir(-2) shares with v3[1]=dir(+2)
+        - v3[0]=dir(+1) shares with v4[1]=dir(-1)
 
         Note that this only makes sense on a small, periodic lattice, so a ValueError
         is raised if the lattice fails those checks.
@@ -809,15 +824,15 @@ class LatticeCircuitManager:
         match self._encoder.lattice_def.dim:
             case 1.5:
                 plaquette_state_has_inconsistent_controls = (
-                    (c_links[0] != c_links[1]) or
-                    (c_links[2] != c_links[3])
-                    )
+                    c_links[0] != c_links[1] or
+                    c_links[2] != c_links[3]
+                )
             case 2:
                 plaquette_state_has_inconsistent_controls = (
-                    (c_links[0] != c_links[3]) or
-                    (c_links[1] != c_links[6]) or
-                    (c_links[2] != c_links[5]) or
-                    (c_links[4] != c_links[7])
+                    (c_links[0][0] != c_links[1][0]) or
+                    (c_links[0][1] != c_links[3][0]) or
+                    (c_links[1][1] != c_links[2][1]) or
+                    (c_links[2][0] != c_links[3][1])
                 )
             case _:
                 raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
@@ -826,12 +841,15 @@ class LatticeCircuitManager:
 
     def _discard_duplicate_controls_from_plaquette_state(self, plaquette: PlaquetteState) -> PlaquetteState:
         """
-        Return a new instances of the plaquette where duplicate control link data has been discarded.
+        Return a new instance of the plaquette where duplicate control link data has been discarded.
 
-        Only the first instance of a duplicate control link is kept. For example, on a 2-plaquette d=3/2
-        lattice with PBCs, only c1 and c3 are kept since c1 == c2 and c3 == c4. On a 4-plaquette d=2
-        lattice with PBCs, only c1, c2, c3, and c5 are kept since c1 == c4, c2 == c7, c3 == c6,
-        and c5 == c8.
+        For d=3/2: keep v1 and v3 controls, drop v2 and v4 (since v1==v2, v3==v4).
+
+        For d=2 with default FORDER: keep first occurrence of each shared physical link:
+        - v1: both controls are first occurrences
+        - v2: only second (dir -2) is unique; first (dir +1) duplicates v1[0]
+        - v3: only first (dir +1) is unique; second (dir +2) duplicates v2[1]
+        - v4: both duplicate earlier entries
 
         Since this only makes sense on a small, periodic lattice, a ValueError
         is raised if the lattice is not small and periodic.
@@ -842,9 +860,14 @@ class LatticeCircuitManager:
         vertex_multiplicities, a_links, c_links = plaquette
         match self._encoder.lattice_def.dim:
             case 1.5:
-                physical_c_links = (c_links[0], c_links[2])
+                physical_c_links = (c_links[0], (), c_links[2], ())
             case 2:
-                physical_c_links = (c_links[0], c_links[1], c_links[2], c_links[4])
+                physical_c_links = (
+                    c_links[0],                      # v1: both controls are first occurrences
+                    (c_links[1][1],),                 # v2: only second (dir -2) is unique
+                    (c_links[2][0],),                 # v3: only first (dir +1) is unique
+                    ()                                # v4: both duplicate earlier entries
+                )
             case _:
                 raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
 

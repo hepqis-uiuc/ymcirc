@@ -420,13 +420,11 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
                     plaq_bits_idx += link_len
 
                 # Populate control link data in canonical ordering.
-                # Must use _CONTROL_LINK_DIRS_PER_VERTEX_MAP to match the
+                # Use compute_control_link_dirs_per_vertex to match the
                 # bitstring encoding order (same as control_links_ordered).
-                # Using control_links.values() would rely on dict insertion
-                # order from set iteration, which may not match the canonical
-                # encoding order for d>=2 where vertices have multiple
-                # control link directions.
-                control_link_dirs = Plaquette._CONTROL_LINK_DIRS_PER_VERTEX_MAP[encoder.lattice_def.dim]
+                control_link_dirs = Plaquette.compute_control_link_dirs_per_vertex(
+                    encoder.lattice_def.dim, (e1, e2), encoder.lattice_def.forder
+                )
                 for vertex_idx, v_addr in enumerate(vertex_addrs):
                     for link_dir in control_link_dirs[vertex_idx]:
                         c_link_addr = (v_addr, link_dir)

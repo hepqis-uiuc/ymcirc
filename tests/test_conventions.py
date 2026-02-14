@@ -64,10 +64,17 @@ def test_physical_plaquette_state_data_are_valid():
                     and all(isinstance(iweight_elem, int) for a_link in a_links for iweight_elem in a_link)
                 assert a_links_are_valid is True, f"Encountered state with invalid active links: {a_links}."
 
-                c_links_are_valid = len(c_links) == expected_num_c_links \
-                    and all(isinstance(c_link, tuple) and len(c_link) == expected_iweight_length for c_link in c_links) \
-                    and all(isinstance(iweight_elem, int) for c_link in c_links for iweight_elem in c_link)
-                assert c_links_are_valid is True, f"Encountered state with invalid control links: {c_links}."
+                # c_links is now per-vertex nested: ((c_at_v1, ...), (c_at_v2, ...), ...)
+                assert len(c_links) == 4, f"Expected 4 per-vertex control link tuples, got {len(c_links)}."
+                total_c_links = sum(len(vc) for vc in c_links)
+                assert total_c_links == expected_num_c_links, \
+                    f"Expected {expected_num_c_links} total control links, got {total_c_links}."
+                for vc in c_links:
+                    for c_link in vc:
+                        assert isinstance(c_link, tuple) and len(c_link) == expected_iweight_length, \
+                            f"Encountered invalid control link: {c_link}."
+                        assert all(isinstance(elem, int) for elem in c_link), \
+                            f"Non-int element in control link: {c_link}."
 
 
 def test_hamiltonian_box_terms_no_unexpected_cases():
@@ -105,17 +112,17 @@ def test_load_magnetic_hamiltonian_constructs_correct_num_rotations():
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE)
+            ((ONE,), (THREE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 1),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         )
     ]
     dummy_box_terms_data = {
@@ -202,17 +209,17 @@ def test_lattice_encoder_type_error_for_bad_lattice_arg():
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE)
+            ((ONE,), (THREE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (ONE, THREE_BAR, THREE, THREE_BAR),
-            (THREE, ONE, ONE, ONE)
+            ((THREE,), (ONE,), (ONE,), (ONE,))
         )
     ]
     bad_lattice_arg = None
@@ -237,17 +244,17 @@ def test_lattice_encoder_fails_if_plaquette_states_have_wrong_number_of_controls
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE)
+            ((ONE,), (THREE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (ONE, THREE_BAR, THREE, THREE_BAR),
-            (THREE, ONE, ONE, ONE)
+            ((THREE,), (ONE,), (ONE,), (ONE,))
         )
     ]
     lattice_d_2 = LatticeDef(2, 3)
@@ -274,17 +281,17 @@ def test_lattice_encoder_infers_correct_vertex_bitmaps():
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE)
+            ((ONE,), (THREE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 1),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         )
     ]
     expected_num_vertex_bits = 1
@@ -318,22 +325,22 @@ def test_lattice_encoder_infers_correct_vertex_bitmaps():
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         ),
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, THREE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         ),
         (
             (0, 0, 1, 1),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         ),
         (
             (0, 0, 2, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         )
     ]
     expected_num_vertex_bits = 2
@@ -367,47 +374,47 @@ def test_lattice_encoder_infers_correct_vertex_bitmaps():
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         ),
         (
             (0, 0, 1, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, THREE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         ),
         (
             (0, 0, 2, 1),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         ),
         (
             (0, 0, 3, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         ),
         (
             (0, 0, 4, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         ),
         (
             (0, 0, 5, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         ),
         (
             (0, 0, 6, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         ),
         (
             (0, 0, 7, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         ),
         (
             (0, 0, 8, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         )
     ]
     expected_num_vertex_bits = 4
@@ -448,17 +455,17 @@ def test_lattice_encoder_infers_correct_vertex_bitmaps():
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE)
+            ((ONE,), (THREE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (ONE, THREE_BAR, THREE, THREE_BAR),
-            (THREE, ONE, ONE, ONE)
+            ((THREE,), (ONE,), (ONE,), (ONE,))
         )
     ]
     expected_num_vertex_bits = 0
@@ -498,17 +505,17 @@ def test_lattice_encoder_infers_correct_plaquette_length():
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE)
+            ((ONE,), (THREE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (ONE, THREE_BAR, THREE, THREE_BAR),
-            (THREE, ONE, ONE, ONE)
+            ((THREE,), (ONE,), (ONE,), (ONE,))
         )
     ]
     lattice_d_3_2 = LatticeDef(1.5, 3)
@@ -529,32 +536,32 @@ def test_lattice_encoder_infers_correct_plaquette_length():
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 1),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE)
+            ((ONE,), (THREE,), (ONE,), (ONE,))
         ),
         (
             (0, 1, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE)
+            ((ONE,), (THREE,), (ONE,), (ONE,))
         ),
         (
             (0, 2, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE)
+            ((ONE,), (THREE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (ONE, THREE_BAR, THREE, THREE_BAR),
-            (THREE, ONE, ONE, ONE)
+            ((THREE,), (ONE,), (ONE,), (ONE,))
         )
     ]
     # N_qubits_per_link * (N_control links + N active links) + 4*N_qubits_per_vertex
@@ -574,42 +581,42 @@ def test_lattice_encoder_infers_correct_plaquette_length():
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         ),
         (
             (0, 0, 0, 1),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         ),
         (
             (0, 0, 0, 2),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         ),
         (
             (0, 0, 0, 3),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         ),
         (
             (0, 0, 0, 4),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         ),
         (
             (0, 1, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE, THREE_BAR, ONE, ONE, ONE)
+            ((ONE, THREE), (ONE, ONE), (THREE_BAR, ONE), (ONE, ONE))
         ),
         (
             (0, 2, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE, THREE_BAR, ONE, ONE, ONE)
+            ((ONE, THREE), (ONE, ONE), (THREE_BAR, ONE), (ONE, ONE))
         ),
         (
             (0, 0, 0, 0),
             (ONE, THREE_BAR, THREE, THREE_BAR),
-            (ONE, THREE, ONE, ONE, THREE_BAR, ONE, ONE, ONE)
+            ((ONE, THREE), (ONE, ONE), (THREE_BAR, ONE), (ONE, ONE))
         )
     ]
     lattice_d_2 = LatticeDef(2, 3)
@@ -630,42 +637,42 @@ def test_lattice_encoder_infers_correct_plaquette_length():
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE,) * 16
+            ((ONE,) * 4, (ONE,) * 4, (ONE,) * 4, (ONE,) * 4)
         ),
         (
             (0, 0, 0, 1),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE,) * 16
+            ((ONE,) * 4, (ONE,) * 4, (ONE,) * 4, (ONE,) * 4)
         ),
         (
             (0, 0, 0, 2),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE,) * 16
+            ((ONE,) * 4, (ONE,) * 4, (ONE,) * 4, (ONE,) * 4)
         ),
         (
             (0, 0, 0, 3),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE,) * 16
+            ((ONE,) * 4, (ONE,) * 4, (ONE,) * 4, (ONE,) * 4)
         ),
         (
             (0, 0, 0, 4),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE,) * 16
+            ((ONE,) * 4, (ONE,) * 4, (ONE,) * 4, (ONE,) * 4)
         ),
         (
             (0, 1, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE,) * 16
+            ((ONE,) * 4, (ONE,) * 4, (ONE,) * 4, (ONE,) * 4)
         ),
         (
             (0, 2, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE,) * 16
+            ((ONE,) * 4, (ONE,) * 4, (ONE,) * 4, (ONE,) * 4)
         ),
         (
             (0, 0, 0, 0),
             (ONE, THREE_BAR, THREE, THREE_BAR),
-            (ONE,) * 16
+            ((ONE,) * 4, (ONE,) * 4, (ONE,) * 4, (ONE,) * 4)
         )
     ]
     lattice_d_3 = LatticeDef(3, 3)
@@ -693,12 +700,12 @@ def test_lattice_encoder_fails_on_bad_creation_args():
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, THREE)
+            ((ONE,), (ONE,), (ONE,), (THREE,))
         ),
         (
             (0, 0, 0, 1),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, THREE, THREE, THREE, ONE, THREE_BAR)
+            ((ONE, ONE), (ONE, THREE), (THREE, THREE), (ONE, THREE_BAR))
         )
     ]
     lattice_d_3_2 = LatticeDef(1.5, 2)
@@ -711,17 +718,17 @@ def test_lattice_encoder_fails_on_bad_creation_args():
         (
             (1, 1, 1, 1),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (1, 1, 1, 1),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE)
+            ((ONE,), (THREE,), (ONE,), (ONE,))
         ),
         (
             (1, 1, 1, 1),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         )
     ]
     with pytest.raises(ValueError) as e_info:
@@ -741,17 +748,17 @@ def test_lattice_encoder_fails_on_bad_creation_args():
         (
             (1, 1, 1, 1),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (1, 1, 1, 1),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE)
+            ((ONE,), (THREE,), (ONE,), (ONE,))
         ),
         (
             (1, 1, 1, 2),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         )
     ]
     with pytest.raises(ValueError) as e_info:
@@ -779,12 +786,12 @@ def test_encode_decode_various_links():
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE)
+            ((ONE,), (THREE,), (ONE,), (ONE,))
         )
     ]
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_d_3_2)
@@ -814,22 +821,22 @@ def test_encode_decode_various_vertices():
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 1, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 2, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE)
+            ((ONE,), (THREE,), (ONE,), (ONE,))
         )
     ]
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_d_3_2)
@@ -864,8 +871,8 @@ def test_encoding_malformed_plaquette_fails():
     plaquette_wrong_length: PlaquetteState = (
         (0, 0, 0, 0),
         (ONE, ONE, ONE, ONE),
-        (ONE, ONE, ONE, ONE),
-        (ONE, ONE, ONE, SIX)
+        ((ONE,), (ONE,), (ONE,), (ONE,)),
+        ((ONE,), (ONE,), (ONE,), (SIX,))
     )
     with pytest.raises(ValueError) as e_info:
         lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_wrong_length)
@@ -874,17 +881,17 @@ def test_encoding_malformed_plaquette_fails():
     plaquette_bad_vertex_data: PlaquetteState = (
         (0, 0, "zero", 0),
         (ONE, ONE, ONE, ONE),
-        (ONE, ONE, ONE, ONE),
+        ((ONE,), (ONE,), (ONE,), (ONE,)),
     )
     plaquette_bad_a_link_data: PlaquetteState = (
         (0, 0, 0, 0),
         (ONE, ONE, (0, 0), ONE),
-        (ONE, ONE, ONE, ONE),
+        ((ONE,), (ONE,), (ONE,), (ONE,)),
     )
     plaquette_bad_c_link_data: PlaquetteState = (
         (0, 0, 0, 0),
         (ONE, ONE, ONE, ONE),
-        (ONE, ONE, (0, 0), ONE),
+        ((ONE,), (ONE,), ((0, 0),), (ONE,)),
     )
     cases = {
         "Vertex test": plaquette_bad_vertex_data,
@@ -899,17 +906,17 @@ def test_encoding_malformed_plaquette_fails():
     plaquette_too_many_vertices: PlaquetteState = (
         (0, 0, 0, 0, 1),
         (ONE, ONE, ONE, ONE),
-        (SIX, SIX, SIX, SIX_BAR)
+        ((SIX,), (SIX,), (SIX,), (SIX_BAR,))
     )
     plaquette_too_many_a_links: PlaquetteState = (
         (0, 0, 0, 1),
         (ONE, ONE, ONE, ONE, THREE),
-        (SIX, SIX, SIX, SIX_BAR)
+        ((SIX,), (SIX,), (SIX,), (SIX_BAR,))
     )
     plaquette_too_many_c_links: PlaquetteState = (
         (0, 0, 1, 0),
         (ONE, ONE, ONE, ONE),
-        (SIX, SIX_BAR, EIGHT)
+        ((SIX,), (SIX_BAR,), (EIGHT,))
     )
     cases = {
         "Vertex test": plaquette_too_many_vertices,
@@ -936,19 +943,19 @@ def test_encoding_good_plaquette():
     plaquette_d_3_2_T1 = (
         (0, 0, 0, 0),
         (ONE, THREE, THREE_BAR, ONE),
-        (ONE, ONE, ONE, THREE_BAR)
+        ((ONE,), (ONE,), (ONE,), (THREE_BAR,))
     )
     expected_plaquette_d_3_2_T1_bit_string = "00100100" + "00000001" # a links + c links
     plaquette_d_3_2_T2 = (
         (0, 1, 0, 0),
         (SIX, EIGHT, THREE_BAR, ONE),
-        (ONE, ONE, SIX_BAR, THREE_BAR)
+        ((ONE,), (ONE,), (SIX_BAR,), (THREE_BAR,))
     )
     expected_plaquette_d_3_2_T2_bit_string = "0100" + "110111001000" + "000000011001" # v + a links + c links
     plaquette_d_2_T1 = (
         (0, 0, 1, 0),
         (THREE, THREE, THREE_BAR, THREE_BAR),
-        (ONE, ONE, THREE_BAR, THREE_BAR, THREE, THREE, THREE, ONE)
+        ((ONE, ONE), (THREE_BAR, THREE_BAR), (THREE, THREE), (THREE, ONE))
     )
     expected_plaquette_d_2_T1_bit_string = "0010" + "10100101" + "0000010110101000" # v + a links + c links
     cases = [
@@ -1036,7 +1043,7 @@ def test_bit_string_decoding_to_plaquette():
             (
                 (None, None, None, None),  # When no vertex bitmap needed, should get back None for decoded vertices.
                 (THREE, THREE, THREE, THREE_BAR),
-                (ONE, ONE, None, THREE)  # Garbage control link should decode to None
+                ((ONE,), (ONE,), (None,), (THREE,))  # Garbage control link should decode to None
             )
         ),
         (
@@ -1048,7 +1055,7 @@ def test_bit_string_decoding_to_plaquette():
             (
                 (0, 0, 0, 1),
                 (SIX, EIGHT, ONE, THREE_BAR),
-                (ONE, ONE, EIGHT, SIX_BAR)
+                ((ONE,), (ONE,), (EIGHT,), (SIX_BAR,))
             )
         ),
         (
@@ -1060,7 +1067,7 @@ def test_bit_string_decoding_to_plaquette():
             (
                 (1, 0, 1, 1),
                 (ONE, ONE, ONE, THREE),
-                (THREE_BAR, THREE_BAR, THREE_BAR, THREE, THREE, ONE, THREE_BAR, ONE)
+                ((THREE_BAR, THREE_BAR), (THREE_BAR, THREE), (THREE, ONE), (THREE_BAR, ONE))
             )
         )
     ]
@@ -1093,22 +1100,22 @@ def test_decoding_garbage_bit_strings_result_in_none():
         (
             (0, 0, 0, 0),
             (ONE, ONE, ONE, ONE),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 1, 0),
             (ONE, ONE, ONE, ONE),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 2, 0),
             (ONE, ONE, ONE, ONE),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE, ONE, EIGHT, ONE),
-            (ONE, SIX_BAR, ONE, ONE)
+            ((ONE,), (SIX_BAR,), (ONE,), (ONE,))
         )
     ]
     lattice = LatticeDef(1.5, 4)
@@ -1125,7 +1132,7 @@ def test_decoding_garbage_bit_strings_result_in_none():
     expected_decoded_plaquette_some_links_and_vertices_good_others_bad = (
         (0, 0, None, 2),
         (ONE, ONE, None, THREE),
-        (None, ONE, ONE, SIX_BAR)
+        ((None,), (ONE,), (ONE,), (SIX_BAR,))
     )
 
     print(f"Checking {bad_encoded_link} decodes to None using the link bitmap: {link_bitmap}")
@@ -1153,22 +1160,22 @@ def test_decoding_fails_when_len_bit_string_doesnt_match_bitmaps():
         (
             (0, 0, 0, 0),
             (ONE, ONE, ONE, ONE),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         ),
         (
             (0, 0, 1, 0),
             (ONE, ONE, ONE, ONE),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         ),
         (
             (0, 0, 2, 0),
             (ONE, ONE, ONE, ONE),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         ),
         (
             (0, 0, 0, 0),
             (THREE, ONE, EIGHT, ONE),
-            (ONE, SIX_BAR, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, SIX_BAR), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         )
     ]
     lattice = LatticeDef(2, 2)
