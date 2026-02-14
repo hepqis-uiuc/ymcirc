@@ -52,6 +52,7 @@ lattice_registers.py    conventions.py (LatticeStateEncoder, irrep encodings)
               givens.py            Givens rotation circuit construction
               electric_helper.py   Electric Hamiltonian Pauli decomposition
               parsed_lattice_result.py   Measurement bitstring → physics results
+              measurement_results.py     Aggregated measurement analysis
 ```
 
 ### Core Classes
@@ -60,8 +61,9 @@ lattice_registers.py    conventions.py (LatticeStateEncoder, irrep encodings)
 - **`Plaquette[T]`** (`_abstract/lattice_data.py`): Generic container for the 4 vertices, 4 active links, and control links of a hypercubic lattice plaquette.
 - **`LatticeStateEncoder`** (`conventions.py`): Manages bit-string encodings for link states, vertex states, and plaquette states. Handles irrep truncation levels.
 - **`LatticeRegisters`** (`lattice_registers.py`): Maps Qiskit `QuantumRegister`s to lattice links/vertices. Factory method: `from_lattice_state_encoder()`.
-- **`LatticeCircuitManager`** (`circuit.py`): Builds simulation circuits. Key methods: `create_blank_full_lattice_circuit()`, `apply_magnetic_trotter_step()`, `apply_electric_trotter_step()`.
-- **`ParsedLatticeResult`** (`parsed_lattice_result.py`): Converts measurement bitstrings back into i-weights and multiplicity indices.
+- **`LatticeCircuitManager`** (`circuit.py`): Builds simulation circuits. Key methods: `create_blank_full_lattice_circuit()`, `apply_magnetic_trotter_step()`, `apply_electric_trotter_step()`, `measure_link()`, `measure_vertex()`, `measure_plaquette()`.
+- **`ParsedLatticeResult`** (`parsed_lattice_result.py`): Converts measurement bitstrings back into i-weights and multiplicity indices. Hashable (usable as dict key). Factory methods: `from_links_and_vertices()`, `from_partial_measurement()`. Energy computation: `get_link_electric_energy()`, `get_lattice_electric_energy()`.
+- **`MeasurementResults`** (`measurement_results.py`): Aggregates shot counts keyed by `ParsedLatticeResult`. Provides expectation values for electric energy, vacuum persistence probability, and transition probabilities.
 
 ### Data Files
 `ymcirc/_ymcirc_data/` contains JSON files for magnetic Hamiltonian matrix elements and physical plaquette states, loaded lazily via `LazyDict` (from `utilities.py`).
