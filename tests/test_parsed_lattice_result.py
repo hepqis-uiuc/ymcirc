@@ -799,13 +799,13 @@ def test_from_partial_measurement_plaquette(
         LatticeDef(1.5, 4))
 
     # Plaquette 0 in the state:
-    #    ----- 0 (c4) ------ 0 (l3) ----- 3 (c3) --
+    #    ----- 1 (c4) ------ 1 (l3) ----- 3 (c3) --
     #                   |              |
     #                   |              |
     #                None (l4)     3 (l2)
     #                   |              |
     #                   |              |
-    #    -- None (c1) ----- ~3 (l1) ----- 0 (c2) --
+    #    -- None (c1) ----- ~3 (l1) ----- 1 (c2) --
     # First substring labels active links CCW
     # starting from bottom left.
     # Second substring labels control links attached
