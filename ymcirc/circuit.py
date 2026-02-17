@@ -16,11 +16,11 @@ from ymcirc.givens import (
     compute_p_tilde,
     gray_to_index,
 )
-from ymcirc._abstract.lattice_data import Plaquette
+from ymcirc._abstract.lattice_data import Plaquette, LinkUnitVectorLabel, LinkAddress, LatticeVector
 from ymcirc.utilities import _check_circuits_logically_equivalent, _flatten_circuit, eta_update, fmt_td
 from math import ceil
 from qiskit import transpile
-from qiskit.circuit import Parameter, ParameterVector, QuantumCircuit, QuantumRegister, AncillaRegister
+from qiskit.circuit import Parameter, ParameterVector, QuantumCircuit, QuantumRegister, AncillaRegister, ClassicalRegister
 from qiskit.circuit.library.standard_gates import RXGate, CXGate
 from qiskit import qasm3, qpy
 from qiskit.transpiler import PassManager
@@ -234,6 +234,101 @@ class LatticeCircuitManager:
         Note that this mutates the circuit!
         """
         master_circuit.add_register(AncillaRegister(self.num_ancillas, "anc"))
+
+    def measure_link(
+        self,
+        circuit: QuantumCircuit,
+        lattice: LatticeRegisters,
+        link_address: LinkAddress,
+    ) -> None:
+        """
+        Append a measurement of the specified link register to the circuit.
+
+        Adds a ClassicalRegister sized to match the link's QuantumRegister,
+        then appends measure gates for each qubit in the link.
+
+        Arguments:
+            - circuit: The QuantumCircuit to append measurements to.
+            - lattice: LatticeRegisters instance for qubit lookup.
+            - link_address: Address of the link to measure, e.g. ((0,0), 1).
+        """
+        qreg = lattice.get_link(link_address)
+        creg = ClassicalRegister(len(qreg), name=f"meas_{qreg.name}")
+        circuit.add_register(creg)
+        circuit.measure(qreg, creg)
+
+    def measure_vertex(
+        self,
+        circuit: QuantumCircuit,
+        lattice: LatticeRegisters,
+        vertex_address: LatticeVector,
+    ) -> None:
+        """
+        Append a measurement of the specified vertex register to the circuit.
+
+        If the vertex register has 0 qubits (e.g., d=3/2 T1 where vertex
+        multiplicities are trivial), this is a no-op.
+
+        Arguments:
+            - circuit: The QuantumCircuit to append measurements to.
+            - lattice: LatticeRegisters instance for qubit lookup.
+            - vertex_address: Lattice vector of the vertex to measure, e.g. (0, 0).
+        """
+        qreg = lattice.get_vertex(vertex_address)
+        if len(qreg) == 0:
+            return
+        creg = ClassicalRegister(len(qreg), name=f"meas_{qreg.name}")
+        circuit.add_register(creg)
+        circuit.measure(qreg, creg)
+
+    def measure_plaquette(
+        self,
+        circuit: QuantumCircuit,
+        lattice: LatticeRegisters,
+        bottom_left_vertex: LatticeVector,
+        e1: LinkUnitVectorLabel,
+        e2: LinkUnitVectorLabel,
+    ) -> None:
+        """
+        Append measurements for all registers in the specified plaquette.
+
+        Measures all vertex registers, active link registers, and control link
+        registers belonging to the plaquette defined by bottom_left_vertex and
+        the plane (e1, e2). Deduplicates registers that appear multiple times
+        (e.g., shared control links on small periodic lattices).
+
+        Arguments:
+            - circuit: The QuantumCircuit to append measurements to.
+            - lattice: LatticeRegisters instance for qubit lookup.
+            - bottom_left_vertex: Lattice vector of the plaquette's v1 vertex.
+            - e1: First lattice direction defining the plaquette plane.
+            - e2: Second lattice direction defining the plaquette plane.
+        """
+        plaquette = lattice.get_plaquettes(bottom_left_vertex, e1, e2)
+
+        # Collect all unique registers to measure.
+        seen_names = set()
+        regs_to_measure = []
+
+        for reg in plaquette.vertices:
+            if len(reg) > 0 and reg.name not in seen_names:
+                regs_to_measure.append(reg)
+                seen_names.add(reg.name)
+
+        for reg in plaquette.active_links:
+            if reg.name not in seen_names:
+                regs_to_measure.append(reg)
+                seen_names.add(reg.name)
+
+        for reg in plaquette.control_links_ordered:
+            if reg.name not in seen_names:
+                regs_to_measure.append(reg)
+                seen_names.add(reg.name)
+
+        for reg in regs_to_measure:
+            creg = ClassicalRegister(len(reg), name=f"meas_{reg.name}")
+            circuit.add_register(creg)
+            circuit.measure(reg, creg)
 
     def apply_electric_trotter_step(
         self,

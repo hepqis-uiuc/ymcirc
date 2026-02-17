@@ -1,4 +1,4 @@
-import copy
+import warnings
 import pytest
 from typing import Dict, List
 from ymcirc._abstract import LatticeDef
@@ -665,3 +665,461 @@ def test_global_bit_string_has_bad_chars(
             size=2,
             global_lattice_measurement_bit_string=global_meas_bit_string,
             lattice_encoder=lattice_encoder)
+
+
+def test_parsed_lattice_result_equality(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """Two ParsedLatticeResult instances with the same data should be equal."""
+    link_bitmap = T1_link_bitmap
+    physical_plaquette_states = good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed
+    lattice = LatticeDef(1.5, 2)
+    encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
+    bitstring = "000000000000"
+
+    plr1 = ParsedLatticeResult(1.5, 2, bitstring, encoder)
+    plr2 = ParsedLatticeResult(1.5, 2, bitstring, encoder)
+
+    assert plr1 == plr2
+    assert plr1 is not plr2
+    assert hash(plr1) == hash(plr2)
+
+    # Different bitstring -> not equal
+    plr3 = ParsedLatticeResult(1.5, 2, "100000000000", encoder)
+    assert plr1 != plr3
+
+
+def test_from_links_and_vertices_basic(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """from_links_and_vertices should create a ParsedLatticeResult from decoded data."""
+    link_bitmap = T1_link_bitmap
+    physical_plaquette_states = good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed
+    lattice = LatticeDef(1.5, 2)
+    encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
+
+    links_dict = {
+        ((0, 0), 1): THREE,
+        ((0, 0), 2): ONE,
+        ((1, 0), 1): THREE_BAR,
+    }
+
+    plr = ParsedLatticeResult.from_links_and_vertices(
+        links_dict=links_dict, encoder=encoder
+    )
+
+    # Provided links should decode correctly
+    assert plr.get_link(((0, 0), 1)) == THREE
+    assert plr.get_link(((0, 0), 2)) == ONE
+    assert plr.get_link(((1, 0), 1)) == THREE_BAR
+
+    # Bitstrings for provided links should be correct
+    assert plr.get_link(((0, 0), 1), get_bit_string=True) == "10"
+    assert plr.get_link(((0, 0), 2), get_bit_string=True) == "00"
+
+    # Unprovided links should return None (decoded) and "XX" (bitstring)
+    assert plr.get_link(((1, 0), 2)) is None
+    assert plr.get_link(((1, 0), 2), get_bit_string=True) == "XX"
+
+    # Unprovided vertices (no vertex qubits in T1 d=3/2): decoded=None, bitstring=""
+    assert plr.get_vertex((0, 0)) is None
+    assert plr.get_vertex((0, 0), get_bit_string=True) == ""
+
+    # Lattice geometry should be correct
+    assert plr.dim == 1.5
+    assert plr.shape == (2, 2)
+
+
+def test_from_links_and_vertices_with_vertices(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_vertex_data_needed):
+    """from_links_and_vertices with explicit vertex data."""
+    link_bitmap = T1_link_bitmap
+    physical_plaquette_states = good_physical_plaquette_states_d_3_2_T1_vertex_data_needed
+    lattice = LatticeDef(1.5, 2)
+    encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
+
+    links_dict = {((0, 0), 1): ONE}
+    vertices_dict = {(0, 0): 0, (1, 0): 1}
+
+    plr = ParsedLatticeResult.from_links_and_vertices(
+        links_dict=links_dict, vertices_dict=vertices_dict, encoder=encoder
+    )
+
+    assert plr.get_vertex((0, 0)) == 0
+    assert plr.get_vertex((1, 0)) == 1
+    assert plr.get_vertex((0, 1)) is None  # Not provided
+    assert plr.get_link(((0, 0), 1)) == ONE
+
+
+def test_from_partial_measurement_link(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """from_partial_measurement with a single link measurement."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    measurements = [(((0, 0), 1), "10")]  # Link ((0,0),1) measured as "10" = THREE
+
+    plr = ParsedLatticeResult.from_partial_measurement(measurements, encoder)
+
+    assert plr.get_link(((0, 0), 1)) == THREE
+    assert plr.get_link(((0, 0), 1), get_bit_string=True) == "10"
+    assert plr.get_link(((0, 0), 2)) is None  # Not measured
+    assert plr.get_link(((0, 0), 2), get_bit_string=True) == "XX"
+
+
+def test_from_partial_measurement_vertex(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_vertex_data_needed):
+    """from_partial_measurement with a vertex measurement."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    measurements = [((0, 0), "0")]  # Vertex (0,0) measured as "0" = multiplicity 0
+
+    plr = ParsedLatticeResult.from_partial_measurement(measurements, encoder)
+
+    assert plr.get_vertex((0, 0)) == 0
+    assert plr.get_vertex((0, 0), get_bit_string=True) == "0"
+    assert plr.get_vertex((1, 0)) is None  # Not measured
+
+
+def test_from_partial_measurement_plaquette(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """from_partial_measurement with a plaquette measurement."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 4))
+
+    # Plaquette 0 in the state:
+    #    ----- 1 (c4) ------ 1 (l3) ----- 3 (c3) --
+    #                   |              |
+    #                   |              |
+    #                None (l4)     3 (l2)
+    #                   |              |
+    #                   |              |
+    #    -- None (c1) ----- ~3 (l1) ----- 1 (c2) --
+    # First substring labels active links CCW
+    # starting from bottom left.
+    # Second substring labels control links attached
+    # to vertices starting from bottom left, also CCW.
+    # No vertex data present.
+    plaq_bitstring = "01100011" + "11001000"
+    measurements = [(((0, 0), 1, 2), plaq_bitstring)]
+
+    plr = ParsedLatticeResult.from_partial_measurement(measurements, encoder)
+
+    # Check active links
+    assert plr.get_link(((0, 0), 1)) == THREE_BAR  # l1
+    assert plr.get_link(((1, 0), 2)) == THREE      # l2
+    assert plr.get_link(((0, 1), 1)) == ONE        # l3
+    assert plr.get_link(((0, 0), 2)) is None       # l4
+
+    # Check control links
+    assert plr.get_link(((3, 0), 1)) is None  # c1
+    assert plr.get_link(((1, 0), 1)) == ONE      # c2
+    assert plr.get_link(((1, 1), 1)) == THREE       # c3
+    assert plr.get_link(((3, 1), 1)) is ONE       # c4
+
+    # Links not in this plaquette should be None
+    assert plr.get_link(((2, 0), 1)) is None
+
+
+def test_global_bitstring_reconstructed_for_partial(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """global_lattice_measurement_bit_string should reconstruct from partial data."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    # Only measure link ((0,0),1) = THREE = "10"
+    links_dict = {((0, 0), 1): THREE}
+    plr = ParsedLatticeResult.from_links_and_vertices(links_dict=links_dict, encoder=encoder)
+
+    bitstring = plr.global_lattice_measurement_bit_string
+    # d=3/2, L=2, T1: 6 links * 2 qubits = 12 total data qubits
+    assert len(bitstring) == 12
+    # First 2 chars should be "10" (link ((0,0),1) = THREE)
+    assert bitstring[:2] == "10"
+    # Remaining should be "XX" placeholders
+    assert all(c == "X" for c in bitstring[2:])
+
+
+def test_global_bitstring_unchanged_for_full_measurement(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """Full-measurement ParsedLatticeResult should return the original bitstring."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    original = "110001101000"
+    plr = ParsedLatticeResult(1.5, 2, original, encoder)
+    assert plr.global_lattice_measurement_bit_string == original
+
+
+def test_get_link_electric_energy(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """get_link_electric_energy returns Casimir for measured links."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    links_dict = {
+        ((0, 0), 1): THREE,      # C_2 = 4/3
+        ((0, 0), 2): ONE,        # C_2 = 0
+    }
+    plr = ParsedLatticeResult.from_links_and_vertices(links_dict=links_dict, encoder=encoder)
+
+    assert plr.get_link_electric_energy(((0, 0), 1)) == pytest.approx(4.0 / 3.0)
+    assert plr.get_link_electric_energy(((0, 0), 2)) == pytest.approx(0.0)
+    
+
+def test_get_link_electric_energy_warn_mode_unphys_link(T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """
+    get_link_electric_energy returns None for unphysical links.
+    'warn' mode flag changes unphysical link behavior.
+    """
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    global_lattice_bit_string = '000110000111' # ((1, 1), 1) link is '11', unphysical
+    plr_with_unphys_link = ParsedLatticeResult(dimensions=1.5, size=2, global_lattice_measurement_bit_string=global_lattice_bit_string, lattice_encoder=encoder, periodic_boundary_conds=True)
+
+    # No warning when flag set to None
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        assert plr_with_unphys_link.get_link_electric_energy(((1, 1), 1), unphys_mode=None) is None
+        assert len(w) == 0
+
+    # Warning when flag not set by user (default behavior)
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        assert plr_with_unphys_link.get_link_electric_energy(((1, 1), 1)) is None
+        assert len(w) == 1
+
+    # Warning when flag set to 'warn'
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        assert plr_with_unphys_link.get_link_electric_energy(((1, 1), 1), unphys_mode='warn') is None
+        assert len(w) == 1
+
+    # Error when flag set to 'err'
+    with pytest.raises(KeyError, match="unphysical"):
+        plr_with_unphys_link.get_link_electric_energy(((1, 1), 1), unphys_mode='err')
+
+def test_get_link_electric_energy_err_on_unmeasured_link(T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """get_link_electric_energy returns KeyError for unmeasured links."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    links_dict = {
+        ((0, 0), 1): THREE,      # C_2 = 4/3
+        ((0, 0), 2): ONE,        # C_2 = 0
+    }
+    plr_with_unmeasured_links = ParsedLatticeResult.from_links_and_vertices(links_dict=links_dict, encoder=encoder)
+
+    # Error when flag set to 'err'
+    with pytest.raises(KeyError, match="unmeasured"):
+        plr_with_unmeasured_links.get_link_electric_energy(((1, 0), 1))
+
+
+def test_get_lattice_electric_energy_total(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """get_lattice_electric_energy with average_result=False returns total energy."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    # All links vacuum = all C_2 = 0
+    plr_vacuum = ParsedLatticeResult(1.5, 2, "000000000000", encoder)
+    assert plr_vacuum.get_lattice_electric_energy(average_result=False) == pytest.approx(0.0)
+
+    # Set all 6 links to THREE (C_2=4/3): total = 6 * 4/3 = 8.0
+    all_three = {addr: THREE for addr in encoder.lattice_def.link_addresses}
+    plr_three = ParsedLatticeResult.from_links_and_vertices(links_dict=all_three, encoder=encoder)
+    assert plr_three.get_lattice_electric_energy(average_result=False) == pytest.approx(8.0)
+
+
+def test_get_lattice_electric_energy_average(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """get_lattice_electric_energy with average_result=True divides by number of links."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    all_three = {addr: THREE for addr in encoder.lattice_def.link_addresses}
+    plr = ParsedLatticeResult.from_links_and_vertices(links_dict=all_three, encoder=encoder)
+    # 6 links, each C_2=4/3; average = 4/3
+    assert plr.get_lattice_electric_energy(average_result=True) == pytest.approx(4.0 / 3.0)
+
+
+def test_get_lattice_electric_energy_warn_mode_unphys_link(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """
+    get_lattice_electric_energy skips unphysical links when encountered.
+    'warn' mode changes this to either also raise a warning, or an error.
+    """
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    # Only measure one link
+    global_lattice_bit_string = '000110000111' # ((1, 1), 1) link is '11', unphysical
+    expected_total_energy = 3.0 * 4.0/3  # 3 excited links, unphysical links doesn't count
+    expected_average_energy = expected_total_energy / 5 # 6 total links, one unphysical
+    plr_with_unphys_link = ParsedLatticeResult(dimensions=1.5, size=2, global_lattice_measurement_bit_string=global_lattice_bit_string, lattice_encoder=encoder, periodic_boundary_conds=True)
+
+    # No warnings when flag is set to None
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        assert expected_total_energy == pytest.approx(plr_with_unphys_link.get_lattice_electric_energy(average_result=False, unphys_mode=None))
+        assert expected_average_energy == pytest.approx(plr_with_unphys_link.get_lattice_electric_energy(average_result=True, unphys_mode=None))
+        assert len(w) == 0
+
+    # Warning when flag not set by user (default behavior)
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        assert expected_total_energy == pytest.approx(plr_with_unphys_link.get_lattice_electric_energy(average_result=False))
+        assert expected_average_energy == pytest.approx(plr_with_unphys_link.get_lattice_electric_energy(average_result=True))
+        assert len(w) == 4
+
+    # Warnings when flag is set to 'warn'
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        assert expected_total_energy == pytest.approx(plr_with_unphys_link.get_lattice_electric_energy(average_result=False, unphys_mode='warn'))
+        assert expected_average_energy == pytest.approx(plr_with_unphys_link.get_lattice_electric_energy(average_result=True, unphys_mode='warn'))
+        assert len(w) == 4
+
+    # Error when flag set to 'err'
+    with pytest.raises(KeyError, match="unphysical"):
+        plr_with_unphys_link.get_lattice_electric_energy(unphys_mode='err')
+
+
+def test_get_lattice_electric_energy_unmeasured_link(T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """get_lattice_electric_energy can optionally return a KeyError when hitting an unmeasured link."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    links_dict = {
+        ((0, 0), 1): THREE,      # C_2 = 4/3
+        ((0, 0), 2): ONE,        # C_2 = 0
+    }
+    plr_with_unmeasured_links = ParsedLatticeResult.from_links_and_vertices(links_dict=links_dict, encoder=encoder)
+    expected_total_energy = 4.0/3
+    expected_average_energy = expected_total_energy/2.0 # 2 measured, physical links
+
+    # Default: no error
+    assert plr_with_unmeasured_links.get_lattice_electric_energy() == pytest.approx(expected_total_energy)
+    assert plr_with_unmeasured_links.get_lattice_electric_energy(average_result=True) == pytest.approx(expected_average_energy)
+    
+    # Error when flag set to True
+    with pytest.raises(KeyError, match="unmeasured"):
+        plr_with_unmeasured_links.get_lattice_electric_energy(skip_unmeasured=False)
+
+
+def test_from_partial_measurement_d2_plaquette_control_link_ordering(
+        T1_link_bitmap, good_physical_plaquette_states_d_2_T1_one_vertex_qubit):
+    """Verify control link ordering in from_partial_measurement for d=2.
+
+    d=2 vertices have 2 control link directions each. This test ensures
+    the canonical ordering from _CONTROL_LINK_DIRS_PER_VERTEX_MAP is used
+    (not dict insertion order from set iteration).
+    """
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_2_T1_one_vertex_qubit,
+        LatticeDef(2, 2))
+
+    # Build a full measurement from a known bitstring.
+    # Note that the traversal order is defined in ymcirc._abstract.lattice_data.
+    full_bitstring = "0" + "0000" + "1" + "0011" + "0" + "0110" + "0" + "1010"
+    full_plr = ParsedLatticeResult(2, 2, full_bitstring, encoder)
+
+    # Get the plaquette at (0,0) from the full measurement (both decoded and bitstring).
+    full_plaq = full_plr.get_plaquettes((0, 0))
+    full_plaq_bs = full_plr.get_plaquettes((0, 0), get_bit_string=True)
+
+    # Construct plaquette bitstring directly from bit-level data in canonical order:
+    # |v1 v2 v3 v4 l1 l2 l3 l4 c1... c2... c3... c4...|
+    plaq_bitstring = ""
+    for v_bs in full_plaq_bs.vertices:
+        plaq_bitstring += v_bs
+    for l_bs in full_plaq_bs.active_links:
+        plaq_bitstring += l_bs
+    for c_bs in full_plaq_bs.control_links_ordered:
+        plaq_bitstring += c_bs
+
+    # Reconstruct from partial measurement and verify control links match.
+    plr_partial = ParsedLatticeResult.from_partial_measurement(
+        [(((0, 0), 1, 2), plaq_bitstring)], encoder
+    )
+    partial_plaq = plr_partial.get_plaquettes((0, 0))
+    assert partial_plaq.control_links_ordered == full_plaq.control_links_ordered
+    assert partial_plaq.active_links == full_plaq.active_links
+    assert partial_plaq.vertices == full_plaq.vertices
+
+    # Spot check some vertices and links
+    assert full_plr.get_link(((0, 1), 2)) is None
+    assert full_plr.get_link(((0, 1), 2), get_bit_string=True) == "11"
+    assert full_plr.get_vertex((0, 1)) == 1
+    assert full_plr.get_vertex((0, 1), get_bit_string=True) == "1"
+
+
+def test_from_partial_measurement_wrong_link_bitstring_length(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """from_partial_measurement should raise ValueError for wrong bitstring length."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    # Link bitstring should be length 2 (T1), but we pass length 1.
+    with pytest.raises(ValueError, match="length"):
+        ParsedLatticeResult.from_partial_measurement(
+            [(((0, 0), 1), "1")], encoder
+        )
+
+
+def test_from_partial_measurement_wrong_vertex_bitstring_length(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_vertex_data_needed):
+    """from_partial_measurement should raise ValueError for wrong vertex bitstring length."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    # Vertex bitstring should be length 1, but we pass length 3.
+    with pytest.raises(ValueError, match="length"):
+        ParsedLatticeResult.from_partial_measurement(
+            [((0, 0), "010")], encoder
+        )

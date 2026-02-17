@@ -2,7 +2,8 @@
 from __future__ import annotations
 import copy
 import logging
-from typing import Dict, List, Union
+import warnings
+from typing import Dict, List, Union, Optional
 from ymcirc._abstract.lattice_data import (
     LatticeData, LatticeDef, Plaquette, DimensionalitySpecifier, LatticeVector,
     LinkUnitVectorLabel, LinkAddress)
@@ -98,21 +99,19 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
 
         # Let's keep these around too. They're handy to have.
         self._global_lattice_measurement_bit_string = global_lattice_measurement_bit_string
-        self._lattice_def = lattice_encoder.lattice_def
+        self._lattice_def = copy.deepcopy(lattice_encoder.lattice_def)
+        self._encoder = copy.deepcopy(lattice_encoder)
         self._lattice_encoder_repr = lattice_encoder.__repr__()
 
     def __repr__(self):
         class_name = type(self).__name__
         size = self.shape[0]
-        return f"{class_name}(dimensions={self.dim}, size={size}, global_lattice_measurement_bit_string={self._global_lattice_measurement_bit_string}, lattice_encoder={self._lattice_encoder_repr}, periodic_boundary_conds={self.periodic_boundary_conds})"
+        return f"{class_name}(dimensions={self.dim}, size={size}, global_lattice_measurement_bit_string={self.global_lattice_measurement_bit_string}, lattice_encoder={self._lattice_encoder_repr}, periodic_boundary_conds={self.periodic_boundary_conds})"
 
     def __str__(self):
         link_measurements = {link_address: self.get_link(link_address) for link_address in self.link_addresses}
         vertex_measurements = {vertex_address: self.get_vertex(vertex_address) for vertex_address in self.vertex_addresses}
         return f"A parsed measurement of registers for simulation circuit ({self._lattice_def}).\nLink measurements (link address: iweight):\n{link_measurements}\nVertex measurements (vertex address: multiplicity index):\n{vertex_measurements}"
-    
-
-        logger.debug(f"Parsed lattice measurement bit string '{global_lattice_measurement_bit_string}'.")
 
     @property
     def lattice_def(self) -> LatticeDef:
@@ -121,8 +120,25 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
 
     @property
     def global_lattice_measurement_bit_string(self) -> str:
-        """Return the global lattice measurement bit string used to initialize the ParsedLatticeResult instance."""
-        return self._global_lattice_measurement_bit_string
+        """
+        Return the global lattice measurement bit string.
+
+        For instances created via __init__ (full measurement), returns the
+        original bit string. For instances created via factory methods
+        (partial measurement), reconstructs the bit string from internal
+        data using get_traversal_order(), with "X" placeholders for
+        unmeasured degrees of freedom.
+        """
+        if self._global_lattice_measurement_bit_string is not None:
+            return self._global_lattice_measurement_bit_string
+
+        # Reconstruct from traversal order using undecoded (bitstring) data.
+        bitstring = ""
+        for vertex_addr, link_addrs in self.get_traversal_order():
+            bitstring += self.get_vertex(vertex_addr, get_bit_string=True)
+            for link_addr in link_addrs:
+                bitstring += self.get_link(link_addr, get_bit_string=True)
+        return bitstring
 
     def get_vertex(self, lattice_vector: LatticeVector, get_bit_string: bool = False) -> MeasurementData:
         """
@@ -224,3 +240,325 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
     def __hash__(self):
         """Hash based on measurement string, and data that uniquely specifies lattice geometry."""
         return hash((self.global_lattice_measurement_bit_string, self.lattice_def.dim, self.lattice_def.shape, self.lattice_def.periodic_boundary_conds))
+
+    def __eq__(self, other) -> bool:
+        """Equality based on the same fields used by __hash__."""
+        if not isinstance(other, ParsedLatticeResult):
+            return NotImplemented
+        return (
+            self.global_lattice_measurement_bit_string == other.global_lattice_measurement_bit_string
+            and self.dim == other.dim
+            and self.shape == other.shape
+            and self.periodic_boundary_conds == other.periodic_boundary_conds
+        )
+
+    @classmethod
+    def _create_partial(cls, encoder: LatticeStateEncoder) -> ParsedLatticeResult:
+        """
+        Create a partially-initialized instance with placeholder data.
+
+        All links and vertices are initialized with None (decoded) and
+        "X"-padded bitstrings (undecoded). Factory methods should overwrite
+        entries for measured degrees of freedom.
+        """
+        lattice_def = encoder.lattice_def
+        size = lattice_def.shape[0]
+        instance = cls.__new__(cls)
+        LatticeDef.__init__(instance, lattice_def.dim, size, lattice_def.periodic_boundary_conds)
+
+        instance._decoded_links = {}
+        instance._decoded_vertices = {}
+        instance._bit_strings_links = {}
+        instance._bit_strings_vertices = {}
+
+        # Pre-fill all addresses with placeholders.
+        for vertex_addr in lattice_def.vertex_addresses:
+            vertex_addr = tuple(vertex_addr)
+            instance._decoded_vertices[vertex_addr] = None
+            instance._bit_strings_vertices[vertex_addr] = "X" * encoder.expected_vertex_bit_string_length
+
+        for link_addr in lattice_def.link_addresses:
+            instance._decoded_links[link_addr] = None
+            instance._bit_strings_links[link_addr] = "X" * encoder.expected_link_bit_string_length
+
+        instance._global_lattice_measurement_bit_string = None
+        instance._lattice_def = copy.deepcopy(encoder.lattice_def)
+        instance._encoder = copy.deepcopy(encoder)
+        instance._lattice_encoder_repr = repr(encoder)
+
+        return instance
+
+    @staticmethod
+    def from_links_and_vertices(
+        links_dict: Dict[LinkAddress, IrrepWeight],
+        vertices_dict: Union[Dict[LatticeVector, MultiplicityIndex], None] = None,
+        *,
+        encoder: LatticeStateEncoder,
+    ) -> ParsedLatticeResult:
+        """
+        Create a ParsedLatticeResult from decoded link and vertex data.
+
+        Links and vertices not present in the input dicts will return None
+        when queried (decoded) or "X"-padded strings (undecoded bitstring).
+
+        Arguments:
+            - links_dict: Maps LinkAddress -> IrrepWeight (decoded link state).
+            - vertices_dict: Optional. Maps LatticeVector -> MultiplicityIndex.
+            - encoder: LatticeStateEncoder for encoding/decoding and lattice geometry.
+        """
+        instance = ParsedLatticeResult._create_partial(encoder)
+
+        for link_addr, link_state in links_dict.items():
+            normalized = instance._normalize_link_address(link_addr)
+            instance._decoded_links[normalized] = link_state
+            instance._bit_strings_links[normalized] = encoder.encode_link_state_as_bit_string(link_state)
+
+        if vertices_dict is not None:
+            for vertex_addr, mult_idx in vertices_dict.items():
+                vertex_addr = tuple(vertex_addr)
+                instance._decoded_vertices[vertex_addr] = mult_idx
+                instance._bit_strings_vertices[vertex_addr] = encoder.encode_vertex_state_as_bit_string(mult_idx)
+
+        return instance
+
+    @staticmethod
+    def from_partial_measurement(
+        measurements: List[tuple[LatticeVector, str] | tuple[LinkAddress, str] | tuple[tuple[LinkAddress, LinkUnitVectorLabel, LinkUnitVectorLabel], str]],
+        encoder: LatticeStateEncoder,
+    ) -> ParsedLatticeResult:
+        """
+        Create a ParsedLatticeResult from partial measurement data.
+
+        Each element of measurements is a 2-tuple (address, bitstring) where:
+        - address is a LatticeVector for vertex measurements (e.g., (0, 0))
+        - address is a LinkAddress for link measurements (e.g., ((0, 0), 1))
+        - address is (LatticeVector, e1, e2) for plaquette measurements
+          (e.g., ((0, 0), 1, 2))
+
+        If an address which doesn't fit into one of these three categories is
+        encountered, a ValueError will be raised.
+
+        For plaquette measurements, the bitstring follows the plaquette encoding
+        convention: |v1 v2 v3 v4 l1 l2 l3 l4 c1... c2... c3... c4...>.
+
+        Unmeasured degrees of freedom return None (decoded) or "X"-padded
+        strings (undecoded bitstring).
+
+        Arguments:
+            - measurements: List of (address, bitstring) tuples.
+            - encoder: LatticeStateEncoder for decoding and lattice geometry.
+        """
+        instance = ParsedLatticeResult._create_partial(encoder)
+        lattice_def = encoder.lattice_def
+
+        for addr, bitstring in measurements:
+            addr_type = ParsedLatticeResult._classify_address(addr) # Raises ValueError for unknown addr.
+
+            if addr_type == "vertex":
+                if encoder.expected_vertex_bit_string_length > 0 and len(bitstring) != encoder.expected_vertex_bit_string_length:
+                    raise ValueError(
+                        f"Vertex bitstring at {addr} has length {len(bitstring)}, "
+                        f"expected {encoder.expected_vertex_bit_string_length}."
+                    )
+                vertex_addr = tuple(addr)
+                instance._bit_strings_vertices[vertex_addr] = bitstring
+                instance._decoded_vertices[vertex_addr] = encoder.decode_bit_string_to_vertex_state(bitstring)
+
+            elif addr_type == "link":
+                if len(bitstring) != encoder.expected_link_bit_string_length:
+                    raise ValueError(
+                        f"Link bitstring at {addr} has length {len(bitstring)}, "
+                        f"expected {encoder.expected_link_bit_string_length}."
+                    )
+                link_addr = instance._normalize_link_address(addr)
+                instance._bit_strings_links[link_addr] = bitstring
+                instance._decoded_links[link_addr] = encoder.decode_bit_string_to_link_state(bitstring)
+
+            elif addr_type == "plaquette":
+                # TODO: would be nice to find a way to construct using Plaquette class,
+                # but might not be possible without significant refactor since that requires
+                # a LatticeData instance (one doesn't exist yet when using the from_partial_measurement
+                # factory method).
+                bottom_left_vertex = tuple(addr[0])
+                e1, e2 = addr[1], addr[2]
+
+                # Decode the full plaquette bitstring.
+                decoded_plaq = encoder.decode_bit_string_to_plaquette_state(bitstring)
+                vertex_mults, a_links, c_links = decoded_plaq
+
+                # Compute plaquette vertex and link addresses.
+                v1 = bottom_left_vertex
+                v2 = tuple(lattice_def.add_unit_vector_to_vertex_vector(v1, e1))
+                v3 = tuple(lattice_def.add_unit_vector_to_vertex_vector(v2, e2))
+                v4 = tuple(lattice_def.add_unit_vector_to_vertex_vector(v1, e2))
+                vertex_addrs = [v1, v2, v3, v4]
+
+                active_link_addrs = [
+                    (v1, e1),     # l1
+                    (v2, e2),     # l2
+                    (v4, e1),     # l3
+                    (v1, e2),     # l4
+                ]
+
+                # Populate vertex data.
+                link_len = encoder.expected_link_bit_string_length
+                vertex_len = encoder.expected_vertex_bit_string_length
+                plaq_bits_idx = 0
+                for i, v_addr in enumerate(vertex_addrs):
+                    if vertex_len > 0:
+                        v_bits = bitstring[plaq_bits_idx:plaq_bits_idx + vertex_len]
+                        instance._bit_strings_vertices[v_addr] = v_bits
+                        instance._decoded_vertices[v_addr] = vertex_mults[i]
+                        plaq_bits_idx += vertex_len
+
+                # Populate active link data.
+                for i, l_addr in enumerate(active_link_addrs):
+                    normalized = instance._normalize_link_address(l_addr)
+                    l_bits = bitstring[plaq_bits_idx:plaq_bits_idx + link_len]
+                    instance._bit_strings_links[normalized] = l_bits
+                    instance._decoded_links[normalized] = a_links[i]
+                    plaq_bits_idx += link_len
+
+                # Populate control link data in canonical ordering.
+                # Must use _CONTROL_LINK_DIRS_PER_VERTEX_MAP to match the
+                # bitstring encoding order (same as control_links_ordered).
+                # Using control_links.values() would rely on dict insertion
+                # order from set iteration, which may not match the canonical
+                # encoding order for d>=2 where vertices have multiple
+                # control link directions.
+                control_link_dirs = Plaquette._CONTROL_LINK_DIRS_PER_VERTEX_MAP[encoder.lattice_def.dim]
+                for vertex_idx, v_addr in enumerate(vertex_addrs):
+                    for link_dir in control_link_dirs[vertex_idx]:
+                        c_link_addr = (v_addr, link_dir)
+                        normalized = instance._normalize_link_address(c_link_addr)
+                        c_bits = bitstring[plaq_bits_idx:plaq_bits_idx + link_len]
+                        instance._bit_strings_links[normalized] = c_bits
+                        instance._decoded_links[normalized] = encoder.decode_bit_string_to_link_state(c_bits)
+                        plaq_bits_idx += link_len
+
+        return instance
+
+    @staticmethod
+    def _classify_address(addr) -> str:
+        """Classify an address as 'vertex', 'link', or 'plaquette'."""
+        if isinstance(addr[0], (list, tuple)):
+            if len(addr) == 2:
+                return "link"
+            elif len(addr) == 3:
+                return "plaquette"
+        elif all(isinstance(x, int) for x in addr):
+            return "vertex"
+        raise ValueError(f"Cannot classify address: {addr}")
+
+    def get_link_electric_energy(self, link_address: LinkAddress, unphys_mode: Optional[str] = 'warn') -> Union[float, None]:
+        """
+        Return the electric Casimir energy for the specified link.
+
+        Returns gt_pattern_iweight_to_casimir(irrep) for the link's irrep,
+        or None if the decoded to an unphysical state.
+
+        The optional argument unphys_mode customizes the behavior for unphysical links.
+        Options are to emit a warning, raise an error, or silently return.
+
+        If the requested link was unmeasured, a KeyError is raised regardless of
+        the value of unphys_mode.
+
+        Arguments:
+            - link_address: Address of the link, e.g. ((0,0), 1).
+            - unphys_mode: 'warn' will cause a warning to be emitted if the
+              requested link is unphysical. 'err' will cause a KeyError
+              to be raised. If this argument is omitted or takes on any
+              other value, None will be silently returned for unphysical
+              or unmeasured links.
+        """
+        from ymcirc.electric_helper import gt_pattern_iweight_to_casimir # TODO: import in method to avoid circuilar import; kinda nasty and would be nice to avoid
+
+        # Deal with unphysical/unmeasured cases first.
+        link_state = self.get_link(link_address)
+        if link_state is None:
+            link_bit_string  = self.get_link(link_address, get_bit_string=True)
+            if 'X' in link_bit_string:
+                unmeasured_msg = f'Energy requested for unmeasured link.\nAddress: {link_address}\nMeasurement bit string: {link_bit_string}'
+                raise KeyError(unmeasured_msg)
+            unphys_msg = f'Energy requested for unphysical link.\nAddress: {link_address}\nMeasurement bit string: {link_bit_string}'
+            match unphys_mode:
+                case 'err':
+                    raise KeyError(unphys_msg)
+                case 'warn':
+                    warnings.warn(unphys_msg)
+                case _:
+                    pass
+            return None
+        
+        return gt_pattern_iweight_to_casimir(link_state)
+
+    def get_lattice_electric_energy(self, average_result: bool = False, unphys_mode: Optional[str] = 'warn', skip_unmeasured: bool = True) -> float:
+        """
+        Return the total (or average) electric Casimir energy across all links.
+
+        Iterates over all link addresses using get_traversal_order and sums
+        get_link_electric_energy for each link. If average_result is True,
+        divides the total by the number of links.
+
+        The optional argument unphys_mode customizes the behavior when
+        encountering unphysical links (i.e. when the measured value fails
+        to decode to a physical state). Options are to emit a warning, raise an error,
+        or silently return. When not raising an error, such links
+        are skipped when computing the sum over link energies.
+
+        The optional argument skip_unmeasured overrides the behavior
+        of raising an error when attempting to obtain the energy of
+        an unmeasured like. If this argument is True, any such links
+        are skipped in the sum over lattice link energies.
+
+        Note that If average_result is True, any skipped links will be
+        omitted from the count of links in the denominator of the average.
+
+        Arguments:
+            - average_result: If True, return energy per link; if False, total.
+            - unphys_mode: 'warn' will cause a warning to be emitted if the
+              requested link is unphysical. 'err' will cause a ValueError
+              to be raised. If this argument is omitted or takes on any
+              other value, None will be silently returned for unphysical
+              or unmeasured links.
+            - skip_unmeasured: If True, unmeasured links will be skipped when
+              computing the lattice electric energy. If False, then a KeyError
+              will be raised if an unmeasured link is encountered.
+        """
+        total_energy = 0.0
+        none_count = 0
+        link_err_count = 0
+        link_count = 0
+
+        for vertex_addr, link_addrs in self.get_traversal_order():
+            for link_addr in link_addrs:
+                try:
+                    energy = self.get_link_electric_energy(link_addr, unphys_mode=unphys_mode)
+                    if energy is None:
+                        none_count += 1
+                    else:
+                        total_energy += energy
+                        link_count += 1
+                except KeyError as e:
+                    if skip_unmeasured is False: # KeyError can only happen if the link we just tried to measure was unphysical.
+                        raise e
+                    match unphys_mode:
+                        case 'warn':
+                            warnings.warn(str(e))
+                            link_err_count += 1
+                        case 'err':
+                            raise e
+                        case _:
+                            continue
+
+        if none_count + link_err_count > 0 and unphys_mode == 'warn':
+            warnings.warn(
+                f"Encountered {none_count} unphysical, {link_err_count} unmeasured, "
+                f"(and {link_count} physical link(s) while computing lattice electric energy. "
+                f"Unphysical/unmeasured links contributed 0 to the sum."
+            )
+
+        if average_result:
+            return total_energy / link_count
+
+        return total_energy
