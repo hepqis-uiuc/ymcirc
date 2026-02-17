@@ -135,6 +135,7 @@ def configure_script_options(
         - warn_unphysical_links:
               Whether to emit a warning on unphysical link
               data when analyzing circuit execution results.
+              If False, unphysical links silently skipped.
         - error_unphysical_links:
               Whether to raise an error on unphysical link
               data when analyzing circuit execution results.
@@ -434,7 +435,8 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
 
         # Compute vacuum persistence probability and average electric energy per link.
         df_job_results.loc[sim_time, "vacuum_persistence_probability"] = mr.vacuum_persistence_probability()
-        df_job_results.loc[sim_time, "electric_energy"] = mr.get_lattice_electric_energy(average_result=True, warn_on_unphysical=script_options["warn_unphysical_links"])
+        unphys_mode = 'warn' if script_options["warn_unphysical_links"] else None
+        df_job_results.loc[sim_time, "electric_energy"] = mr.get_lattice_electric_energy(average_result=True, unphys_mode=unphys_mode)
 
     return df_job_results
 
