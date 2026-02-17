@@ -175,7 +175,12 @@ _HAMILTONIAN_DATA_FILE_PATHS: Dict[str, Dict[str, Path]] = {
         "T1": _HAMILTONIAN_DATA_DIR / "T1_dim(3_2)_magnetic_hamiltonian.json",
         "T2": _HAMILTONIAN_DATA_DIR / "T2_dim(3_2)_magnetic_hamiltonian.json"},
     "d=2": {
-        "T1": _HAMILTONIAN_DATA_DIR / "T1_dim(2)_magnetic_hamiltonian.json"
+        "T1": _HAMILTONIAN_DATA_DIR / "T1_dim(2)_magnetic_hamiltonian.json",
+        "B0": _HAMILTONIAN_DATA_DIR / "B0_dim(2)_magnetic_hamiltonian.json",
+        "B8o3": _HAMILTONIAN_DATA_DIR / "B8o3_dim(2)_magnetic_hamiltonian.json",
+        "B4": _HAMILTONIAN_DATA_DIR / "B4_dim(2)_magnetic_hamiltonian.json",
+        "B16o3": _HAMILTONIAN_DATA_DIR / "B16o3_dim(2)_magnetic_hamiltonian.json",
+        "B20o3": _HAMILTONIAN_DATA_DIR / "B20o3_dim(2)_magnetic_hamiltonian.json",
     }
 }
 _PLAQUETTE_STATES_DATA_FILE_PATHS: Dict[str, Dict[str, Path]] = {
@@ -184,7 +189,12 @@ _PLAQUETTE_STATES_DATA_FILE_PATHS: Dict[str, Dict[str, Path]] = {
         "T2": _PLAQUETTE_STATES_DATA_DIR / "T2_dim(3_2)_plaquette_states.json"
     },
     "d=2": {
-        "T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(2)_plaquette_states.json"
+        "T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(2)_plaquette_states.json",
+        "B0": _PLAQUETTE_STATES_DATA_DIR / "B0_dim(2)_plaquette_states.json",
+        "B8o3": _PLAQUETTE_STATES_DATA_DIR / "B8o3_dim(2)_plaquette_states.json",
+        "B4": _PLAQUETTE_STATES_DATA_DIR / "B4_dim(2)_plaquette_states.json",
+        "B16o3": _PLAQUETTE_STATES_DATA_DIR / "B16o3_dim(2)_plaquette_states.json",
+        "B20o3": _PLAQUETTE_STATES_DATA_DIR / "B20o3_dim(2)_plaquette_states.json",
     }
 }
 

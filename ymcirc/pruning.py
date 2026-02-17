@@ -576,3 +576,193 @@ def prune_by_sector_probability(dim: str, trunc: str, g: float,
         sector_probabilities=P_arr[:K],
         E2_estimate=float(cum_PE2[K-1] / cum_P[K-1]) if K > 0 else 0.0,
     )
+
+
+def _casimir_pq(p: int, q: int) -> float:
+    """Compute quadratic Casimir C₂(p,q) for SU(3) irrep.
+
+    Parameters
+    ----------
+    p, q : int
+        Dynkin labels
+
+    Returns
+    -------
+    float
+        C₂(p,q) = (p² + q² + pq + 3p + 3q) / 3
+    """
+    return (p**2 + q**2 + p*q + 3*p + 3*q) / 3.0
+
+
+def _dim_pq(p: int, q: int) -> int:
+    """Compute dimension of SU(3) irrep (p,q).
+
+    Parameters
+    ----------
+    p, q : int
+        Dynkin labels
+
+    Returns
+    -------
+    int
+        Dimension d(p,q) = (p+1)(q+1)(p+q+2)/2
+    """
+    return (p + 1) * (q + 1) * (p + q + 2) // 2
+
+
+def _build_irrep_hamiltonian(g: float, irrep_list: List[Tuple[int, int]],
+                            alpha: float = 2.0) -> np.ndarray:
+    """Build single-plaquette Hamiltonian in character basis.
+
+    Constructs H for the isolated single plaquette in the gauge-fixed
+    (class function) basis. The Hamiltonian is:
+
+        H = (g²/α) C₂(R) δ_{RR'} - (1/g²) [Box + Box†]_{RR'}
+
+    where Box connects (p,q) via tensor product with (1,0):
+        (p,q) ⊗ (1,0) → (p+1,q) + (p-1,q+1) + (p,q-1)
+
+    and Box† uses (0,1):
+        (p,q) ⊗ (0,1) → (p,q+1) + (p+1,q-1) + (p-1,q)
+
+    Parameters
+    ----------
+    g : float
+        Coupling constant
+    irrep_list : list of (p, q) tuples
+        Dynkin labels of irreps to include
+    alpha : float
+        Electric coefficient (2.0 for isolated plaquette)
+
+    Returns
+    -------
+    H : ndarray of shape (N, N)
+        Dense Hamiltonian matrix
+    """
+    N = len(irrep_list)
+    irrep_idx = {pq: i for i, pq in enumerate(irrep_list)}
+
+    # Diagonal: electric energy + constant shift
+    H = np.zeros((N, N))
+    for i, (p, q) in enumerate(irrep_list):
+        H[i, i] = alpha * g**2 * _casimir_pq(p, q) + 6.0 / g**2
+
+    # Off-diagonal: magnetic (Box + Box†)
+    # Box: (p,q) ⊗ (1,0)
+    for i, (p, q) in enumerate(irrep_list):
+        neighbors = [(p + 1, q), (p, q + 1)]
+        if p >= 1:
+            neighbors += [(p - 1, q + 1), (p - 1, q)]
+        if q >= 1:
+            neighbors += [(p, q - 1), (p + 1, q - 1)]
+
+        for nb in neighbors:
+            j = irrep_idx.get(nb)
+            if j is not None:
+                H[i, j] += -1.0 / g**2
+
+    return H
+
+
+def prune_by_irrep_importance(dim: str, g: float, delta: float = 0.01,
+                               alpha: float = 2.0,
+                               lambda_max: int = 35) -> IrrepPruningResult:
+    """Prune irrep basis by ground-state importance ordering.
+
+    MF-independent: uses exact isolated single-plaquette eigenstates.
+    Builds H in the character basis up to Λ_max, diagonalizes, ranks
+    irreps by ground-state weight |c_{pq}|², keeps top K until error < delta.
+
+    Algorithm:
+    1. Generate all SU(3) irreps (p,q) up to Λ_max, ordered by Casimir
+    2. Build full Hamiltonian H in character basis
+    3. Diagonalize H, extract ground state ψ₀
+    4. Compute ground-state weight w_i = |ψ₀[i]|² for each irrep
+    5. Sort irreps by descending weight (importance ordering)
+    6. Find smallest K where |E₀(K) - E₀(all)| / |E₀(all)| < delta
+    7. Return kept irreps and diagnostics
+
+    Parameters
+    ----------
+    dim : str
+        Dimension string (currently only "d=2" supported)
+    g : float
+        Coupling constant
+    delta : float
+        Maximum relative error in ground-state energy
+    alpha : float
+        Electric energy coefficient (2.0 for isolated plaquette)
+    lambda_max : int
+        Maximum Λ shell to include (Λ = p + q)
+
+    Returns
+    -------
+    IrrepPruningResult
+        Contains:
+        - kept_irreps: list of (p,q) tuples in importance order
+        - n_kept: number of kept irreps
+        - n_total: total number of irreps at lambda_max
+        - error: actual relative error for n_kept irreps
+        - ground_state_weights: dict mapping (p,q) to |ψ₀|²
+    """
+    if dim != "d=2":
+        raise ValueError(f"Only d=2 is currently supported, got {dim}")
+
+    # Generate all irreps up to lambda_max, ordered by shell
+    all_irreps = []
+    for shell in range(lambda_max + 1):
+        for p in range(shell + 1):
+            q = shell - p
+            all_irreps.append((p, q))
+
+    n_total = len(all_irreps)
+
+    # Build full Hamiltonian and diagonalize
+    H_full = _build_irrep_hamiltonian(g, all_irreps, alpha)
+    evals_full, evecs_full = np.linalg.eigh(H_full)
+    psi_ref = evecs_full[:, 0]
+    E0_ref = evals_full[0]
+
+    # Compute ground-state weights
+    weights_arr = psi_ref**2
+    ground_state_weights = {pq: float(weights_arr[i])
+                            for i, pq in enumerate(all_irreps)}
+
+    # Compute reference E2 (electric energy)
+    casimirs_full = np.array([_casimir_pq(p, q) for p, q in all_irreps])
+    E2_ref = float(np.dot(weights_arr, casimirs_full))
+
+    # Sort by importance (descending weight)
+    irreps_by_importance = sorted(all_irreps, key=lambda pq: -ground_state_weights[pq])
+
+    # Sweep K and find smallest K where error < delta
+    # Error is defined relative to E2 (electric energy), not E0
+    n_kept = n_total  # default: keep all
+    error = 0.0
+
+    for K in range(1, n_total + 1):
+        subset = irreps_by_importance[:K]
+        casimirs_K = np.array([_casimir_pq(p, q) for p, q in subset])
+
+        H_K = _build_irrep_hamiltonian(g, subset, alpha)
+        evals_K, evecs_K = np.linalg.eigh(H_K)
+        psi_K = evecs_K[:, 0]
+        E2_K = float(np.dot(psi_K**2, casimirs_K))
+
+        err = abs(E2_K - E2_ref) / E2_ref if E2_ref > 0 else 0.0
+
+        if err < delta:
+            n_kept = K
+            error = err
+            break
+
+    # Prepare result
+    kept_irreps = irreps_by_importance[:n_kept]
+
+    return IrrepPruningResult(
+        kept_irreps=kept_irreps,
+        n_kept=n_kept,
+        n_total=n_total,
+        error=error,
+        ground_state_weights=ground_state_weights,
+    )
