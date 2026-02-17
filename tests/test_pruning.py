@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from ymcirc.pruning import _parse_state, _preprocess_data, _preprocess_sectors
+from ymcirc.pruning import _parse_state, _preprocess_data, _preprocess_sectors, _run_meanfield
 from ymcirc.conventions import PHYSICAL_PLAQUETTE_STATES, HAMILTONIAN_BOX_TERMS
 
 
@@ -58,3 +58,72 @@ def test_preprocess_sectors_b8o3():
     # Total states accounted for
     total = n1 + sum(len(s['E2_local']) for s in sectors_ge2)
     assert total == 627
+
+
+def test_run_meanfield_b8o3_strong_coupling():
+    """MF at strong coupling: vacuum dominates, E2 near zero."""
+    states = PHYSICAL_PLAQUETTE_STATES["d=2"]["B8o3"]
+    box_terms = HAMILTONIAN_BOX_TERMS["d=2"]["B8o3"]
+    data = _preprocess_data(states, box_terms)
+    sectors = _preprocess_sectors(
+        data["ctrl_int"], data["E2_active"], data["active_int"],
+        data["hop_rows"], data["hop_cols"], data["hop_vals"])
+
+    from ymcirc.pruning import _run_meanfield
+    result = _run_meanfield(
+        data["n_states"], data["E2_active"], data["ctrl_int"],
+        data["active_int"], data["unique_irreps"], data["irrep_to_idx"],
+        data["n_ctrl"], data["n_active_links"],
+        data["hop_rows"], data["hop_cols"], data["hop_vals"],
+        g=2.0, alpha=2.0, _sectors=sectors)
+
+    assert result["converged"]
+    # Strong coupling: E2 (4-link total) ~ 0.006
+    assert 0.005 < result["E2"] < 0.007
+    # Vacuum weight dominates
+    vac = (0, 0, 0)
+    assert result["weights"][vac] > 0.99
+    # Converges in few iterations
+    assert result["n_iter"] < 20
+
+
+def test_run_meanfield_charge_conjugation():
+    """MF preserves C-symmetry: w(3) == w(3bar)."""
+    states = PHYSICAL_PLAQUETTE_STATES["d=2"]["B8o3"]
+    box_terms = HAMILTONIAN_BOX_TERMS["d=2"]["B8o3"]
+    data = _preprocess_data(states, box_terms)
+    sectors = _preprocess_sectors(
+        data["ctrl_int"], data["E2_active"], data["active_int"],
+        data["hop_rows"], data["hop_cols"], data["hop_vals"])
+
+    from ymcirc.pruning import _run_meanfield
+    result = _run_meanfield(
+        data["n_states"], data["E2_active"], data["ctrl_int"],
+        data["active_int"], data["unique_irreps"], data["irrep_to_idx"],
+        data["n_ctrl"], data["n_active_links"],
+        data["hop_rows"], data["hop_cols"], data["hop_vals"],
+        g=1.0, alpha=2.0, _sectors=sectors)
+
+    w = result["weights"]
+    # B8o3 has 3 irreps: vacuum (0,0,0), fund (1,0,0), antifund (1,1,0)
+    # Charge conjugation: w(fund) == w(antifund)
+    fund_weights = sorted([v for k, v in w.items() if k != (0, 0, 0)])
+    assert len(fund_weights) == 2
+    assert abs(fund_weights[0] - fund_weights[1]) < 1e-12
+
+
+def test_run_meanfield_weights_normalize():
+    """MF weights sum to 1."""
+    states = PHYSICAL_PLAQUETTE_STATES["d=2"]["B8o3"]
+    box_terms = HAMILTONIAN_BOX_TERMS["d=2"]["B8o3"]
+    data = _preprocess_data(states, box_terms)
+
+    from ymcirc.pruning import _run_meanfield
+    result = _run_meanfield(
+        data["n_states"], data["E2_active"], data["ctrl_int"],
+        data["active_int"], data["unique_irreps"], data["irrep_to_idx"],
+        data["n_ctrl"], data["n_active_links"],
+        data["hop_rows"], data["hop_cols"], data["hop_vals"],
+        g=1.0, alpha=2.0)
+
+    assert abs(sum(result["weights"].values()) - 1.0) < 1e-10

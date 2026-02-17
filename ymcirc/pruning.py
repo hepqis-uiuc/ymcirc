@@ -246,3 +246,144 @@ def _preprocess_sectors(ctrl_int, E2_active, active_int,
     }
 
     return sectors_size1, sge2
+
+
+def _run_meanfield(n_states, E2_active, ctrl_int, active_int,
+                  unique_irreps, irrep_to_idx, n_ctrl, n_active_links,
+                  hop_rows, hop_cols, hop_vals,
+                  g, alpha=2.0, max_iter=200, tol=1e-10,
+                  ctrl_prob_threshold=1e-20, compute_gap=False,
+                  _sectors=None):
+    """Run sector-averaged self-consistent mean-field for coupling g.
+
+    For each control-link sector, solves the eigenvalue problem independently,
+    then averages E2, weights, and gap over sectors weighted by P(c).
+
+    Parameters
+    ----------
+    n_states : int
+    E2_active : ndarray of shape (n_states,)
+    ctrl_int : ndarray of shape (n_states, n_ctrl)
+    active_int : ndarray of shape (n_states, n_active_links)
+    unique_irreps : list of irrep tuples
+    irrep_to_idx : dict mapping irrep tuple to integer index
+    n_ctrl : int
+    n_active_links : int
+    hop_rows, hop_cols, hop_vals : sparse hopping matrix (box+box^dag)
+    g : coupling constant
+    alpha : electric energy coefficient (2 for isolated plaquette)
+    max_iter : maximum iterations
+    tol : convergence tolerance on weights
+    ctrl_prob_threshold : minimum P(c) to include sector
+    compute_gap : if True, compute sector-averaged mass gap
+    _sectors : precomputed (sectors_size1, sectors_ge2)
+    """
+    if n_states == 0:
+        return {"E2": 0.0, "weights": {}, "n_iter": 0, "converged": True}
+
+    VACUUM = (0, 0, 0)
+    n_irreps = len(unique_irreps)
+
+    if _sectors is None:
+        sectors_size1, sectors_ge2 = _preprocess_sectors(
+            ctrl_int, E2_active, active_int, hop_rows, hop_cols, hop_vals)
+    else:
+        sectors_size1, sectors_ge2 = _sectors
+
+    e2_coeff = g**2 / alpha
+    diag_const = 6.0 / g**2
+    hop_coeff = -1.0 / g**2
+
+    weight_arr = np.zeros(n_irreps)
+    vac_idx = irrep_to_idx.get(VACUUM, -1)
+    if vac_idx >= 0:
+        weight_arr[vac_idx] = 1.0
+
+    E2 = 0.0
+    n_active_total = 0
+    gap_result = np.nan
+
+    converged = False
+    for iteration in range(max_iter):
+        E2_accum = 0.0
+        new_weight_arr = np.zeros(n_irreps)
+        total_P = 0.0
+        n_active_total = 0
+        gap_numerator = 0.0
+        gap_denominator = 0.0
+
+        # Batch: size-1 sectors
+        n1 = len(sectors_size1['E2'])
+        if n1 > 0:
+            P_1 = np.prod(weight_arr[sectors_size1['ctrl_keys']], axis=1)
+            mask = P_1 > ctrl_prob_threshold
+            n_act_1 = int(np.sum(mask))
+            if n_act_1 > 0:
+                P_active = P_1[mask]
+                E2_accum += np.dot(P_active, sectors_size1['E2'][mask])
+                ai = sectors_size1['active_int'][mask]
+                for link in range(n_active_links):
+                    np.add.at(new_weight_arr, ai[:, link], P_active)
+                total_P += np.sum(P_active)
+                n_active_total += n_act_1
+
+        # Loop: size >= 2 sectors
+        for sec in sectors_ge2:
+            P_s = np.prod(weight_arr[sec['ctrl_key']])
+            if P_s < ctrl_prob_threshold:
+                continue
+
+            n_s = len(sec['E2_local'])
+            n_active_total += n_s
+
+            H_s = np.diag(e2_coeff * sec['E2_local'] + diag_const)
+            lr, lc, lv = sec['hop_rows'], sec['hop_cols'], sec['hop_vals']
+            if len(lr) > 0:
+                np.add.at(H_s, (lr, lc), hop_coeff * lv)
+
+            evals, evecs = np.linalg.eigh(H_s)
+            psi2 = evecs[:, 0] ** 2
+
+            E2_accum += P_s * np.dot(psi2, sec['E2_local'])
+            weighted_psi2 = P_s * psi2
+            for link in range(n_active_links):
+                np.add.at(new_weight_arr, sec['active_int_local'][:, link],
+                          weighted_psi2)
+            total_P += P_s
+
+            if compute_gap and n_s >= 2:
+                gap_numerator += P_s * (evals[1] - evals[0])
+                gap_denominator += P_s
+
+        if total_P > 0:
+            E2 = E2_accum / total_P
+            new_weight_arr /= (total_P * n_active_links)
+
+        max_diff = np.max(np.abs(weight_arr - new_weight_arr))
+        weight_arr = new_weight_arr
+
+        if max_diff < tol:
+            converged = True
+            break
+
+    weights = {unique_irreps[i]: weight_arr[i] for i in range(n_irreps)
+               if weight_arr[i] > 0}
+    result = {
+        "E2": E2,
+        "weights": weights,
+        "n_iter": iteration + 1,
+        "converged": converged,
+        "n_active": n_active_total,
+        "n_states": n_states,
+    }
+
+    if compute_gap:
+        if gap_denominator > 0:
+            gap_result = gap_numerator / gap_denominator
+            result["gap"] = gap_result
+            result["xi"] = 1.0 / gap_result if gap_result > 0 else np.inf
+        else:
+            result["gap"] = np.nan
+            result["xi"] = np.nan
+
+    return result
