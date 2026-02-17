@@ -113,3 +113,5 @@ See the `run` directory for example usage and logging configuration of ymcirc. T
 uv run -m run.time_evol
 ```
 Replace `run.time_evol` with the particular desired module in the `run` directory.
+
+Time evolution depends on precomputed magnetic Hamiltonian matrix element data. These are included with the `ymcirc`, and were generated using [pyclebsch](https://github.com/hepqis-uiuc/pyclebsch).
