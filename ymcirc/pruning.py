@@ -387,3 +387,192 @@ def _run_meanfield(n_states, E2_active, ctrl_int, active_int,
             result["xi"] = np.nan
 
     return result
+
+
+def meanfield_weights(dim: str, trunc: str, g: float, alpha: float = 2.0) -> MFResult:
+    """Run self-consistent mean-field and return converged weights.
+
+    Parameters
+    ----------
+    dim : str
+        Dimension string, e.g. "d=2"
+    trunc : str
+        Truncation label, e.g. "B8o3", "B20o3"
+    g : float
+        Coupling constant
+    alpha : float
+        Electric energy coefficient (default 2.0)
+
+    Returns
+    -------
+    MFResult
+        Contains weights, E2, gap, n_iter
+    """
+    states = PHYSICAL_PLAQUETTE_STATES[dim][trunc]
+    box_terms = HAMILTONIAN_BOX_TERMS[dim][trunc]
+    data = _preprocess_data(states, box_terms)
+    raw = _run_meanfield(
+        data["n_states"], data["E2_active"], data["ctrl_int"],
+        data["active_int"], data["unique_irreps"], data["irrep_to_idx"],
+        data["n_ctrl"], data["n_active_links"],
+        data["hop_rows"], data["hop_cols"], data["hop_vals"],
+        g, alpha=alpha, compute_gap=True)
+    return MFResult(
+        weights=raw["weights"],
+        E2=raw["E2"],
+        gap=raw.get("gap", float("nan")),
+        n_iter=raw["n_iter"],
+    )
+
+
+def prune_by_sector_probability(dim: str, trunc: str, g: float,
+                                 delta: float = 0.01,
+                                 alpha: float = 2.0) -> SectorPruningResult:
+    """Prune Hilbert space by sector probability.
+
+    Runs self-consistent mean-field, then sorts sectors by probability P(c)
+    and retains only the most probable sectors until the relative error in
+    <E^2> is below delta.
+
+    Parameters
+    ----------
+    dim : str
+        Dimension string, e.g. "d=2"
+    trunc : str
+        Truncation label, e.g. "B8o3", "B20o3"
+    g : float
+        Coupling constant
+    delta : float
+        Maximum relative error in <E^2> (default 0.01 = 1%)
+    alpha : float
+        Electric energy coefficient (default 2.0)
+
+    Returns
+    -------
+    SectorPruningResult
+        Contains pruned states, box_terms, compression factor, and diagnostics
+    """
+    states_list = PHYSICAL_PLAQUETTE_STATES[dim][trunc]
+    box_terms_dict = HAMILTONIAN_BOX_TERMS[dim][trunc]
+    data = _preprocess_data(states_list, box_terms_dict)
+    sectors = _preprocess_sectors(
+        data["ctrl_int"], data["E2_active"], data["active_int"],
+        data["hop_rows"], data["hop_cols"], data["hop_vals"])
+    sectors_size1, sectors_ge2 = sectors
+
+    # Run full MF
+    raw = _run_meanfield(
+        data["n_states"], data["E2_active"], data["ctrl_int"],
+        data["active_int"], data["unique_irreps"], data["irrep_to_idx"],
+        data["n_ctrl"], data["n_active_links"],
+        data["hop_rows"], data["hop_cols"], data["hop_vals"],
+        g, alpha=alpha, _sectors=sectors)
+
+    E2_ref = raw["E2"]
+    weight_arr = np.zeros(len(data["unique_irreps"]))
+    for R, w in raw["weights"].items():
+        weight_arr[data["irrep_to_idx"][R]] = w
+
+    # Pre-diag all sectors, compute P(c) and E2_c
+    e2_coeff = g**2 / alpha
+    diag_const = 6.0 / g**2
+    hop_coeff = -1.0 / g**2
+
+    P_list = []
+    E2_list = []
+    # Track which global state indices belong to each sector
+    indices_list = []  # list of lists of global state indices
+
+    # Rebuild sector→state mapping from ctrl_int
+    sector_map = {}
+    for i in range(data["n_states"]):
+        key = tuple(data["ctrl_int"][i])
+        if key not in sector_map:
+            sector_map[key] = []
+        sector_map[key].append(i)
+
+    # Size-1 sectors
+    n1 = len(sectors_size1['E2'])
+    if n1 > 0:
+        for j in range(n1):
+            P_c = float(np.prod(weight_arr[sectors_size1['ctrl_keys'][j]]))
+            P_list.append(P_c)
+            E2_list.append(float(sectors_size1['E2'][j]))
+            key = tuple(sectors_size1['ctrl_keys'][j])
+            indices_list.append(sector_map[key])
+
+    # Size>=2 sectors
+    for sec in sectors_ge2:
+        P_c = float(np.prod(weight_arr[sec['ctrl_key']]))
+        n_s = len(sec['E2_local'])
+        H_s = np.diag(e2_coeff * sec['E2_local'] + diag_const)
+        lr, lc, lv = sec['hop_rows'], sec['hop_cols'], sec['hop_vals']
+        if len(lr) > 0:
+            np.add.at(H_s, (lr, lc), hop_coeff * lv)
+        evals, evecs = np.linalg.eigh(H_s)
+        psi2 = evecs[:, 0]**2
+        E2_c = float(np.dot(psi2, sec['E2_local']))
+        P_list.append(P_c)
+        E2_list.append(E2_c)
+        key = tuple(sec['ctrl_key'])
+        indices_list.append(sector_map[key])
+
+    # Sort by P(c) descending, accumulate
+    P_arr = np.array(P_list)
+    E2_arr = np.array(E2_list)
+    order = np.argsort(P_arr)[::-1]
+    P_arr = P_arr[order]
+    E2_arr = E2_arr[order]
+    indices_ordered = [indices_list[o] for o in order]
+
+    cum_PE2 = np.cumsum(P_arr * E2_arr)
+    cum_P = np.cumsum(P_arr)
+    n_sectors = len(P_arr)
+
+    # Find K where error < delta
+    if E2_ref > 0:
+        E2_topK = cum_PE2 / cum_P
+        errors = np.abs(E2_topK - E2_ref) / E2_ref
+        # Find smallest K where error < delta
+        passing = np.where(errors <= delta)[0]
+        if len(passing) > 0:
+            K = passing[0] + 1  # 1-indexed
+        else:
+            K = n_sectors  # keep all
+    else:
+        K = n_sectors
+
+    # If delta >= 1.0, keep everything
+    if delta >= 1.0:
+        K = n_sectors
+
+    # Collect retained state indices
+    retained_indices = set()
+    for k in range(K):
+        retained_indices.update(indices_ordered[k])
+    retained_indices = sorted(retained_indices)
+
+    # Build pruned states list and box_terms dict
+    retained_set = set(retained_indices)
+    pruned_states = [states_list[i] for i in retained_indices]
+    pruned_box_terms = {}
+    for (sf, si), val in box_terms_dict.items():
+        i_f = data["state_index"].get(sf)
+        i_i = data["state_index"].get(si)
+        if i_f is not None and i_i is not None:
+            if i_f in retained_set and i_i in retained_set:
+                pruned_box_terms[(sf, si)] = val
+
+    n_retained = len(pruned_states)
+    n_total = data["n_states"]
+
+    return SectorPruningResult(
+        states=pruned_states,
+        box_terms=pruned_box_terms,
+        n_retained=n_retained,
+        n_total=n_total,
+        compression=n_total / n_retained if n_retained > 0 else float("inf"),
+        mf_weights=raw["weights"],
+        sector_probabilities=P_arr[:K],
+        E2_estimate=float(cum_PE2[K-1] / cum_P[K-1]) if K > 0 else 0.0,
+    )

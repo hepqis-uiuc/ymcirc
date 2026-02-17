@@ -127,3 +127,103 @@ def test_run_meanfield_weights_normalize():
         g=1.0, alpha=2.0)
 
     assert abs(sum(result["weights"].values()) - 1.0) < 1e-10
+
+
+def test_meanfield_weights_public_api():
+    """meanfield_weights returns MFResult with correct fields."""
+    from ymcirc.pruning import meanfield_weights, MFResult
+    result = meanfield_weights("d=2", "B8o3", g=2.0)
+
+    assert isinstance(result, MFResult)
+    assert isinstance(result.weights, dict)
+    assert isinstance(result.E2, float)
+    assert isinstance(result.n_iter, int)
+    assert result.E2 > 0
+    assert sum(result.weights.values()) == pytest.approx(1.0)
+
+
+def test_sector_pruning_strong_coupling():
+    """At strong coupling, sector pruning achieves massive compression."""
+    from ymcirc.pruning import prune_by_sector_probability, SectorPruningResult
+    result = prune_by_sector_probability("d=2", "B8o3", g=2.0, delta=0.01)
+
+    assert isinstance(result, SectorPruningResult)
+    assert result.n_retained < result.n_total
+    assert result.compression > 10  # expect ~100x at g=2
+    assert result.n_total == 627
+    # Pruned states are a subset of original
+    all_states = PHYSICAL_PLAQUETTE_STATES["d=2"]["B8o3"]
+    for s in result.states:
+        assert s in all_states
+    # box_terms keys only reference retained states
+    retained_set = set(result.states)
+    for (sf, si) in result.box_terms:
+        assert sf in retained_set
+        assert si in retained_set
+
+
+def test_sector_pruning_full_inclusion():
+    """delta=1.0 retains all states (no pruning)."""
+    from ymcirc.pruning import prune_by_sector_probability
+    result = prune_by_sector_probability("d=2", "B8o3", g=1.0, delta=1.0)
+    assert result.n_retained == result.n_total
+    assert result.compression == pytest.approx(1.0)
+
+
+def test_sector_pruning_format_compatible():
+    """Pruned output has correct PlaquetteState tuple format."""
+    from ymcirc.pruning import prune_by_sector_probability
+    result = prune_by_sector_probability("d=2", "B8o3", g=2.0, delta=0.01)
+    for s in result.states:
+        verts, active, ctrl = s[0], s[1], s[2]
+        assert len(active) == 4
+        assert len(ctrl) == 8
+
+
+def test_irrep_pruning_strong_coupling():
+    """At g=2.0, only 3 irreps needed for 1% accuracy."""
+    from ymcirc.pruning import prune_by_irrep_importance, IrrepPruningResult
+    result = prune_by_irrep_importance("d=2", g=2.0, delta=0.01)
+
+    assert isinstance(result, IrrepPruningResult)
+    assert result.n_kept == 3
+    assert result.n_total > 100  # lambda_max=35 has 666 irreps
+    # Vacuum should have highest weight
+    assert result.ground_state_weights[(0, 0)] > 0.5
+    assert result.error < 0.01
+
+
+def test_irrep_pruning_ordering():
+    """Importance ordering keeps highest-weight irreps first."""
+    from ymcirc.pruning import prune_by_irrep_importance
+    result = prune_by_irrep_importance("d=2", g=1.0, delta=0.01)
+
+    # Weights should be monotonically decreasing
+    weights = [result.ground_state_weights[pq] for pq in result.kept_irreps]
+    for i in range(len(weights) - 1):
+        assert weights[i] >= weights[i + 1]
+
+
+def test_irrep_pruning_weak_coupling():
+    """At weak coupling, more irreps are needed."""
+    from ymcirc.pruning import prune_by_irrep_importance
+    result_strong = prune_by_irrep_importance("d=2", g=2.0, delta=0.01)
+    result_weak = prune_by_irrep_importance("d=2", g=0.6, delta=0.01)
+
+    assert result_weak.n_kept > result_strong.n_kept
+
+
+def test_irrep_pruning_dim_validation():
+    """Only d=2 is currently supported."""
+    from ymcirc.pruning import prune_by_irrep_importance
+    with pytest.raises(ValueError, match="Only d=2 is currently supported"):
+        prune_by_irrep_importance("d=3", g=1.0, delta=0.01)
+
+
+def test_irrep_pruning_delta_variation():
+    """Stricter delta requires more irreps."""
+    from ymcirc.pruning import prune_by_irrep_importance
+    result_loose = prune_by_irrep_importance("d=2", g=1.0, delta=0.1)
+    result_strict = prune_by_irrep_importance("d=2", g=1.0, delta=0.001)
+
+    assert result_strict.n_kept > result_loose.n_kept
