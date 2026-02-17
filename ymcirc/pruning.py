@@ -144,3 +144,105 @@ def _preprocess_data(states, box_terms):
         "hop_vals": np.array(hop_vals, dtype=np.float64),
         "state_index": state_index,
     }
+
+
+def _preprocess_sectors(ctrl_int, E2_active, active_int,
+                       hop_rows, hop_cols, hop_vals):
+    """Group states by control-link configuration into sectors.
+
+    Box preserves control links, making H block-diagonal by control config.
+    Called once per B-truncation; reused across all g values and MF iterations.
+
+    Returns
+    -------
+    sectors_size1 : dict with batched arrays for all size-1 sectors
+        ctrl_keys: (n1, n_ctrl) int array
+        E2: (n1,) float array
+        active_int: (n1, n_active_links) int array
+    sectors_ge2 : list of dicts, one per sector with >=2 states
+        Each dict has: ctrl_key, E2_local, active_int_local, hop_rows/cols/vals
+    """
+    n_states = len(E2_active)
+    n_ctrl_links = ctrl_int.shape[1] if ctrl_int.ndim == 2 else 0
+    n_act_links = active_int.shape[1] if active_int.ndim == 2 else 0
+
+    # Map each state to its sector (by control config)
+    sector_map = {}
+    state_sector = np.empty(n_states, dtype=np.int32)
+    state_local_idx = np.empty(n_states, dtype=np.int32)
+    sector_keys = []
+    sector_states = []
+
+    for i in range(n_states):
+        key = tuple(ctrl_int[i])
+        if key not in sector_map:
+            s_idx = len(sector_keys)
+            sector_map[key] = s_idx
+            sector_keys.append(key)
+            sector_states.append([])
+        else:
+            s_idx = sector_map[key]
+        state_sector[i] = s_idx
+        state_local_idx[i] = len(sector_states[s_idx])
+        sector_states[s_idx].append(i)
+
+    # Assign hops to sectors and re-index to local indices
+    n_hops = len(hop_rows)
+    if n_hops > 0:
+        hop_sector = state_sector[hop_rows]
+        assert np.all(hop_sector == state_sector[hop_cols]), \
+            "Hops cross sector boundaries -- box should preserve control configs"
+        hop_local_rows = state_local_idx[hop_rows]
+        hop_local_cols = state_local_idx[hop_cols]
+
+        # Sort by sector for efficient slicing
+        order = np.argsort(hop_sector, kind='stable')
+        hop_sector_s = hop_sector[order]
+        hop_lr_s = hop_local_rows[order]
+        hop_lc_s = hop_local_cols[order]
+        hop_v_s = hop_vals[order]
+
+        unique_sectors, starts = np.unique(hop_sector_s, return_index=True)
+        ends = np.append(starts[1:], n_hops)
+        sector_hop_range = {int(s): (int(starts[i]), int(ends[i]))
+                            for i, s in enumerate(unique_sectors)}
+    else:
+        hop_lr_s = np.array([], dtype=np.int32)
+        hop_lc_s = np.array([], dtype=np.int32)
+        hop_v_s = np.array([])
+        sector_hop_range = {}
+
+    # Separate into size-1 (batch) and size>=2 (loop)
+    s1_keys, s1_E2, s1_active = [], [], []
+    sge2 = []
+
+    for s_idx in range(len(sector_keys)):
+        indices = np.array(sector_states[s_idx], dtype=np.int32)
+        if len(indices) == 1:
+            s1_keys.append(sector_keys[s_idx])
+            s1_E2.append(E2_active[indices[0]])
+            s1_active.append(active_int[indices[0]])
+        else:
+            if s_idx in sector_hop_range:
+                a, b = sector_hop_range[s_idx]
+                lr, lc, lv = hop_lr_s[a:b], hop_lc_s[a:b], hop_v_s[a:b]
+            else:
+                lr = np.array([], dtype=np.int32)
+                lc = np.array([], dtype=np.int32)
+                lv = np.array([])
+            sge2.append({
+                'ctrl_key': np.array(sector_keys[s_idx], dtype=np.int32),
+                'E2_local': E2_active[indices],
+                'active_int_local': active_int[indices],
+                'hop_rows': lr, 'hop_cols': lc, 'hop_vals': lv,
+            })
+
+    sectors_size1 = {
+        'ctrl_keys': (np.array(s1_keys, dtype=np.int32) if s1_keys
+                      else np.empty((0, n_ctrl_links), dtype=np.int32)),
+        'E2': np.array(s1_E2) if s1_E2 else np.empty(0),
+        'active_int': (np.array(s1_active, dtype=np.int32) if s1_active
+                       else np.empty((0, n_act_links), dtype=np.int32)),
+    }
+
+    return sectors_size1, sge2
