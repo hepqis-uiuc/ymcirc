@@ -48,34 +48,9 @@ def test_measurement_results_polymorphic_init(encoder_d32_L2_T1):
     assert mr_from_str_dict.get_lattice_electric_energy() == mr_from_plr_dict.get_lattice_electric_energy()
     assert mr_from_str_dict.vacuum_persistence_probability() == pytest.approx(0.1)
     assert mr_from_plr_dict.vacuum_persistence_probability() == pytest.approx(0.1)
-    
-
-def test_get_lattice_electric_energy_warns_on_none(encoder_d32_L2_T1):
-    """get_lattice_electric_energy warns when unmeasured links are encountered and flag is on."""
-    encoder = encoder_d32_L2_T1
-    # 70 shots of vacuum (all ONE), 30 shots of an unphysical state on link ((0,0),1)
-    plr_vacuum = ParsedLatticeResult(1.5, 2, "000000000000", encoder)
-    plr_unphysical = ParsedLatticeResult(1.5, 2, "110000000000", encoder)
-
-    counts = {plr_vacuum: 70, plr_unphysical: 30}
-    mr = MeasurementResults(counts, encoder)
 
 
-    # No warnings when flag is off (default behavior)
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        energy = mr.get_lattice_electric_energy(average_result=False)
-        assert len(w) == 0
-
-    # warnings when flag is on
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        energy = mr.get_lattice_electric_energy(average_result=False, warn_on_unphysical=True)
-        assert len(w) >= 1 # An unphysical link should be encountered 30 times
-        assert "None" in str(w[0].message) or "unmeasured" in str(w[0].message).lower()
-
-
-def test_measurement_results_link_electric_energy(encoder_d32_L2_T1):
+def test_get_link_electric_energy(encoder_d32_L2_T1):
     """get_link_electric_energy returns weighted average over all shots."""
     encoder = encoder_d32_L2_T1
     # 70 shots of vacuum (all ONE), 30 shots of THREE on link ((0,0),1)
@@ -91,7 +66,44 @@ def test_measurement_results_link_electric_energy(encoder_d32_L2_T1):
     assert mr.get_link_electric_energy(((0, 0), 2)) == pytest.approx(0.0)
 
 
-def test_measurement_results_lattice_electric_energy(encoder_d32_L2_T1):
+def test_get_link_electric_energy_unphys_mode(encoder_d32_L2_T1):
+    """get_link_electric_energy returns weighted average over all shots."""
+    encoder = encoder_d32_L2_T1
+    plr_excited = ParsedLatticeResult(1.5, 2, "000000000010", encoder) # Link ((1,1), 1): THREE
+    plr_excited_one_unphys = ParsedLatticeResult(1.5, 2, "100000000011", encoder) # Link ((1,1), 1): unphys
+
+    counts = {plr_excited: 70, plr_excited_one_unphys: 30}
+    mr = MeasurementResults(counts, encoder)
+    l_1_1_d_1_expected_energy = 0.7 * 4/3.0
+    # # Link ((0,0),1): 70 * 0 + 30 * 4/3 = 40. / 100 = 0.4
+    # assert mr.get_link_electric_energy(((0, 0), 1)) == pytest.approx(0.4)
+    # # Link ((0,0),2): all vacuum -> 0
+    # assert mr.get_link_electric_energy(((0, 0), 2)) == pytest.approx(0.0)
+    
+    # No warning when flag set to None
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        assert mr.get_link_electric_energy(((1, 1), 1), unphys_mode=None) == pytest.approx(l_1_1_d_1_expected_energy)
+        assert len(w) == 0
+
+    # Warning when flag not set by user (default behavior)
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        mr.get_link_electric_energy(((1, 1), 1))
+        assert len(w) == 1
+
+    # Warning when flag set to 'warn'
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        mr.get_link_electric_energy(((1, 1), 1), unphys_mode='warn')
+        assert len(w) == 1
+
+    # Error when flag set to 'err'
+    with pytest.raises(KeyError, match="unphysical"):
+         mr.get_link_electric_energy(((1, 1), 1), unphys_mode='err')
+    
+
+def test_get_lattice_electric_energy(encoder_d32_L2_T1):
     """get_lattice_electric_energy returns expectation value over all shots."""
     encoder = encoder_d32_L2_T1
     plr_vacuum = ParsedLatticeResult(1.5, 2, "000000000000", encoder)
@@ -109,6 +121,74 @@ def test_measurement_results_lattice_electric_energy(encoder_d32_L2_T1):
     # plr_vacuum: 0/6 = 0. plr_excited: (4/3)/6 = 2/9.
     # Expectation: (70*0 + 30*2/9) / 100 = 60/900 = 1/15
     assert mr.get_lattice_electric_energy(average_result=True) == pytest.approx(1.0 / 15.0)
+
+
+def test_get_lattice_electric_energy_unphysical_link(encoder_d32_L2_T1):
+    """get_lattice_electric_energy can optionally return a KeyError when hitting an unphysical link."""
+    encoder = encoder_d32_L2_T1
+    # 70 shots of one excited link ((0, 0), 1) in the THREE and one unphysical, 30 shots of an unphysical state on link ((0,0),1)
+    plr_one_excited = ParsedLatticeResult(1.5, 2, "100000000011", encoder)
+    plr_unphysical = ParsedLatticeResult(1.5, 2, "110000000000", encoder)
+
+    counts = {plr_one_excited: 70, plr_unphysical: 30}
+    mr = MeasurementResults(counts, encoder)
+
+    expected_total_energy = (4.0/3) * 0.7
+    expected_average_energy = expected_total_energy/5.0 # 5 physical links, one unphysical in this lattice state.
+
+    # No warning as default behavior.
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        assert expected_total_energy == pytest.approx(mr.get_lattice_electric_energy(average_result=False, unphys_mode=None))
+        assert expected_average_energy == pytest.approx(mr.get_lattice_electric_energy(average_result=True, unphys_mode=None))
+        assert len(w) == 0
+
+    # Warning when flag set to warn, or as default behavior.
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        mr.get_lattice_electric_energy(average_result=False, unphys_mode='warn')
+        mr.get_lattice_electric_energy(average_result=False)
+        assert len(w) == 8  # 2 strings in counts dict * 2 warnings per string * trying the same function 2 times
+        assert "unphysical" in str(w[0].message).lower()
+        
+    # Error when flag set to err.
+    with pytest.raises(KeyError, match='unphysical'):
+        mr.get_lattice_electric_energy(unphys_mode='err')
+
+def test_get_lattice_electric_energy_unmeasured_link(encoder_d32_L2_T1):
+    """
+    get_lattice_electric_energy can optionally return a KeyError when hitting an unmeasured link.
+    Check flags for controlling this behavior.
+    """
+    encoder = encoder_d32_L2_T1
+    partial_excited = ParsedLatticeResult.from_links_and_vertices(
+        links_dict={((0, 0), 1): THREE}, encoder=encoder
+    )
+    vacuum_one_unphys_link = "000000000011"
+    mr = MeasurementResults({
+        partial_excited: 60,
+        vacuum_one_unphys_link: 40
+    }, encoder=encoder)
+    expected_total_energy = 4.0/3 * 0.6                 # Note that this is not physically well-motivated since the two states are averaged over two numbers of total physical links.
+    expected_average_energy = ((4.0/3)/1.0) * 0.6 # 60% chance of one excited link out of 1 total measured excited links.
+
+    # Default: no error
+    assert mr.get_lattice_electric_energy() == pytest.approx(expected_average_energy)
+    assert mr.get_lattice_electric_energy(average_result=True) == pytest.approx(expected_average_energy)
+    assert mr.get_lattice_electric_energy(average_result=False) == pytest.approx(expected_total_energy)
+
+    # Warning when flag set appropriately
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        mr.get_lattice_electric_energy(unphys_mode='warn')
+        assert len(w) == 8      # partial_excited generates 6 warnings (5 unphys links, 1 overall report), vacuum generates 2 warnings
+        assert "unmeasured" in str(w[0].message).lower()
+    
+    # Error when flag set appropriately
+    with pytest.raises(KeyError, match="unmeasured"):
+        mr.get_lattice_electric_energy(skip_unmeasured=False)
+    with pytest.raises(KeyError, match="unmeasured"):
+        mr.get_lattice_electric_energy(unphys_mode='err')
 
 
 def test_vacuum_persistence_probability(encoder_d32_L2_T1):

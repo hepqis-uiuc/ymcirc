@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import logging
 import warnings
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Optional
 from ymcirc._abstract.lattice_data import (
     LatticeData, LatticeDef, Plaquette, DimensionalitySpecifier, LatticeVector,
     LinkUnitVectorLabel, LinkAddress)
@@ -446,23 +446,49 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
             return "vertex"
         raise ValueError(f"Cannot classify address: {addr}")
 
-    def get_link_electric_energy(self, link_address: LinkAddress) -> Union[float, None]:
+    def get_link_electric_energy(self, link_address: LinkAddress, unphys_mode: Optional[str] = 'warn') -> Union[float, None]:
         """
         Return the electric Casimir energy for the specified link.
 
         Returns gt_pattern_iweight_to_casimir(irrep) for the link's irrep,
-        or None if the link was not measured or decoded to an unphysical state.
+        or None if the decoded to an unphysical state.
+
+        The optional argument unphys_mode customizes the behavior for unphysical links.
+        Options are to emit a warning, raise an error, or silently return.
+
+        If the requested link was unmeasured, a KeyError is raised regardless of
+        the value of unphys_mode.
 
         Arguments:
             - link_address: Address of the link, e.g. ((0,0), 1).
+            - unphys_mode: 'warn' will cause a warning to be emitted if the
+              requested link is unphysical. 'err' will cause a KeyError
+              to be raised. If this argument is omitted or takes on any
+              other value, None will be silently returned for unphysical
+              or unmeasured links.
         """
         from ymcirc.electric_helper import gt_pattern_iweight_to_casimir # TODO: import in method to avoid circuilar import; kinda nasty and would be nice to avoid
+
+        # Deal with unphysical/unmeasured cases first.
         link_state = self.get_link(link_address)
         if link_state is None:
+            link_bit_string  = self.get_link(link_address, get_bit_string=True)
+            if 'X' in link_bit_string:
+                unmeasured_msg = f'Energy requested for unmeasured link.\nAddress: {link_address}\nMeasurement bit string: {link_bit_string}'
+                raise KeyError(unmeasured_msg)
+            unphys_msg = f'Energy requested for unphysical link.\nAddress: {link_address}\nMeasurement bit string: {link_bit_string}'
+            match unphys_mode:
+                case 'err':
+                    raise KeyError(unphys_msg)
+                case 'warn':
+                    warnings.warn(unphys_msg)
+                case _:
+                    pass
             return None
+        
         return gt_pattern_iweight_to_casimir(link_state)
 
-    def get_lattice_electric_energy(self, average_result: bool = False, warn_on_unphysical: bool = False) -> float:
+    def get_lattice_electric_energy(self, average_result: bool = False, unphys_mode: Optional[str] = 'warn', skip_unmeasured: bool = True) -> float:
         """
         Return the total (or average) electric Casimir energy across all links.
 
@@ -470,33 +496,62 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         get_link_electric_energy for each link. If average_result is True,
         divides the total by the number of links.
 
-        If warn_on_unphysical is True, emits a warning if any links return None
-        from get_link_electric_energy (unmeasured or unphysical).
-        None-valued links contribute 0 to the sum,
-        and if average_result is True, they are also excluded from the
-        total link count used to compute the average.
+        The optional argument unphys_mode customizes the behavior when
+        encountering unphysical links (i.e. when the measured value fails
+        to decode to a physical state). Options are to emit a warning, raise an error,
+        or silently return. When not raising an error, such links
+        are skipped when computing the sum over link energies.
+
+        The optional argument skip_unmeasured overrides the behavior
+        of raising an error when attempting to obtain the energy of
+        an unmeasured like. If this argument is True, any such links
+        are skipped in the sum over lattice link energies.
+
+        Note that If average_result is True, any skipped links will be
+        omitted from the count of links in the denominator of the average.
 
         Arguments:
             - average_result: If True, return energy per link; if False, total.
+            - unphys_mode: 'warn' will cause a warning to be emitted if the
+              requested link is unphysical. 'err' will cause a ValueError
+              to be raised. If this argument is omitted or takes on any
+              other value, None will be silently returned for unphysical
+              or unmeasured links.
+            - skip_unmeasured: If True, unmeasured links will be skipped when
+              computing the lattice electric energy. If False, then a KeyError
+              will be raised if an unmeasured link is encountered.
         """
         total_energy = 0.0
         none_count = 0
+        link_err_count = 0
         link_count = 0
 
         for vertex_addr, link_addrs in self.get_traversal_order():
             for link_addr in link_addrs:
-                link_count += 1
-                energy = self.get_link_electric_energy(link_addr)
-                if energy is None:
-                    none_count += 1
-                else:
-                    total_energy += energy
+                try:
+                    energy = self.get_link_electric_energy(link_addr, unphys_mode=unphys_mode)
+                    if energy is None:
+                        none_count += 1
+                    else:
+                        total_energy += energy
+                        link_count += 1
+                except KeyError as e:
+                    if skip_unmeasured is False: # KeyError can only happen if the link we just tried to measure was unphysical.
+                        raise e
+                    match unphys_mode:
+                        case 'warn':
+                            warnings.warn(str(e))
+                            link_err_count += 1
+                        case 'err':
+                            raise e
+                        case _:
+                            continue
 
-        if none_count > 0 and warn_on_unphysical is True:
+        if none_count + link_err_count > 0 and unphys_mode == 'warn':
             warnings.warn(
-                f"Encountered {none_count} unmeasured/unphysical link(s) "
-                f"(out of {link_count} total) while computing lattice electric energy. "
-                f"None-valued links contributed 0 to the sum."
+                f"Encountered {none_count} unphysical, {link_err_count} unmeasured, "
+                f"(and {link_count} physical link(s) while computing lattice electric energy. "
+                f"Unphysical/unmeasured links contributed 0 to the sum."
             )
 
         if average_result:

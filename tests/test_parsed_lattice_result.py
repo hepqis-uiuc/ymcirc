@@ -871,7 +871,7 @@ def test_global_bitstring_unchanged_for_full_measurement(
 def test_get_link_electric_energy(
         T1_link_bitmap,
         good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
-    """get_link_electric_energy returns Casimir for measured links, None for unmeasured."""
+    """get_link_electric_energy returns Casimir for measured links."""
     encoder = LatticeStateEncoder(
         T1_link_bitmap,
         good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
@@ -885,7 +885,61 @@ def test_get_link_electric_energy(
 
     assert plr.get_link_electric_energy(((0, 0), 1)) == pytest.approx(4.0 / 3.0)
     assert plr.get_link_electric_energy(((0, 0), 2)) == pytest.approx(0.0)
-    assert plr.get_link_electric_energy(((1, 0), 1)) is None  # Not measured
+    
+
+def test_get_link_electric_energy_warn_mode_unphys_link(T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """
+    get_link_electric_energy returns None for unphysical links.
+    'warn' mode flag changes unphysical link behavior.
+    """
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    global_lattice_bit_string = '000110000111' # ((1, 1), 1) link is '11', unphysical
+    plr_with_unphys_link = ParsedLatticeResult(dimensions=1.5, size=2, global_lattice_measurement_bit_string=global_lattice_bit_string, lattice_encoder=encoder, periodic_boundary_conds=True)
+
+    # No warning when flag set to None
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        assert plr_with_unphys_link.get_link_electric_energy(((1, 1), 1), unphys_mode=None) is None
+        assert len(w) == 0
+
+    # Warning when flag not set by user (default behavior)
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        assert plr_with_unphys_link.get_link_electric_energy(((1, 1), 1)) is None
+        assert len(w) == 1
+
+    # Warning when flag set to 'warn'
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        assert plr_with_unphys_link.get_link_electric_energy(((1, 1), 1), unphys_mode='warn') is None
+        assert len(w) == 1
+
+    # Error when flag set to 'err'
+    with pytest.raises(KeyError, match="unphysical"):
+        plr_with_unphys_link.get_link_electric_energy(((1, 1), 1), unphys_mode='err')
+
+def test_get_link_electric_energy_err_on_unmeasured_link(T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """get_link_electric_energy returns KeyError for unmeasured links."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    links_dict = {
+        ((0, 0), 1): THREE,      # C_2 = 4/3
+        ((0, 0), 2): ONE,        # C_2 = 0
+    }
+    plr_with_unmeasured_links = ParsedLatticeResult.from_links_and_vertices(links_dict=links_dict, encoder=encoder)
+
+    # Error when flag set to 'err'
+    with pytest.raises(KeyError, match="unmeasured"):
+        plr_with_unmeasured_links.get_link_electric_energy(((1, 0), 1))
 
 
 def test_get_lattice_electric_energy_total(
@@ -922,31 +976,73 @@ def test_get_lattice_electric_energy_average(
     assert plr.get_lattice_electric_energy(average_result=True) == pytest.approx(4.0 / 3.0)
 
 
-def test_get_lattice_electric_energy_warns_on_none(
+def test_get_lattice_electric_energy_warn_mode_unphys_link(
         T1_link_bitmap,
         good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
-    """get_lattice_electric_energy warns when unmeasured links are encountered and flag is on."""
+    """
+    get_lattice_electric_energy skips unphysical links when encountered.
+    'warn' mode changes this to either also raise a warning, or an error.
+    """
     encoder = LatticeStateEncoder(
         T1_link_bitmap,
         good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
         LatticeDef(1.5, 2))
 
     # Only measure one link
-    plr = ParsedLatticeResult.from_links_and_vertices(
-        links_dict={((0, 0), 1): THREE}, encoder=encoder)
+    global_lattice_bit_string = '000110000111' # ((1, 1), 1) link is '11', unphysical
+    expected_total_energy = 3.0 * 4.0/3  # 3 excited links, unphysical links doesn't count
+    expected_average_energy = expected_total_energy / 5 # 6 total links, one unphysical
+    plr_with_unphys_link = ParsedLatticeResult(dimensions=1.5, size=2, global_lattice_measurement_bit_string=global_lattice_bit_string, lattice_encoder=encoder, periodic_boundary_conds=True)
 
-    # No warnings when flag is off (default behavior)
+    # No warnings when flag is set to None
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        energy = plr.get_lattice_electric_energy(average_result=False)
+        assert expected_total_energy == pytest.approx(plr_with_unphys_link.get_lattice_electric_energy(average_result=False, unphys_mode=None))
+        assert expected_average_energy == pytest.approx(plr_with_unphys_link.get_lattice_electric_energy(average_result=True, unphys_mode=None))
         assert len(w) == 0
 
-    # warnings when flag is on
+    # Warning when flag not set by user (default behavior)
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        energy = plr.get_lattice_electric_energy(average_result=False, warn_on_unphysical=True)
-        assert len(w) >= 1
-        assert "None" in str(w[0].message) or "unmeasured" in str(w[0].message).lower()
+        assert expected_total_energy == pytest.approx(plr_with_unphys_link.get_lattice_electric_energy(average_result=False))
+        assert expected_average_energy == pytest.approx(plr_with_unphys_link.get_lattice_electric_energy(average_result=True))
+        assert len(w) == 4
+
+    # Warnings when flag is set to 'warn'
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        assert expected_total_energy == pytest.approx(plr_with_unphys_link.get_lattice_electric_energy(average_result=False, unphys_mode='warn'))
+        assert expected_average_energy == pytest.approx(plr_with_unphys_link.get_lattice_electric_energy(average_result=True, unphys_mode='warn'))
+        assert len(w) == 4
+
+    # Error when flag set to 'err'
+    with pytest.raises(KeyError, match="unphysical"):
+        plr_with_unphys_link.get_lattice_electric_energy(unphys_mode='err')
+
+
+def test_get_lattice_electric_energy_unmeasured_link(T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed):
+    """get_lattice_electric_energy can optionally return a KeyError when hitting an unmeasured link."""
+    encoder = LatticeStateEncoder(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed,
+        LatticeDef(1.5, 2))
+
+    links_dict = {
+        ((0, 0), 1): THREE,      # C_2 = 4/3
+        ((0, 0), 2): ONE,        # C_2 = 0
+    }
+    plr_with_unmeasured_links = ParsedLatticeResult.from_links_and_vertices(links_dict=links_dict, encoder=encoder)
+    expected_total_energy = 4.0/3
+    expected_average_energy = expected_total_energy/2.0 # 2 measured, physical links
+
+    # Default: no error
+    assert plr_with_unmeasured_links.get_lattice_electric_energy() == pytest.approx(expected_total_energy)
+    assert plr_with_unmeasured_links.get_lattice_electric_energy(average_result=True) == pytest.approx(expected_average_energy)
+    
+    # Error when flag set to True
+    with pytest.raises(KeyError, match="unmeasured"):
+        plr_with_unmeasured_links.get_lattice_electric_energy(skip_unmeasured=False)
 
 
 def test_from_partial_measurement_d2_plaquette_control_link_ordering(

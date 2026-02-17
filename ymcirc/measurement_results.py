@@ -1,7 +1,7 @@
 """Class for aggregating and analyzing measurement results from lattice quantum circuits."""
 from __future__ import annotations
 import logging
-from typing import Dict
+from typing import Dict, Optional
 import copy
 from ymcirc._abstract.lattice_data import LinkAddress
 from ymcirc.conventions import LatticeStateEncoder, ONE
@@ -63,25 +63,37 @@ class MeasurementResults:
 
         return counts_data
 
-    def get_link_electric_energy(self, link_address: LinkAddress) -> float:
+    def get_link_electric_energy(self, link_address: LinkAddress, unphys_mode: Optional[str] = 'warn') -> float:
         """
         Return the expectation value of the electric Casimir energy at a link.
 
         Computes the shot-weighted average of
         ParsedLatticeResult.get_link_electric_energy over all measurement
-        outcomes. Links that return None are treated as contributing 0.
+        outcomes. Links that return None (i.e. yielded unphysical measurements)
+        are treated as contributing 0 to the average.
+
+        The optional argument unphys_mode customizes the behavior for unphysical links.
+        Options are to emit a warning, raise an error, or silently return.
+
+        If the requested link was unmeasured on any of the underlying ParsedLatticeResults,
+        a KeyError is raised.
 
         Arguments:
             - link_address: Address of the link, e.g. ((0,0), 1).
+            - unphys_mode: 'warn' will cause a warning to be emitted if the
+              requested link is unphysical. 'err' will cause a KeyError
+              to be raised. If this argument is omitted or takes on any
+              other value, None will be silently returned for unphysical
+              or unmeasured links.
         """
         total = 0.0
         for parsed, count in self._counts.items():
-            energy = parsed.get_link_electric_energy(link_address)
+            energy = parsed.get_link_electric_energy(link_address, unphys_mode=unphys_mode)
             if energy is not None:
                 total += energy * count
         return total / self._total_shots
 
-    def get_lattice_electric_energy(self, average_result: bool = False, warn_on_unphysical: bool = False) -> float:
+    def get_lattice_electric_energy(self, average_result: bool = True, unphys_mode: Optional[str] = 'warn', skip_unmeasured: bool = True) -> float:
         """
         Return the expectation value of the lattice electric energy.
 
@@ -91,17 +103,32 @@ class MeasurementResults:
         per-instance (controlling whether each instance reports total or
         per-link energy); the method always averages over all shots.
 
+        NOTE that the per-instance average is computed over the total number
+        of links which can succesfully be decoded to physical data, NOT
+        the total number of links in the lattice!
+
+        Note that it is not physically meaningful to to set average_result
+        to False and skip_unmeasured to True since this can combine lattice
+        energies based off of different total numbers of links. For this reason,
+        the default value of average_results is set to True.
+
         Arguments:
             - average_result: Passed to each ParsedLatticeResult instance.
               If True, each instance returns energy per link.
               If False, each instance returns total energy.
-            - warn_on_unphysical: Passed to each ParsedLatticeResult instance.
-              If True, a warning is emitted whenever an unphysical link is encountered.
-              If False, no warning.
+            - unphys_mode: Passed to each ParsedLatticeResult instance.
+              If omitted, unphysical links are silently treated as having
+              zero electric energy. If 'warn', a warning is emitted whenever
+              an unphysical link is encountered, and then the value is treated as
+              zero. If 'err', then an error is raised whenever unphysical links are
+              encountered.
+            - skip_unmeasured: Passed to each ParsedLatticeResult instance.
+              If True, unmeasured links are skipped when computing the average energy.
+              If False, an error is raised if an unmeasured link is encountered.
         """
         total = 0.0
         for parsed, count in self._counts.items():
-            energy = parsed.get_lattice_electric_energy(average_result=average_result, warn_on_unphysical=warn_on_unphysical)
+            energy = parsed.get_lattice_electric_energy(average_result=average_result, unphys_mode=unphys_mode, skip_unmeasured=skip_unmeasured)
             total += energy * count
         return total / self._total_shots
 
