@@ -375,6 +375,10 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
                 instance._decoded_links[link_addr] = encoder.decode_bit_string_to_link_state(bitstring)
 
             elif addr_type == "plaquette":
+                # TODO: would be nice to find a way to construct using Plaquette class,
+                # but might not be possible without significant refactor since that requires
+                # a LatticeData instance (one doesn't exist yet when using the from_partial_measurement
+                # factory method).
                 bottom_left_vertex = tuple(addr[0])
                 e1, e2 = addr[1], addr[2]
 
