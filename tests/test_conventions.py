@@ -73,7 +73,7 @@ def test_physical_plaquette_state_data_are_valid():
 def test_hamiltonian_box_terms_no_unexpected_cases():
     expected_box_term_dim_trunc_cases = {
         "d=3/2": set(["T1", "T2"]),
-        "d=2": set(["T1"])
+        "d=2": set(["T1", "B0", "B4", "B8o3", "B16o3", "B20o3"])
     }
     print(
         "Checking that the following dimension/truncation cases have matrix element data, and that no unexpected cases come up:\n"
@@ -85,7 +85,7 @@ def test_hamiltonian_box_terms_no_unexpected_cases():
         assert expected_dim in HAMILTONIAN_BOX_TERMS.keys(), f"{expected_dim} data not present."
         for expected_trunc in expected_box_term_dim_trunc_cases[expected_dim]:
             assert expected_trunc in HAMILTONIAN_BOX_TERMS[expected_dim].keys(), f"{expected_dim}, {expected_trunc} data not unexpected."
-    
+
     # Check for no unexpected actual data.
     for actual_dim in HAMILTONIAN_BOX_TERMS.keys():
         assert actual_dim in expected_box_term_dim_trunc_cases.keys(), f"{actual_dim} was unexpected."

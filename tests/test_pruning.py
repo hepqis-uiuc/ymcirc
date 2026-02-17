@@ -228,3 +228,48 @@ def test_irrep_pruning_delta_variation():
     result_strict = prune_by_irrep_importance("d=2", g=1.0, delta=0.001)
 
     assert result_strict.n_kept > result_loose.n_kept
+
+
+@pytest.mark.slow
+def test_mf_matches_continuum_e2():
+    """MF E2 values match continuum reference data."""
+    from ymcirc.pruning import meanfield_weights
+    # B8o3, g=2.0: E2 (4-link total) ~ 0.00615, per-link ~ 0.00154
+    result = meanfield_weights("d=2", "B8o3", g=2.0)
+    assert result.E2 / 4 == pytest.approx(0.00154, abs=0.0001)
+
+    # B8o3, g~1.0: E2 / 4 ~ 0.376 (sector-averaged)
+    result = meanfield_weights("d=2", "B8o3", g=1.03)
+    assert result.E2 / 4 == pytest.approx(0.376, abs=0.02)
+
+
+@pytest.mark.slow
+def test_sector_pruning_compression_b4():
+    """B4 compression factors are reasonable across coupling range."""
+    from ymcirc.pruning import prune_by_sector_probability
+    # g=2.0, delta=0.01: should get significant compression
+    result = prune_by_sector_probability("d=2", "B4", g=2.0, delta=0.01)
+    assert result.compression > 50
+    assert result.n_retained < 100
+
+    # g=1.0, delta=0.01: less compression but still significant
+    result = prune_by_sector_probability("d=2", "B4", g=1.0, delta=0.01)
+    assert result.compression > 1
+    assert result.n_retained < result.n_total
+
+
+@pytest.mark.slow
+def test_irrep_pruning_matches_paper_table5():
+    """Irrep pruning counts match paper Table 5 values."""
+    from ymcirc.pruning import prune_by_irrep_importance
+    # g=2.0, delta=0.01: N_imp = 3
+    result = prune_by_irrep_importance("d=2", g=2.0, delta=0.01)
+    assert result.n_kept == 3
+
+    # g=1.0, delta=0.01: N_imp = 8
+    result = prune_by_irrep_importance("d=2", g=1.0, delta=0.01)
+    assert result.n_kept == 8
+
+    # g=1.5, delta=0.01: N_imp = 4
+    result = prune_by_irrep_importance("d=2", g=1.47, delta=0.01)
+    assert result.n_kept == 4
