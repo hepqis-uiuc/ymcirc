@@ -13,7 +13,7 @@ This document describes the plan for resolving the outstanding issues from the F
 
 **Resolution:**
 1. Remove the equality enforcement check in the dict-value branch.
-2. Instead, return the dict of floats as-is (or aggregate them in a way that preserves the per-plane/per-signature information). The exact aggregation strategy needs to be determined based on how downstream consumers of Hamiltonian data use these values. If the current consumers only ever see a single float, the simplest approach is to return the first float (or an average) but log a warning if values differ significantly, rather than raising an error. However, this should be discussed to determine whether the downstream code needs to be updated to accept a dict of floats rather than a single float.
+2. Instead, return the dict of floats as-is (or aggregate them in a way that preserves the per-plane/per-signature information). The exact aggregation strategy needs to be determined based on how downstream consumers of Hamiltonian data use these values. If the current consumers only ever see a single float, the simplest approach is to return the first float (or an average) but log a warning if values differ significantly, rather than raising an error. However, this should be discussed to determine whether the downstream code needs to be updated to accept a dict of floats rather than a single float. (Feedback: when downstream consumers need to access matrix element values, they should be required to supply plane + signature information if those data are present for the specified plaquette. If the given plaquette key has a value which is a float instead of a dict, then downstream consumers need not supply this information. Both cases must be accounted for.)
 3. Update the docstring to reflect the new behavior.
 
 **Considerations:** This change may require corresponding updates in `load_magnetic_hamiltonian` or `compute_all_rotations_from_just_box_terms` if they assume a single float per matrix element. This should be assessed before implementing.
@@ -29,7 +29,7 @@ This document describes the plan for resolving the outstanding issues from the F
 
 **Resolution:**
 1. Check what keys the metadata dict actually contains. The metadata likely has an explicit truncation or `trunc` field (or `f_order`, `dim`, `cutoff` fields). Determine the correct metadata key for the truncation label.
-2. If metadata contains a direct truncation string (e.g., `metadata["trunc"]` or similar), extract it directly.
+2. If metadata contains a direct truncation string (e.g., `metadata["trunc"]` or similar), extract it directly. (Feedback: truncation strings should be constructed by concatenating `metadata["truncation_mode"]` with `metadata["cutoff"]`.)
 3. If metadata only contains `cutoff`, then the current construction is arguably correct, but the issue suggests metadata does contain the truncation info. Inspect the actual `.json.gz` metadata to confirm.
 4. Replace the hard-coded construction with a direct metadata extraction in both `_load_plaquette_states` and `_load_hamiltonian`.
 5. Store the extracted `trunc_string` in `_DATA_METADATA` as part of the cached metadata if not already present.
@@ -50,15 +50,15 @@ This document describes the plan for resolving the outstanding issues from the F
 
 **Reference:** The old diagram from commit `5351001^` showed:
 ```
-         c7           c6
-         |            |
+                 c7           c6
+                 |            |
          c8 ---- v4 ----l3--- v3 ---- c5
                  |            |
                  l4           l2
                  |            |
          c1 ---- v1 ----l1--- v2 ---- c4
-         |            |
-         c2           c3
+                 |            |
+                 c2           c3
 ```
 
 The updated version should relabel using the per-vertex, FORDER-based naming.
@@ -170,7 +170,7 @@ The updated version should relabel using the per-vertex, FORDER-based naming.
    ```python
    super().__init__(dimensions, size, periodic_boundary_conds, forder=lattice_encoder.forder)
    ```
-3. Verify that the same pattern is used in `LatticeRegisters` (which the issue says already does this correctly — confirm and use as reference).
+3. Verify that the same pattern is used in `LatticeRegisters` (which the issue says already does this correctly — confirm and use as reference). (Feedback: there is a minor difference between these two classes which is acceptable. The `LatticeRegisters` class requires an explicit `forder` creation argument since that class doesn't take a `LatticeStateEncoder` argument. For `ParsedLatticeResult`, we can instead pull `forder` off of `lattice_encoder.lattice_def`.)
 4. Update the docstring if needed.
 
 ---
@@ -187,7 +187,7 @@ The updated version should relabel using the per-vertex, FORDER-based naming.
 2. Extract `f_order` from the metadata dict.
 3. Pass `forder=f_order` when constructing the `LatticeDef` in `configure_script_options`.
 4. Since Issue 4 removes the `forder` arg from `LatticeStateEncoder`, the F-order will flow through from the `LatticeDef` to the encoder automatically.
-5. Verify that `time_evol.py` and any other run scripts work correctly with this change.
+5. Verify that `time_evol.py` and any other run scripts work correctly with this change. (Feedback: don't bother with the other run scripts. Only `time_evol.py` is important.)
 
 ---
 
