@@ -1544,3 +1544,100 @@ def test_measure_plaquette_deduplicates_shared_registers():
     # With 0 vertex qubits, total measured qubits = 6 * 2 = 12.
     measure_ops = [inst for inst in circuit.data if inst.operation.name == "measure"]
     assert len(measure_ops) == 12
+
+
+def test_forder_aware_plaquette_consistency_check_d_2():
+    """Check that _plaquette_state_has_inconsistent_controls uses direction-based indexing.
+
+    With alt forder [-1,-2,1,2,3,-3], v2's ctrl dirs become (-2,+1) instead of (+1,-2).
+    A plaquette state that is physically consistent (all shared links match) must be
+    recognized as consistent regardless of forder.
+    """
+    print("Checking forder-aware plaquette consistency check for d=2.")
+    alt_forder = [-1, -2, 1, 2, 3, -3]
+    dim_string, trunc_string = "d=2", "T1"
+
+    lattice_def = LatticeDef(2, 2, forder=alt_forder)
+    lattice_encoder = LatticeStateEncoder(
+        IRREP_TRUNCATIONS[trunc_string],
+        PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string],
+        lattice=lattice_def)
+    circ_mgr = LatticeCircuitManager(lattice_encoder, [])
+
+    # Consistent plaquette state in alt-forder tuple representation.
+    # Alt forder ctrl dirs: v1=(-1,-2), v2=(-2,+1), v3=(+1,+2), v4=(-1,+2).
+    # Shared link constraints (size-2 periodic):
+    #   v1 dir-1 == v2 dir+1, v1 dir-2 == v4 dir+2,
+    #   v2 dir-2 == v3 dir+2, v3 dir+1 == v4 dir-1.
+    consistent_c_links = (
+        (THREE_BAR, THREE),     # v1: dir-1=THREE_BAR, dir-2=THREE
+        (ONE, THREE_BAR),       # v2: dir-2=ONE, dir+1=THREE_BAR (matches v1 dir-1)
+        (ONE, ONE),             # v3: dir+1=ONE, dir+2=ONE (matches v2 dir-2)
+        (ONE, THREE),           # v4: dir-1=ONE (matches v3 dir+1), dir+2=THREE (matches v1 dir-2)
+    )
+    consistent_plaquette = ((0, 0, 0, 0), (ONE, ONE, ONE, ONE), consistent_c_links)
+
+    result = circ_mgr._plaquette_state_has_inconsistent_controls(consistent_plaquette)
+    assert result is False, (
+        "A physically consistent plaquette state was incorrectly flagged as inconsistent. "
+        "The method may be using hard-coded indices instead of direction-based lookups."
+    )
+
+    # Also verify that a genuinely inconsistent state IS detected.
+    # Break the v1 dir-1 / v2 dir+1 shared link.
+    inconsistent_c_links = (
+        (THREE_BAR, THREE),     # v1: dir-1=THREE_BAR
+        (ONE, ONE),             # v2: dir+1=ONE (≠ THREE_BAR → inconsistent)
+        (ONE, ONE),
+        (ONE, THREE),
+    )
+    inconsistent_plaquette = ((0, 0, 0, 0), (ONE, ONE, ONE, ONE), inconsistent_c_links)
+    result_bad = circ_mgr._plaquette_state_has_inconsistent_controls(inconsistent_plaquette)
+    assert result_bad is True, "An inconsistent plaquette state was not detected."
+
+
+def test_forder_aware_duplicate_control_removal_d_2():
+    """Check that _discard_duplicate_controls_from_plaquette_state uses direction-based indexing.
+
+    With alt forder, v2's ctrl dirs are (-2,+1). The method should keep the dir-2 control
+    (first position in alt forder) and discard dir+1 (duplicate of v1's dir-1).
+    """
+    print("Checking forder-aware duplicate control removal for d=2.")
+    alt_forder = [-1, -2, 1, 2, 3, -3]
+    dim_string, trunc_string = "d=2", "T1"
+
+    lattice_def = LatticeDef(2, 2, forder=alt_forder)
+    lattice_encoder = LatticeStateEncoder(
+        IRREP_TRUNCATIONS[trunc_string],
+        PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string],
+        lattice=lattice_def)
+    circ_mgr = LatticeCircuitManager(lattice_encoder, [])
+
+    # Use same consistent state as the consistency check test.
+    consistent_c_links = (
+        (THREE_BAR, THREE),     # v1: dir-1=THREE_BAR, dir-2=THREE
+        (ONE, THREE_BAR),       # v2: dir-2=ONE, dir+1=THREE_BAR
+        (ONE, ONE),             # v3: dir+1=ONE, dir+2=ONE
+        (ONE, THREE),           # v4: dir-1=ONE, dir+2=THREE
+    )
+    plaquette = ((0, 0, 0, 0), (ONE, ONE, ONE, ONE), consistent_c_links)
+
+    result = circ_mgr._discard_duplicate_controls_from_plaquette_state(plaquette)
+    result_c_links = result[2]
+
+    # Expected: v1 keeps both; v2 keeps dir-2 only (index 0 in alt forder);
+    # v3 keeps dir+1 only (index 0); v4 drops both.
+    expected_c_links = (
+        (THREE_BAR, THREE),     # v1: both kept
+        (ONE,),                 # v2: keep dir-2 = c_links[1][0] = ONE
+        (ONE,),                 # v3: keep dir+1 = c_links[2][0] = ONE
+        (),                     # v4: all dropped
+    )
+
+    assert result_c_links == expected_c_links, (
+        f"Expected physical_c_links={expected_c_links}, got {result_c_links}. "
+        "The method may be using hard-coded indices instead of direction-based lookups."
+    )
+    # Vertex multiplicities and active links should be unchanged.
+    assert result[0] == plaquette[0]
+    assert result[1] == plaquette[1]

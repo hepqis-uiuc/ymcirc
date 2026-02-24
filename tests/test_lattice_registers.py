@@ -4,7 +4,7 @@ from itertools import product
 import pytest
 from ymcirc.conventions import IrrepBitmap, VertexMultiplicityBitmap
 from ymcirc._abstract.lattice_data import (
-    Plaquette, DimensionalitySpecifier,
+    LatticeDef, Plaquette, DimensionalitySpecifier,
     VERTICAL_DIR_LABEL, VERTICAL_NUM_VERTICES_D_THREE_HALVES
 )
 from ymcirc.lattice_registers import LatticeRegisters
@@ -815,3 +815,76 @@ def test_control_link_registers_have_correct_ordering():
         for control_link_register, expected_register_name in zip(result_control_link_registers_ordered, case_data["expected control link names ordered"]):
             print(f"Expected register {expected_register_name}, encountered {control_link_register.name}.")
             assert control_link_register.name == expected_register_name, "Link mismatch occured."
+
+
+def test_bad_forder_raises_value_error():
+    """Check that LatticeDef raises ValueError for invalid forder arguments."""
+    print("Checking that invalid forder values raise ValueError...")
+    bad_forders = [
+        [1, 2, 4, -1, -2, -4],    # Wrong elements (4 instead of 3)
+        [1, 2, 3, -1, -1, -3],    # Duplicate element (-1 appears twice, -2 missing)
+        [1, 2, -1, -2],           # Too short
+        [1, 2, 3, -1, -2, -3, 4], # Too long
+    ]
+    for bad_forder in bad_forders:
+        print(f"  Checking forder={bad_forder} raises ValueError.")
+        with pytest.raises(ValueError):
+            LatticeDef(dimensions=2, size=2, forder=bad_forder)
+
+    # Valid non-default forder should not raise.
+    valid_alt_forder = [-1, -2, 1, 2, 3, -3]
+    print(f"  Checking forder={valid_alt_forder} does not raise.")
+    lattice_def = LatticeDef(dimensions=2, size=2, forder=valid_alt_forder)
+    assert lattice_def.forder == valid_alt_forder
+
+
+def test_non_default_forder_changes_control_link_ordering():
+    """Check that a non-default forder changes the within-vertex ordering of control links when fetching plaquettes.
+
+    With alt forder [-1,-2,1,2,3,-3], control dirs at v2 change from (+1,-2) to (-2,+1),
+    and at v4 from (+2,-1) to (-1,+2). This swaps the register names at those positions
+    in control_links_ordered.
+    """
+    print("Checking that non-default forder changes control link ordering for d=2 small lattice.")
+    alt_forder = [-1, -2, 1, 2, 3, -3]
+    lattice_registers_alt = LatticeRegisters(2, 2, forder=alt_forder)
+
+    result_plaquette = lattice_registers_alt.get_plaquettes(
+        lattice_vector=(0, 0), e1=1, e2=2
+    )
+    result_names = [reg.name for reg in result_plaquette.control_links_ordered]
+
+    # With alt forder, v2 and v4 control link positions are swapped vs default.
+    expected_control_link_names_alt_forder = [
+        # v1: dirs (-1, -2) — same order as default (both negative, -1 at pos 0, -2 at pos 1)
+        "l:((1, 0), 1)",
+        "l:((0, 1), 2)",
+        # v2: dirs (-2, +1) — swapped vs default (+1, -2)
+        "l:((1, 1), 2)",
+        "l:((1, 0), 1)",
+        # v3: dirs (+1, +2) — same order as default (+1 at pos 2, +2 at pos 3)
+        "l:((1, 1), 1)",
+        "l:((1, 1), 2)",
+        # v4: dirs (-1, +2) — swapped vs default (+2, -1)
+        "l:((1, 1), 1)",
+        "l:((0, 1), 2)",
+    ]
+
+    assert len(result_names) == len(expected_control_link_names_alt_forder), \
+        "Length mismatch in number of control link registers."
+    for actual, expected in zip(result_names, expected_control_link_names_alt_forder):
+        print(f"  Expected {expected}, encountered {actual}.")
+        assert actual == expected, f"Control link register mismatch: expected {expected}, got {actual}."
+
+    # Also verify that the default-forder ordering is different at v2 and v4 positions.
+    lattice_registers_default = LatticeRegisters(2, 2)
+    default_plaquette = lattice_registers_default.get_plaquettes(
+        lattice_vector=(0, 0), e1=1, e2=2
+    )
+    default_names = [reg.name for reg in default_plaquette.control_links_ordered]
+    # v2 (positions 2,3) and v4 (positions 6,7) should differ.
+    assert result_names[2:4] != default_names[2:4], "v2 control links should differ between forders."
+    assert result_names[6:8] != default_names[6:8], "v4 control links should differ between forders."
+    # v1 (positions 0,1) and v3 (positions 4,5) should remain the same.
+    assert result_names[0:2] == default_names[0:2], "v1 control links should be the same."
+    assert result_names[4:6] == default_names[4:6], "v3 control links should be the same."

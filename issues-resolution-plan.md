@@ -273,10 +273,10 @@ These should be done in sequence:
 ### Phase 3: Tests
 These depend on Phase 2:
 
-- [ ] **Issue 10** — Bad `forder` validation test
-- [ ] **Issue 11a** — `get_plaquettes` with non-standard F-order
-- [ ] **Issue 11b** — Redundant control removal with non-standard F-order (depends on Issue 7)
-- [ ] **Issue 11c** — Encoder round-trip with non-standard F-order
+- [x] **Issue 10** — Bad `forder` validation test
+- [x] **Issue 11a** — `get_plaquettes` with non-standard F-order
+- [x] **Issue 11b** — Redundant control removal with non-standard F-order (depends on Issue 7)
+- [x] **Issue 11c** — Encoder round-trip with non-standard F-order
 
 ### Final step:
-- [ ] Run full test suite (`uv run pytest -v`) to verify no regressions.
+- [x] Run full test suite (`uv run pytest -v`) to verify no regressions.

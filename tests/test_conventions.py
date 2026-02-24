@@ -1207,3 +1207,69 @@ def test_decoding_fails_when_len_bit_string_doesnt_match_bitmaps():
     print(f"Checking plaquette bit string {bad_length_plaquette_bit_string} fails to decode.")
     with pytest.raises(ValueError) as e_info:
         lattice_encoder.decode_bit_string_to_plaquette_state(bad_length_plaquette_bit_string)
+
+
+def test_non_default_forder_plaquette_encode_decode_round_trip():
+    """Check that encode/decode round-trips correctly with non-default forder (Issue 11c).
+
+    Also verifies that the same physical state (same irreps on same physical links)
+    produces a different bit string when represented in a different forder convention,
+    because the within-vertex control link ordering changes.
+    """
+    print("Checking forder property and encode/decode round-trip with non-default forder.")
+    dim_string, trunc_string = "d=2", "T1"
+    alt_forder = [-1, -2, 1, 2, 3, -3]
+
+    # Create encoders with default and alt forder.
+    default_lattice_def = LatticeDef(2, 2)
+    alt_lattice_def = LatticeDef(2, 2, forder=alt_forder)
+
+    default_encoder = LatticeStateEncoder(
+        IRREP_TRUNCATIONS[trunc_string],
+        PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string],
+        lattice=default_lattice_def)
+    alt_encoder = LatticeStateEncoder(
+        IRREP_TRUNCATIONS[trunc_string],
+        PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string],
+        lattice=alt_lattice_def)
+
+    # Verify forder property.
+    assert default_encoder.forder == [1, 2, 3, -1, -2, -3], "Default forder property incorrect."
+    assert alt_encoder.forder == alt_forder, "Alt forder property incorrect."
+
+    # A test plaquette state where v2 has distinct ctrl link irreps.
+    # Default forder v2 ctrl dirs: (+1, -2) → tuple position 0 = dir+1, position 1 = dir-2.
+    # Physical state: v2 dir+1 = THREE, v2 dir-2 = THREE_BAR.
+    default_state = (
+        (0, 0, 0, 0),
+        (ONE, ONE, ONE, ONE),
+        ((ONE, ONE), (THREE, THREE_BAR), (ONE, ONE), (ONE, ONE))
+    )
+
+    # Same physical state in alt forder representation.
+    # Alt forder v2 ctrl dirs: (-2, +1) → tuple position 0 = dir-2, position 1 = dir+1.
+    # So v2 tuple becomes (THREE_BAR, THREE) — swapped.
+    alt_state = (
+        (0, 0, 0, 0),
+        (ONE, ONE, ONE, ONE),
+        ((ONE, ONE), (THREE_BAR, THREE), (ONE, ONE), (ONE, ONE))
+    )
+
+    # Encode each representation with its matching encoder.
+    default_bitstring = default_encoder.encode_plaquette_state_as_bit_string(default_state)
+    alt_bitstring = alt_encoder.encode_plaquette_state_as_bit_string(alt_state)
+
+    print(f"  Default forder bit string: {default_bitstring}")
+    print(f"  Alt forder bit string:     {alt_bitstring}")
+
+    # Same physical state, different forder → different bit strings.
+    assert default_bitstring != alt_bitstring, (
+        "Expected different bit strings for same physical state under different forders."
+    )
+
+    # Round-trip: decode each bit string back and verify we get the original state.
+    default_round_trip = default_encoder.decode_bit_string_to_plaquette_state(default_bitstring)
+    alt_round_trip = alt_encoder.decode_bit_string_to_plaquette_state(alt_bitstring)
+
+    assert default_round_trip == default_state, "Default forder round-trip failed."
+    assert alt_round_trip == alt_state, "Alt forder round-trip failed."
