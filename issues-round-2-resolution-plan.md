@@ -37,7 +37,7 @@ The `LazyDict` class (in `utilities.py`) does **not** cache loaded values — ev
 - **Without `refresh=True`:** If metadata was already populated (by any prior access to `PHYSICAL_PLAQUETTE_STATES` or `HAMILTONIAN_BOX_TERMS`), the cached metadata is returned without a disk read. This is correct — it avoids redundant I/O.
 - **With `refresh=True`:** The `LazyDict` access is forced, triggering a disk reload via `_load_plaquette_states`, which updates `_DATA_METADATA`. The fresh metadata is then returned. This works correctly.
 
-**Conclusion:** The refresh logic is correct. No changes needed. [Feedback: update the docstrings on both `get_data_metadata` and `LazyDict` to briefly explain this behavior.]
+**Conclusion:** The refresh logic is correct. Update the docstrings on both `get_data_metadata` and `LazyDict` to briefly explain this behavior — specifically that `LazyDict` does not cache and re-reads from disk on every access, and that `get_data_metadata` uses `_DATA_METADATA` as its cache layer to avoid redundant disk reads unless `refresh=True` is passed.
 
 ---
 
@@ -61,7 +61,7 @@ A "signature" is a length-4 tuple of per-vertex F-ordered control link tuples (m
 
 ### Step 1: Define type aliases
 
-Add type aliases in `conventions.py` [Feedback: define the `Signature` and `Plane` type aliases in ymcirc/_abstract/_lattice_data.py, and import them instead. However, do define the `MatrixElementValue` type alias in conventions.py.] to describe the matrix element value structure:
+Define the `Signature` and `Plane` type aliases in `ymcirc/_abstract/lattice_data.py` (alongside other lattice-related type aliases like `LatticeVector`, `LinkAddress`, etc.), and import them into `conventions.py`. Define the `MatrixElementValue` type alias in `conventions.py` (since it is specific to Hamiltonian data encoding, not lattice geometry). The type aliases are:
 
 ```python
 # A signature is a tuple of 4 per-vertex control link tuples, each sorted by FORDER.
@@ -82,7 +82,7 @@ When both `box_amplitude` and `box_dagger_amplitude` are floats (or 0), sum them
 When at least one is a dict, compute the box + box† sum by merging the dict structures:
 - Build a helper `_sum_matrix_element_values(a, b)` that handles combining two `MatrixElementValue`s:
   - `float + float` → `float` (existing behavior).
-  - `float + dict` or `dict + float` → need to add the float to every leaf value in the dict. However, this scenario represents mixing a plane-independent amplitude with a plane-dependent one, which is unusual. For now, raise `ValueError` since it indicates malformed data. [Feedback: Also include a "todo" comment stating that this behavior should be reconsidered in the future, and proposes the logic outline here.]
+  - `float + dict` or `dict + float` → need to add the float to every leaf value in the dict. However, this scenario represents mixing a plane-independent amplitude with a plane-dependent one, which is unusual. For now, raise `ValueError` since it indicates malformed data. Include a `# TODO` comment in the code stating that this behavior should be reconsidered in the future, outlining the proposed logic: broadcast the float to every leaf of the dict (i.e., add the float to each leaf value).
   - `dict + dict` → merge by key, recursively summing values for matching keys, and preserving keys that appear only in one dict.
 
 Update the docstring to reflect the new return type and dict handling.
@@ -94,14 +94,14 @@ Change the return type from `List[Tuple[str, str, float]]` to `Dict[Tuple[str, s
 The function currently iterates over the list returned by `compute_all_rotations_from_just_box_terms` and encodes plaquette states to bit strings. Update it to:
 1. Call `compute_all_rotations_from_just_box_terms` (which now returns a dict).
 2. Build a new dict with the same structure, but with encoded (bit string) keys.
-3. For the `mag_hamiltonian_matrix_element_threshold` filter: if the value is a `float`, apply the threshold as before. If the value is a `dict`, skip the threshold filter (the threshold doesn't apply to dict-valued elements since they contain multiple amplitudes — filtering individual amplitudes would require plane/signature context that isn't available here). [Feedback: DO NOT SKIP THE FILTER CHECK IN THIS CASE. When `MatrixElementValue` is a dict, go down to the leaf notes, and drop data whose leaves are `float` values below the threshold filter value. If all leaves are dropped for a given plane, then that plane can be dropped.]
+3. For the `mag_hamiltonian_matrix_element_threshold` filter: if the value is a `float`, apply the threshold as before. If the value is a `dict`, recurse into the dict structure and drop leaf `float` values whose absolute value is below the threshold. If all leaves are dropped for a given plane key, drop that plane key entirely. If all plane keys are dropped, drop the entire matrix element entry from the result dict.
 4. For the `only_include_elems_connected_to_electric_vacuum` filter: apply as before, based on the encoded bit strings.
 
 Remove the unused `forder` parameter from `load_magnetic_hamiltonian` (it was left over from a previous refactor and is not referenced in the function body).
 
 ### Step 4: Update `HamiltonianData` type alias in `circuit.py`
 
-Change `HamiltonianData` from `List[Tuple[str, str, float]]` to `Dict[Tuple[str, str], MatrixElementValue]`. Import `MatrixElementValue` from `conventions.py`. [Feedback: It'd be nice to define an `EncodedPlane` type alias and use that for the plane key instead.]
+Change `HamiltonianData` from `List[Tuple[str, str, float]]` to `Dict[Tuple[str, str], MatrixElementValue]`. Import `MatrixElementValue` from `conventions.py`. Also define an `EncodedPlane` type alias (e.g., `EncodedPlane = Tuple[str, str]`) in `circuit.py` and use it for the encoded plane key in `HamiltonianData`, improving readability of the type signature.
 
 ### Step 5: Update `LatticeCircuitManager`
 
@@ -114,15 +114,7 @@ Change `HamiltonianData` from `List[Tuple[str, str, float]]` to `Dict[Tuple[str,
   - If the value for that plane key is a `float`, include it (it matches all signatures for this plane).
   - If the value for that plane key is a `dict` keyed by signature, look up the current signature. If the signature key is not present, skip. Otherwise, include the float value.
 
-**`_build_mag_evol_circuit`:** Call `_resolve_hamiltonian_for_plaquette` before sorting into LP bins. This method currently uses `self._mag_hamiltonian` directly; it will need to accept plane and signature arguments (or have them set on `self` before the call). Since `_build_mag_evol_circuit` is called once per template and reused across plaquettes, and the plane/signature is determined per-plaquette in `apply_magnetic_trotter_step`, the resolution should happen at the call site in `apply_magnetic_trotter_step`.
-
-Actually, on closer inspection, the current architecture builds ONE template circuit and reuses it for all plaquettes (via `_cached_mag_evol_circuit`). With plane/signature-dependent matrix elements, different plaquettes could have different sets of matrix elements. This means:
-- If all matrix element values are plain floats (current d=3/2 and d=2 T1 data), the template circuit approach still works — one circuit for all plaquettes.
-- If some values are dicts, the circuit would need to be built per-plaquette (or per unique plane/signature combination). This is a significant architectural change.
-
-**Recommended approach for this phase:** In `apply_magnetic_trotter_step`, resolve the hamiltonian to a flat `List[Tuple[str, str, float]]` for each plaquette using `_resolve_hamiltonian_for_plaquette`. Cache the resolved list per unique (plane, signature) combination to avoid redundant circuit builds. Pass the resolved flat list to `_build_mag_evol_circuit`. This keeps the existing circuit-building logic intact and only adds a resolution layer on top. [Feedback: Good solution to cache per unique (plane, signature)! Can you clean up the description in this step so it just gives a description of the solution you landed on?]
-
-The caching in `apply_magnetic_trotter_step` should be updated: instead of caching a single template, cache per (plane, signature). For the common case where all values are floats, the resolution is a no-op and there's effectively one cache entry.
+**`apply_magnetic_trotter_step` and `_build_mag_evol_circuit`:** In `apply_magnetic_trotter_step`, for each plaquette, resolve the hamiltonian to a flat `List[Tuple[str, str, float]]` using `_resolve_hamiltonian_for_plaquette` with the current plaquette's plane and signature. Cache the resolved list and corresponding template circuit per unique `(plane, signature)` combination to avoid redundant circuit builds. Pass the resolved flat list to `_build_mag_evol_circuit`, which continues to work with the traditional flat format unchanged. For the common case where all matrix element values are plain floats, the resolution is a no-op and there is effectively one cache entry, preserving current performance.
 
 ### Step 6: Update tests in `test_conventions.py`
 
@@ -135,7 +127,7 @@ The caching in `apply_magnetic_trotter_step` should be updated: instead of cachi
 - **`run/functions.py`:** `initialize_lattice_tools` calls `load_magnetic_hamiltonian` and passes the result to `LatticeCircuitManager`. Since `LatticeCircuitManager` will accept the new dict type, this should work without changes to `functions.py` itself.
 - **`tests/test_circuit.py`:** Tests that construct `LatticeCircuitManager` with hand-crafted hamiltonian data (e.g., `test_measure_plaquette_deduplicates_shared_registers`) need to use the new dict format. Tests that call `load_magnetic_hamiltonian` will get the new dict format automatically.
 - **`tests/test_integration_mps.py`:** Uses `load_magnetic_hamiltonian` → `LatticeCircuitManager`. Should work after both are updated.
-- **`archived-work/`:** Low priority; update if convenient. [Feedback: DO NOT make any updates to the `archived-work` directory. It only exists for historical reasons.]
+- **`archived-work/`:** Do not modify. This directory exists for historical reasons only.
 
 ---
 
@@ -145,10 +137,10 @@ The items should be addressed in the following order:
 
 ### Phase A: Small items (no cross-dependencies)
 - [ ] **Small Item 1** — Rename `_flatten_hamiltonian_value` → `_normalize_hamiltonian_value`
-- [ ] **Small Item 2** — Audit refresh logic (no code changes needed — just confirm and document)
+- [ ] **Small Item 2** — Audit refresh logic (correct — update docstrings on `get_data_metadata` and `LazyDict`)
 
 ### Phase B: Type aliases and core function changes
-- [ ] **Complex Step 1** — Define `Signature`, `Plane`, `MatrixElementValue` type aliases in `conventions.py`
+- [ ] **Complex Step 1** — Define `Signature` and `Plane` type aliases in `_abstract/lattice_data.py`; define `MatrixElementValue` in `conventions.py`
 - [ ] **Complex Step 2** — Update `compute_all_rotations_from_just_box_terms` to return `Dict` and handle dict-valued matrix elements (implement `_sum_matrix_element_values` helper)
 - [ ] **Complex Step 3** — Update `load_magnetic_hamiltonian` return type to `Dict[Tuple[str, str], MatrixElementValue]`; remove unused `forder` parameter
 
