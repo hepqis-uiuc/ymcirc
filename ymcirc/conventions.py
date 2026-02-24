@@ -224,7 +224,7 @@ _DATA_METADATA: Dict[Tuple[str, str], dict] = {}
 def _flatten_hamiltonian_value(value) -> float:
     """Extract a single float from a possibly nested Hamiltonian value.
 
-    The new Hamiltonian JSON can have values that are:
+    The Hamiltonian JSON can have values that are:
     - A float (fully merged across all planes and signatures)
     - A dict where values are either floats or dicts of floats
 
