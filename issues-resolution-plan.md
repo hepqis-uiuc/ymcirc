@@ -9,13 +9,15 @@ This document describes the plan for resolving the outstanding issues from the F
 **File:** `ymcirc/conventions.py`
 **Location:** `_flatten_hamiltonian_value` (around line 224-241)
 
-**Problem:** The function currently checks `abs(f - floats[0]) < 1e-12` when it encounters a dict value, enforcing that all float values across planes/signatures are equal. This will break for nonperiodic or higher-dimensional lattices where the values legitimately differ. (Feedback: I forgot to provide a spec of what a "signature" is. It is a length-4 tuple whose elements are themselves tuples of the F-ordered control links at each vertex in a plaquette. This is already a pattern which is being used elsewhere in the codebase, make sure consumers use this pattern too when needed.)
+**Problem:** The function currently checks `abs(f - floats[0]) < 1e-12` when it encounters a dict value, enforcing that all float values across planes/signatures are equal. This will break for nonperiodic or higher-dimensional lattices where the values legitimately differ.
+
+**Definitions:** A "signature" is a length-4 tuple whose elements are themselves tuples of the F-ordered control links at each vertex in a plaquette. This pattern (per-vertex tuples of F-ordered control links) is already used elsewhere in the codebase (e.g., `Plaquette.control_links_per_vertex`), and downstream consumers should use it consistently.
 
 **Resolution:**
 1. Remove the equality enforcement check in the dict-value branch.
 2. Stop flattening dict values to a single float. Instead, when the value for a matrix element is a dict (keyed by plane/signature), preserve it as-is. When the value is already a plain float, keep it as a float. Downstream consumers that need to access matrix element values must be updated to handle both cases:
    - If the value is a float, use it directly (no plane/signature information required).
-   - If the value is a dict, the consumer must supply plane + signature information to look up the relevant float.
+   - If the value is a dict, the consumer must supply plane + signature information to look up the relevant float. The signature should be provided as a length-4 tuple of per-vertex F-ordered control link tuples, consistent with the existing pattern used in `Plaquette.control_links_per_vertex`.
 3. Update downstream consumers (`load_magnetic_hamiltonian`, `compute_all_rotations_from_just_box_terms`, and any other code that reads Hamiltonian matrix element values) to accept both float and dict values, requiring plane/signature selection when a dict is present.
 4. Update the docstring to reflect the new behavior.
 
