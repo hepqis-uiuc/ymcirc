@@ -9,7 +9,7 @@ This document describes the plan for resolving the outstanding issues from the F
 **File:** `ymcirc/conventions.py`
 **Location:** `_flatten_hamiltonian_value` (around line 224-241)
 
-**Problem:** The function currently checks `abs(f - floats[0]) < 1e-12` when it encounters a dict value, enforcing that all float values across planes/signatures are equal. This will break for nonperiodic or higher-dimensional lattices where the values legitimately differ.
+**Problem:** The function currently checks `abs(f - floats[0]) < 1e-12` when it encounters a dict value, enforcing that all float values across planes/signatures are equal. This will break for nonperiodic or higher-dimensional lattices where the values legitimately differ. (Feedback: I forgot to provide a spec of what a "signature" is. It is a length-4 tuple whose elements are themselves tuples of the F-ordered control links at each vertex in a plaquette. This is already a pattern which is being used elsewhere in the codebase, make sure consumers use this pattern too when needed.)
 
 **Resolution:**
 1. Remove the equality enforcement check in the dict-value branch.
