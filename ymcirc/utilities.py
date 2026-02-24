@@ -22,6 +22,11 @@ class LazyDict(Mapping):
     It makes working with dictionaries which have expensive-to-compute
     values less painful. Taken from:
     https://stackoverflow.com/questions/16669367/setup-dictionary-lazily.
+
+    Note: LazyDict does NOT cache loaded values. Every __getitem__ call
+    invokes the loader function with its argument, re-executing the load
+    from scratch. If caching is desired, it must be handled externally
+    (e.g., by the loader function itself storing results in a separate dict).
     """
 
     def __init__(self, *args, **kwargs):

@@ -231,11 +231,11 @@ IRREP_TRUNCATIONS: Dict[str, IrrepBitmap] = {
 _DATA_METADATA: Dict[Tuple[str, str], dict] = {}
 
 
-def _flatten_hamiltonian_value(value) -> Union[float, dict]:
-    """Coerce a Hamiltonian matrix element value to a float, or preserve it as a dict.
+def _normalize_hamiltonian_value(value) -> Union[float, dict]:
+    """Normalize a Hamiltonian matrix element value to a canonical Python type.
 
     The Hamiltonian JSON can have values that are:
-    - A float or int: returned as a float.
+    - A float or int: normalized to a float.
     - A dict (keyed by plane/signature): preserved as-is.
 
     Downstream consumers that receive a dict value must supply plane and
@@ -270,14 +270,23 @@ def _load_hamiltonian(path: Path) -> Dict:
     dim_string = metadata.get("dim", "")
     trunc_string = f"{metadata['truncation_mode']}{metadata['cutoff']}"
     _DATA_METADATA[(dim_string, trunc_string)] = metadata
-    return {key: _flatten_hamiltonian_value(value) for key, value in data.items()}
+    return {key: _normalize_hamiltonian_value(value) for key, value in data.items()}
 
 
 def get_data_metadata(dim_string: str, trunc_string: str, refresh: bool = False) -> dict:
     """Return the metadata dict for the given dimension and truncation.
 
-    Triggers data loading if not yet loaded. If refresh is True, forces a
-    fresh load from disk regardless of whether the metadata is already cached.
+    Uses _DATA_METADATA as a cache layer. On the first call for a given
+    (dim_string, trunc_string) pair, data is loaded from disk via the
+    PHYSICAL_PLAQUETTE_STATES LazyDict, which populates _DATA_METADATA as a
+    side effect. Subsequent calls return the cached value without disk access.
+
+    Note: LazyDict does not cache its loaded values internally — it re-reads
+    from disk on every __getitem__ call. The caching here is handled entirely
+    by _DATA_METADATA.
+
+    If refresh is True, a disk reload is forced regardless of whether metadata
+    is already cached, and _DATA_METADATA is updated with the fresh result.
     """
     key = (dim_string, trunc_string)
     if key not in _DATA_METADATA or refresh:

@@ -136,8 +136,8 @@ Change `HamiltonianData` from `List[Tuple[str, str, float]]` to `Dict[Tuple[str,
 The items should be addressed in the following order:
 
 ### Phase A: Small items (no cross-dependencies)
-- [ ] **Small Item 1** — Rename `_flatten_hamiltonian_value` → `_normalize_hamiltonian_value`
-- [ ] **Small Item 2** — Audit refresh logic (correct — update docstrings on `get_data_metadata` and `LazyDict`)
+- [x] **Small Item 1** — Rename `_flatten_hamiltonian_value` → `_normalize_hamiltonian_value`
+- [x] **Small Item 2** — Audit refresh logic (correct — update docstrings on `get_data_metadata` and `LazyDict`)
 
 ### Phase B: Type aliases and core function changes
 - [ ] **Complex Step 1** — Define `Signature` and `Plane` type aliases in `_abstract/lattice_data.py`; define `MatrixElementValue` in `conventions.py`
