@@ -256,11 +256,11 @@ The issues should be addressed in the following order, grouped by dependency:
 ### Phase 1: Foundation fixes (no cross-dependencies)
 These can be done in parallel:
 
-- [ ] **Issue 1** — `_flatten_hamiltonian_value` float enforcement
-- [ ] **Issue 2** — `trunc_string` from metadata
-- [ ] **Issue 3** — Restore d=2 diagram
-- [ ] **Issue 5** — Periodic boundary check in `decode_bit_string_to_plaquette_state`
-- [ ] **Issue 6** — `refresh` flag on `get_data_metadata`
+- [x] **Issue 1** — `_flatten_hamiltonian_value` float enforcement
+- [x] **Issue 2** — `trunc_string` from metadata
+- [x] **Issue 3** — Restore d=2 diagram
+- [x] **Issue 5** — Periodic boundary check in `decode_bit_string_to_plaquette_state`
+- [x] **Issue 6** — `refresh` flag on `get_data_metadata`
 
 ### Phase 2: F-order plumbing
 These should be done in sequence:

@@ -104,6 +104,16 @@ c_links = (
     (c_v4_dir+2, c_v4_dir-1)    # v4: dirs (+2, -1)
 )
 
+              c_v4_dir+2   c_v3_dir+2
+                   |            |
+c_v4_dir-1 ---- v4 ----l3--- v3 ---- c_v3_dir+1
+                   |            |
+                   l4           l2
+                   |            |
+c_v1_dir-1 ---- v1 ----l1--- v2 ---- c_v2_dir+1
+                   |            |
+              c_v1_dir-2   c_v2_dir-2
+
 Finally, it is a special quirk of d=3/2, T1 that there are no nontrivial singlet multiplicities,
 and those data can be ignored.
 
@@ -221,23 +231,22 @@ IRREP_TRUNCATIONS: Dict[str, IrrepBitmap] = {
 _DATA_METADATA: Dict[Tuple[str, str], dict] = {}
 
 
-def _flatten_hamiltonian_value(value) -> float:
-    """Extract a single float from a possibly nested Hamiltonian value.
+def _flatten_hamiltonian_value(value) -> Union[float, dict]:
+    """Coerce a Hamiltonian matrix element value to a float, or preserve it as a dict.
 
     The Hamiltonian JSON can have values that are:
-    - A float (fully merged across all planes and signatures)
-    - A dict where values are either floats or dicts of floats
+    - A float or int: returned as a float.
+    - A dict (keyed by plane/signature): preserved as-is.
 
-    For periodic lattices with a single plane, all values should agree.
-    Raises ValueError if they disagree.
+    Downstream consumers that receive a dict value must supply plane and
+    signature information to look up the relevant float. The signature should
+    be a length-4 tuple of per-vertex F-ordered control link tuples, matching
+    the pattern used in Plaquette.control_links_per_vertex.
     """
     if isinstance(value, (int, float)):
         return float(value)
     if isinstance(value, dict):
-        floats = [_flatten_hamiltonian_value(v) for v in value.values()]
-        if not all(abs(f - floats[0]) < 1e-12 for f in floats):
-            raise ValueError(f"Hamiltonian values disagree across planes/signatures: {floats}")
-        return floats[0]
+        return value
     raise TypeError(f"Unexpected Hamiltonian value type: {type(value)}")
 
 
@@ -246,29 +255,32 @@ def _load_plaquette_states(path: Path) -> List:
     data, metadata = json_loader(path)
     # Determine the (dim_string, trunc_string) key from metadata.
     dim_string = metadata.get("dim", "")
-    trunc_string = f"T{metadata.get('cutoff', '')}"
+    trunc_string = f"{metadata['truncation_mode']}{metadata['cutoff']}"
     _DATA_METADATA[(dim_string, trunc_string)] = metadata
     return data
 
 
 def _load_hamiltonian(path: Path) -> Dict:
-    """Load Hamiltonian matrix elements from a .json.gz file, flattening nested values and caching metadata."""
+    """Load Hamiltonian matrix elements from a .json.gz file and cache metadata.
+
+    Values are coerced to floats where possible; dict-valued entries (keyed by
+    plane/signature) are preserved as-is for downstream plane/signature-aware consumers.
+    """
     data, metadata = json_loader(path)
     dim_string = metadata.get("dim", "")
-    trunc_string = f"T{metadata.get('cutoff', '')}"
+    trunc_string = f"{metadata['truncation_mode']}{metadata['cutoff']}"
     _DATA_METADATA[(dim_string, trunc_string)] = metadata
-    # Flatten any nested dict values to plain floats.
-    flat_data = {key: _flatten_hamiltonian_value(value) for key, value in data.items()}
-    return flat_data
+    return {key: _flatten_hamiltonian_value(value) for key, value in data.items()}
 
 
-def get_data_metadata(dim_string: str, trunc_string: str) -> dict:
+def get_data_metadata(dim_string: str, trunc_string: str, refresh: bool = False) -> dict:
     """Return the metadata dict for the given dimension and truncation.
 
-    Triggers data loading if not yet loaded.
+    Triggers data loading if not yet loaded. If refresh is True, forces a
+    fresh load from disk regardless of whether the metadata is already cached.
     """
     key = (dim_string, trunc_string)
-    if key not in _DATA_METADATA:
+    if key not in _DATA_METADATA or refresh:
         # Force load by accessing the lazy dict.
         _ = PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string]
     return _DATA_METADATA[key]
@@ -342,7 +354,7 @@ def load_magnetic_hamiltonian(
     return mag_hamiltonian
 
 
-def compute_all_rotations_from_just_box_terms(box_terms: Dict[Tuple[PlaquetteState, PlaquetteState], float]) -> List[Tuple[PlaquetteState, PlaquetteState, float]]:
+def compute_all_rotations_from_just_box_terms(box_terms: Dict[Tuple[PlaquetteState, PlaquetteState], Union[float, dict]]) -> List[Tuple[PlaquetteState, PlaquetteState, float]]:
     """
     Compute the set of Givens rotations needed to simulate a magnetic Hamiltonian.
 
@@ -352,6 +364,10 @@ def compute_all_rotations_from_just_box_terms(box_terms: Dict[Tuple[PlaquetteSta
     Returns a list of 3-tuples whose first two elements are final and initial plaquette states,
     and whose final element is the numerical value of the box + box^dagger
     matrix element.
+
+    Raises NotImplementedError if any matrix element value is a dict (keyed by plane/signature).
+    In that case, the caller must resolve the dict to a float by supplying plane and signature
+    context before calling this function.
     """
     # Get list of all state transitions appearing in box and box dagger, with no repetition for ordering.
     all_transitions_unordered = []
@@ -365,6 +381,12 @@ def compute_all_rotations_from_just_box_terms(box_terms: Dict[Tuple[PlaquetteSta
     for state_1, state_2 in all_transitions_unordered:
         box_amplitude = box_terms[(state_1, state_2)] if (state_1, state_2) in box_terms.keys() else 0
         box_dagger_amplitude = box_terms[(state_2, state_1)] if (state_2, state_1) in box_terms.keys() else 0
+        if isinstance(box_amplitude, dict) or isinstance(box_dagger_amplitude, dict):
+            raise NotImplementedError(
+                "Hamiltonian matrix elements keyed by plane/signature (dict values) are not yet "
+                "supported in compute_all_rotations_from_just_box_terms. Resolve each dict value "
+                "to a float by supplying plane and signature context before calling this function."
+            )
         box_plus_box_dagger_rotations.append((state_1, state_2, box_amplitude + box_dagger_amplitude))
 
     return box_plus_box_dagger_rotations
@@ -661,7 +683,15 @@ class LatticeStateEncoder:
         The controls are grouped per-vertex, with each vertex's controls sorted
         by FORDER. If unable to decode to physical state data, returns None for
         that degree of freedom.
+
+        Raises NotImplementedError if the lattice does not use periodic boundary
+        conditions, since decoding logic for nonperiodic lattices is not yet
+        implemented.
         """
+        if not self._lattice.periodic_boundary_conds:
+            raise NotImplementedError(
+                "Decoding plaquette states for nonperiodic lattices is not yet supported."
+            )
         # Validate input.
         if self._expected_plaquette_bit_string_length != len(bit_string):
             raise ValueError("Vertex and link bitmaps are inconsistent with length of\n"
