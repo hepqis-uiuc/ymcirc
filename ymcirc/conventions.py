@@ -405,7 +405,6 @@ class LatticeStateEncoder:
             link_bitmap: IrrepBitmap,
             physical_plaquette_states: List[PlaquetteState],
             lattice: LatticeDef,
-            forder: List[int] | None = None
     ):
         """
         Create a LatticeStateEncoder for states on lattice using link_bitmap and list of physical plaquette states.
@@ -415,7 +414,7 @@ class LatticeStateEncoder:
         - physical_plaquette_states: a list of physical plaquette states.
         - lattice: a LatticeDef or child class. This provides information
             about the size of the lattice, boundary conditions, dimensionality, etc.
-        - forder: optional half-link ordering convention. Defaults to [1, 2, 3, -1, -2, -3].
+            The F-order convention is inherited from lattice.forder.
 
         The link bitmap is assumed to have unique bit strings as values,
         and the desired link iWeight tuple as keys as keys. A multiplicity bitmap is
@@ -489,11 +488,11 @@ class LatticeStateEncoder:
         self._bit_string_to_link_map = {bit_string: link for link, bit_string in link_bitmap.items()}
         # TODO The following conditional is a placeholder to deal with LatticeDef not yet supporting size tuples, remove eventually.
         if lattice.dim == 1.5:
-            self._lattice = LatticeDef(lattice.dim, lattice.shape[0], lattice.periodic_boundary_conds, forder=forder)
+            self._lattice = LatticeDef(lattice.dim, lattice.shape[0], lattice.periodic_boundary_conds, forder=lattice.forder)
         elif not all([axis_length == lattice.shape[0] for axis_length in lattice.shape]):
             raise NotImplementedError("Lattices with different lengths along different dimensions not yet supported.")
         else:
-            self._lattice = LatticeDef(lattice.dim, lattice.shape[0], lattice.periodic_boundary_conds, forder=forder)
+            self._lattice = LatticeDef(lattice.dim, lattice.shape[0], lattice.periodic_boundary_conds, forder=lattice.forder)
 
         # Retain plaquettes states used to create for repr method.
         self.__physical_plaquette_states = copy.deepcopy(physical_plaquette_states)
@@ -531,6 +530,11 @@ class LatticeStateEncoder:
     def expected_vertex_bit_string_length(self) -> int:
         """Return the length of vertex bit strings the encoder expects."""
         return self._expected_vertex_bit_string_length
+
+    @property
+    def forder(self) -> List[int]:
+        """Return the half-link ordering convention (FORDER), inherited from the lattice argument."""
+        return self._lattice.forder
 
     @property
     def lattice_def(self) -> LatticeDef:

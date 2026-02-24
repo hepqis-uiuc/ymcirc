@@ -265,10 +265,10 @@ These can be done in parallel:
 ### Phase 2: F-order plumbing
 These should be done in sequence:
 
-- [ ] **Issue 4** — Remove redundant `forder` arg from `LatticeStateEncoder` (must come before Issue 9, which depends on F-order flowing through `LatticeDef`)
-- [ ] **Issue 8** — `ParsedLatticeResult` pass `forder` to superclass init
-- [ ] **Issue 7** — Fix hard-coded control link indexing in `LatticeCircuitManager` (most complex change)
-- [ ] **Issue 9** — `initialize_lattice_tools` reads F-order from metadata (depends on Issues 4 and 7)
+- [x] **Issue 4** — Remove redundant `forder` arg from `LatticeStateEncoder` (must come before Issue 9, which depends on F-order flowing through `LatticeDef`)
+- [x] **Issue 8** — `ParsedLatticeResult` pass `forder` to superclass init
+- [x] **Issue 7** — Fix hard-coded control link indexing in `LatticeCircuitManager` (most complex change)
+- [x] **Issue 9** — `initialize_lattice_tools` reads F-order from metadata (depends on Issues 4 and 7)
 
 ### Phase 3: Tests
 These depend on Phase 2:

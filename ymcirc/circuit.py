@@ -531,6 +531,16 @@ class LatticeCircuitManager:
         else:  # No need to update the circuit parameters if we set the mag evolution to use unique ones per rotation.
             plaquette_local_rotation_circuit = plaquette_local_rotation_circuit_template
 
+        # Pre-compute forder-aware skip indices for d=2 on small periodic lattices.
+        _v2_skip_ctrl_idx = None
+        _v3_skip_ctrl_idx = None
+        if self._lattice_is_small and self._lattice_is_periodic and self._encoder.lattice_def.dim == 2:
+            _ctrl_dirs = Plaquette.compute_control_link_dirs_per_vertex(
+                2, (1, 2), self._encoder.forder
+            )
+            _v2_skip_ctrl_idx = _ctrl_dirs[1].index(1)   # skip the dir +e1 control at v2
+            _v3_skip_ctrl_idx = _ctrl_dirs[2].index(2)   # skip the dir +e2 control at v3
+
         # Stitch magnetic Hamiltonian evolution circuit onto LatticeRegisters.
         # Vertex iteration loop.
         for vertex_address in lattice.vertex_addresses:
@@ -576,12 +586,11 @@ class LatticeCircuitManager:
                                     # Skip v2 (idx 1) and v4 (idx 3) entirely.
                                     should_skip = vertex_idx in (1, 3)
                                 case 2:
-                                    # v2: skip first control (idx 0), keep second (idx 1)
-                                    # v3: skip second control (idx 1), keep first (idx 0)
-                                    # v4: skip all
+                                    # v2: skip dir +e1 control; v3: skip dir +e2 control; v4: skip all.
+                                    # Skip indices are forder-aware, pre-computed before the vertex loop.
                                     should_skip = (
-                                        (vertex_idx == 1 and ctrl_idx == 0) or
-                                        (vertex_idx == 2 and ctrl_idx == 1) or
+                                        (vertex_idx == 1 and ctrl_idx == _v2_skip_ctrl_idx) or
+                                        (vertex_idx == 2 and ctrl_idx == _v3_skip_ctrl_idx) or
                                         (vertex_idx == 3)
                                     )
                                 case _:
@@ -806,8 +815,9 @@ class LatticeCircuitManager:
 
         For d=3/2 with per-vertex c_links: v1 controls == v2 controls, v3 controls == v4 controls.
 
-        For d=2 with per-vertex c_links and default FORDER [1,2,3,-1,-2,-3]:
-        Control dirs per vertex: v1=(-1,-2), v2=(+1,-2), v3=(+1,+2), v4=(+2,-1).
+        For d=2 with per-vertex c_links and (for example) default FORDER [1,2,3,-1,-2,-3]:
+        Control dirs per vertex: v1=(-1,-2), v2=(+1,-2), v3=(+1,+2), v4=(+2,-1). Note that
+        this method is FORDER-aware.
         On size-2 periodic lattice, physical link sharing:
         - v1[0]=dir(-1) shares with v2[0]=dir(+1)
         - v1[1]=dir(-2) shares with v4[0]=dir(+2)
@@ -828,11 +838,19 @@ class LatticeCircuitManager:
                     c_links[2] != c_links[3]
                 )
             case 2:
+                # Use direction-based lookups so results are correct for any F-order.
+                # For plane (e1=1, e2=2) on a size-2 periodic lattice, the four shared
+                # physical links are: (v1 dir-e1, v2 dir+e1), (v1 dir-e2, v4 dir+e2),
+                # (v2 dir-e2, v3 dir+e2), (v3 dir+e1, v4 dir-e1).
+                ctrl_dirs = Plaquette.compute_control_link_dirs_per_vertex(
+                    2, (1, 2), self._encoder.forder
+                )
+                e1, e2 = 1, 2
                 plaquette_state_has_inconsistent_controls = (
-                    (c_links[0][0] != c_links[1][0]) or
-                    (c_links[0][1] != c_links[3][0]) or
-                    (c_links[1][1] != c_links[2][1]) or
-                    (c_links[2][0] != c_links[3][1])
+                    (c_links[0][ctrl_dirs[0].index(-e1)] != c_links[1][ctrl_dirs[1].index(e1)]) or
+                    (c_links[0][ctrl_dirs[0].index(-e2)] != c_links[3][ctrl_dirs[3].index(e2)]) or
+                    (c_links[1][ctrl_dirs[1].index(-e2)] != c_links[2][ctrl_dirs[2].index(e2)]) or
+                    (c_links[2][ctrl_dirs[2].index(e1)] != c_links[3][ctrl_dirs[3].index(-e1)])
                 )
             case _:
                 raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
@@ -851,6 +869,8 @@ class LatticeCircuitManager:
         - v3: only first (dir +1) is unique; second (dir +2) duplicates v2[1]
         - v4: both duplicate earlier entries
 
+        Note that this method is FORDER-aware.
+
         Since this only makes sense on a small, periodic lattice, a ValueError
         is raised if the lattice is not small and periodic.
         """
@@ -862,11 +882,19 @@ class LatticeCircuitManager:
             case 1.5:
                 physical_c_links = (c_links[0], (), c_links[2], ())
             case 2:
+                # Keep first occurrence of each shared physical link.
+                # For plane (e1=1, e2=2): v1 keeps both; v2 keeps dir -e2 only
+                # (dir +e1 duplicates v1's dir -e1); v3 keeps dir +e1 only
+                # (dir +e2 duplicates v2's dir -e2); v4 drops both.
+                ctrl_dirs = Plaquette.compute_control_link_dirs_per_vertex(
+                    2, (1, 2), self._encoder.forder
+                )
+                e1, e2 = 1, 2
                 physical_c_links = (
-                    c_links[0],                      # v1: both controls are first occurrences
-                    (c_links[1][1],),                 # v2: only second (dir -2) is unique
-                    (c_links[2][0],),                 # v3: only first (dir +1) is unique
-                    ()                                # v4: both duplicate earlier entries
+                    c_links[0],
+                    (c_links[1][ctrl_dirs[1].index(-e2)],),
+                    (c_links[2][ctrl_dirs[2].index(e1)],),
+                    ()
                 )
             case _:
                 raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")

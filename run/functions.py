@@ -26,7 +26,8 @@ from typing import Any, Set
 from ymcirc._abstract import LatticeDef
 from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.conventions import (
-    IRREP_TRUNCATIONS, LatticeStateEncoder, load_magnetic_hamiltonian, PHYSICAL_PLAQUETTE_STATES)
+    IRREP_TRUNCATIONS, LatticeStateEncoder, load_magnetic_hamiltonian, PHYSICAL_PLAQUETTE_STATES,
+    get_data_metadata)
 from ymcirc.electric_helper import convert_bitstring_to_evalue, electric_hamiltonian
 from ymcirc.lattice_registers import LatticeRegisters
 
@@ -217,10 +218,16 @@ def configure_script_options(
     # Automatically set some additional options based on user input above.
     options["dimensions"] = 1.5 if (dimensionality_string == "d=3/2" or dimensionality_string == "d=1.5") else int(dimensionality_string[2:])
     options["link_bitmap"] = IRREP_TRUNCATIONS[options["truncation_string"]]
+
+    # Trigger lazy data load, then read f_order from metadata so the LatticeDef
+    # uses the same F-order convention the data was generated with.
+    _ = PHYSICAL_PLAQUETTE_STATES[options["dimensionality_string"]][options["truncation_string"]]
+    _metadata = get_data_metadata(options["dimensionality_string"], options["truncation_string"])
     options["lattice_def"] = LatticeDef(
         dimensions=options["dimensions"],
         size=options["lattice_size"],
-        periodic_boundary_conds=options["use_periodic_boundary_conds"])
+        periodic_boundary_conds=options["use_periodic_boundary_conds"],
+        forder=_metadata.get("f_order", None))
 
     return options
 

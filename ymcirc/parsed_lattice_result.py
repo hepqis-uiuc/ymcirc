@@ -49,7 +49,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
             periodic_boundary_conds: bool | tuple[bool, ...] = True,
             ):
         """Parse through global_lattice_measurement_bitstring and convert to i-weights."""
-        super().__init__(dimensions, size, periodic_boundary_conds)
+        super().__init__(dimensions, size, periodic_boundary_conds, forder=lattice_encoder.lattice_def.forder)
 
         # Do some validation.
         expected_num_bits = self.n_links * lattice_encoder.expected_link_bit_string_length + self.n_vertices * lattice_encoder.expected_vertex_bit_string_length
@@ -264,7 +264,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         lattice_def = encoder.lattice_def
         size = lattice_def.shape[0]
         instance = cls.__new__(cls)
-        LatticeDef.__init__(instance, lattice_def.dim, size, lattice_def.periodic_boundary_conds)
+        LatticeDef.__init__(instance, lattice_def.dim, size, lattice_def.periodic_boundary_conds, forder=lattice_def.forder)
 
         instance._decoded_links = {}
         instance._decoded_vertices = {}
