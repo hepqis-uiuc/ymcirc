@@ -140,9 +140,9 @@ The items should be addressed in the following order:
 - [x] **Small Item 2** — Audit refresh logic (correct — update docstrings on `get_data_metadata` and `LazyDict`)
 
 ### Phase B: Type aliases and core function changes
-- [ ] **Complex Step 1** — Define `Signature` and `Plane` type aliases in `_abstract/lattice_data.py`; define `MatrixElementValue` in `conventions.py`
-- [ ] **Complex Step 2** — Update `compute_all_rotations_from_just_box_terms` to return `Dict` and handle dict-valued matrix elements (implement `_sum_matrix_element_values` helper)
-- [ ] **Complex Step 3** — Update `load_magnetic_hamiltonian` return type to `Dict[Tuple[str, str], MatrixElementValue]`; remove unused `forder` parameter
+- [x] **Complex Step 1** — Define `Signature` and `Plane` type aliases in `_abstract/lattice_data.py`; define `MatrixElementValue` in `conventions.py`
+- [x] **Complex Step 2** — Update `compute_all_rotations_from_just_box_terms` to return `Dict` and handle dict-valued matrix elements (implement `_sum_matrix_element_values` helper)
+- [x] **Complex Step 3** — Update `load_magnetic_hamiltonian` return type to `Dict[Tuple[str, str], MatrixElementValue]`; remove unused `forder` parameter
 
 ### Phase C: Circuit manager updates
 - [ ] **Complex Step 4** — Update `HamiltonianData` type alias in `circuit.py`

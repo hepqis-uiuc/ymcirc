@@ -15,6 +15,18 @@ VertexAddress = LatticeVector
 LinkUnitVectorLabel = int
 LinkAddress = Tuple[LatticeVector, LinkUnitVectorLabel]
 DimensionalitySpecifier = Union[int, float, str]  # Allows specification of d = 3/2 via strings or floats.
+# A pair of lattice directions defining a plaquette plane.
+Plane = Tuple[int, int]
+# A signature is a tuple of 4 per-vertex control link tuples, each sorted by FORDER.
+# Each inner tuple contains i-weight tuples (Tuple[int, int, int]) for the control links
+# at that vertex. This is equivalent to Tuple[VertexControlLinks, ...] from conventions.py,
+# but defined here in terms of primitives to avoid circular imports.
+Signature = Tuple[
+    Tuple[Tuple[int, int, int], ...],
+    Tuple[Tuple[int, int, int], ...],
+    Tuple[Tuple[int, int, int], ...],
+    Tuple[Tuple[int, int, int], ...],
+]
 
 # Constants
 VERTICAL_DIR_LABEL: LinkUnitVectorLabel = 2
