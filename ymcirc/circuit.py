@@ -441,7 +441,10 @@ class LatticeCircuitManager:
         Implementation is performed by iterating over every lattice vertex. At each vertex,
         there's an additional iteration over every "positive" plaquette.
         For each such plaquette, the plaquette-local magnetic Trotter step
-        is appended to the circuit.
+        is appended to the circuit. This local Trotter step circuit is
+        composed of Givens rotations constructed from all Hamiltonian
+        matrix elements which match the current plaquette's plane and
+        F-order signature.
 
         Note that this modifies master_circuit directly rather than returning
         a new circuit!
