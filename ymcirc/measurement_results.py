@@ -36,7 +36,7 @@ class MeasurementResults:
         for state_key, n_obs in counts.items():
             if isinstance(state_key, str):
                 lattice_has_non_tuple_size_param = len(set(encoder.lattice_def.shape)) == 1 # Implies lattice was created with an integer "size" parameter.
-                if not lattice_has_non_tuple_size_param:
+                if not lattice_has_non_tuple_size_param and encoder.lattice_def.dim != 1.5: # d=3/2 lattices are an exception to this logic since by definition they are wider than they are tall.
                     raise NotImplementedError("Converting state bit strings for lattices with tuple-valued shape not yet supported.")
                 size = encoder.lattice_def.shape[0]
                 plr_from_state_key = ParsedLatticeResult(encoder.lattice_def.dim, size, state_key, encoder, encoder.lattice_def.periodic_boundary_conds)
