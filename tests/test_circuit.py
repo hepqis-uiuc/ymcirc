@@ -77,9 +77,9 @@ def test_create_blank_full_lattice_circuit_has_promised_register_order():
     # Hamiltonian bitstrings take the form vertex_bits + active link bits + c link bits.
     # For the "no_vertices" data, vertex_bits is the empty string. The numbers of
     # Vertex bits and link bits can be inferred from the test data (encode integer in bitstring, use link bitmap).
-    mag_hamiltonian_2d = [("1110111100000000", "0001000011111111", -0.33), ("0000111100000000", "1111000011111111", 1.0)]
-    mag_hamiltonian_3halves = [("1010010111110000", "0000000011110000", 1.0), ("0000000010100101", "1010101000000001", 1.0)]
-    mag_hamiltonian_3halves_no_vertices = [("10101111", "11110010", 1.0), ("10010000", "10000001", 1.0), ("11111101", "00000101", 1.0)]
+    mag_hamiltonian_2d = {("1110111100000000", "0001000011111111"): -0.33, ("0000111100000000", "1111000011111111"): 1.0}
+    mag_hamiltonian_3halves = {("1010010111110000", "0000000011110000"): 1.0, ("0000000010100101", "1010101000000001"): 1.0}
+    mag_hamiltonian_3halves_no_vertices = {("10101111", "11110010"): 1.0, ("10010000", "10000001"): 1.0, ("11111101", "00000101"): 1.0}
     # Registers for lattices with size 3
     expected_register_order_2d = [
         'v:(0, 0)', 'l:((0, 0), 1)', 'l:((0, 0), 2)',
@@ -203,9 +203,9 @@ def test_apply_magnetic_trotter_step_d_3_2_large_lattice():
     #          mapping each substring in the plaquette encoding onto actual registers in the lattice.
     #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or projector operator involved determines the control states.
     # Ask yourself if you REALLY feel like doing all that before mucking about with this test data.
-    dummy_mag_hamiltonian = [
-        ("00100000" + "00000000", "01010100" + "10011010", 0.33)  # One matrix element, plaquette only has a_link and c_link substrings.
-    ]
+    dummy_mag_hamiltonian = {
+        ("00100000" + "00000000", "01010100" + "10011010"): 0.33  # One matrix element, plaquette only has a_link and c_link substrings.
+    }
     dummy_phys_states = [
         (  # Matches the first encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
@@ -319,10 +319,10 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice():
     #          mapping each substring in the plaquette encoding onto actual registers in the lattice.
     #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or projector operator involved determines the control states (raising to get to final state is on, projector onto 1 is on).
     # Ask yourself if you REALLY feel like doing all that before mucking about with this test data.
-    dummy_mag_hamiltonian = [
-        ("00100001" + "00000000", "01010110" + "10011010", 0.33),  # One matrix element, plaquette only has a_link and c_link substrings. Should get filtered out based on c_link consistency.
-        ("00100001" + "00000000", "01010110" + "10100000", 0.33)  # One matrix element, plaquette only has a_link and c_link substrings. Should not get filtered out based on c_link consistency.
-    ]
+    dummy_mag_hamiltonian = {
+        ("00100001" + "00000000", "01010110" + "10011010"): 0.33,  # One matrix element, plaquette only has a_link and c_link substrings. Should get filtered out based on c_link consistency.
+        ("00100001" + "00000000", "01010110" + "10100000"): 0.33  # One matrix element, plaquette only has a_link and c_link substrings. Should not get filtered out based on c_link consistency.
+    }
     dummy_phys_states = [
         (  # Matches the first encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
@@ -437,9 +437,9 @@ def test_apply_magnetic_trotter_step_d_2_large_lattice():
     #          mapping each substring in the plaquette encoding onto actual registers in the lattice.
     #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or projector operator involved determines the control states.
     # Ask yourself if you REALLY feel like doing all that before mucking about with this test data.
-    dummy_mag_hamiltonian = [
-        ("0000" + "00100000" + "0000000000000010", "0010" + "01010100" + "1001101000000010", 0.33)  # One matrix element, plaquette has v, a_link, and c_link substrings.
-    ]
+    dummy_mag_hamiltonian = {
+        ("0000" + "00100000" + "0000000000000010", "0010" + "01010100" + "1001101000000010"): 0.33  # One matrix element, plaquette has v, a_link, and c_link substrings.
+    }
     dummy_phys_states = [
         (  # Matches the first encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
@@ -583,10 +583,10 @@ def test_apply_magnetic_trotter_step_d_2_small_lattice():
     #          mapping each substring in the plaquette encoding onto actual registers in the lattice.
     #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or projector operator involved determines the control states.
     # Ask yourself if you REALLY feel like doing all that before mucking about with this test data.
-    dummy_mag_hamiltonian = [
-        ("0000" + "00100000" + "0000000000000010", "0010" + "01010100" + "1001101000000010", 0.33), # One matrix element, plaquette has v, a_link, and c_link substrings. Should get filtered out based on c_link consistency.
-        ("0000" + "00100000" + "0000000010000010", "0010" + "01010100" + "1001101000100100", 0.33)  # One matrix element, plaquette has v, a_link, and c_link substrings. Should not get filtered out based on c_link consistency.
-    ]
+    dummy_mag_hamiltonian = {
+        ("0000" + "00100000" + "0000000000000010", "0010" + "01010100" + "1001101000000010"): 0.33, # One matrix element, plaquette has v, a_link, and c_link substrings. Should get filtered out based on c_link consistency.
+        ("0000" + "00100000" + "0000000010000010", "0010" + "01010100" + "1001101000100100"): 0.33  # One matrix element, plaquette has v, a_link, and c_link substrings. Should not get filtered out based on c_link consistency.
+    }
     dummy_phys_states = [
         (  # Matches the first encoded state in the dummy magnetic hamiltonian that isn't discarded.
             (0, 0, 0, 0),
@@ -689,7 +689,7 @@ def test_apply_magnetic_trotter_step_d_2_small_lattice():
 def test_apply_electric_trotter_step_d_3_2_lattice():
     print("Checking that the electric trotter step acts as expected on a T2 3x1 lattice.")
     dummy_electric_hamiltonian = [0.33,0.66,0.66,0.99,0.66,0.99,0.99,0.33]
-    dummy_mag_hamiltonian = []
+    dummy_mag_hamiltonian = {}
     dummy_phys_states = [
         (
             (0,0,0,0),
@@ -878,10 +878,10 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice_with_ancillas():
     #          mapping each substring in the plaquette encoding onto actual registers in the lattice.
     #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or projector operator involved determines the control states (raising to get to final state is on, projector onto 1 is on).
     # Ask yourself if you REALLY feel like doing all that before mucking about with this test data.
-    dummy_mag_hamiltonian = [
-        ("00100001" + "00000000", "01010110" + "10011010", 0.33),  # One matrix element, plaquette only has a_link and c_link substrings. Should get filtered out based on c_link consistency.
-        ("00100001" + "00000000", "01010110" + "10100000", 0.33)  # One matrix element, plaquette only has a_link and c_link substrings. Should not get filtered out based on c_link consistency.
-    ]
+    dummy_mag_hamiltonian = {
+        ("00100001" + "00000000", "01010110" + "10011010"): 0.33,  # One matrix element, plaquette only has a_link and c_link substrings. Should get filtered out based on c_link consistency.
+        ("00100001" + "00000000", "01010110" + "10100000"): 0.33  # One matrix element, plaquette only has a_link and c_link substrings. Should not get filtered out based on c_link consistency.
+    }
     dummy_phys_states = [
         (  # Matches the first encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
@@ -1003,10 +1003,10 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice_with_ancillas():
 
 def test_num_ancillas_setter_works_nonnegative_ints():
     # Some minimal data to create a LatticeCircuitManager.
-    dummy_mag_hamiltonian = [
-        ("00100001" + "00000000", "01010110" + "10011010", 0.33),
-        ("00100001" + "00000000", "01010110" + "10100000", 0.33)
-    ]
+    dummy_mag_hamiltonian = {
+        ("00100001" + "00000000", "01010110" + "10011010"): 0.33,
+        ("00100001" + "00000000", "01010110" + "10100000"): 0.33
+    }
     dummy_phys_states = [
         (
             (0, 0, 0, 0),
@@ -1045,10 +1045,10 @@ def test_num_ancillas_setter_works_nonnegative_ints():
 
 def test_num_ancillas_setter_fails_for_non_int():
     # Some minimal data to create a LatticeCircuitManager.
-    dummy_mag_hamiltonian = [
-        ("00100001" + "00000000", "01010110" + "10011010", 0.33),
-        ("00100001" + "00000000", "01010110" + "10100000", 0.33)
-    ]
+    dummy_mag_hamiltonian = {
+        ("00100001" + "00000000", "01010110" + "10011010"): 0.33,
+        ("00100001" + "00000000", "01010110" + "10100000"): 0.33
+    }
     dummy_phys_states = [
         (
             (0, 0, 0, 0),
@@ -1081,10 +1081,10 @@ def test_num_ancillas_setter_fails_for_non_int():
 
 def test_num_ancillas_setter_fails_for_negative_int():
     # Some minimal data to create a LatticeCircuitManager.
-    dummy_mag_hamiltonian = [
-        ("00100001" + "00000000", "01010110" + "10011010", 0.33),
-        ("00100001" + "00000000", "01010110" + "10100000", 0.33)
-    ]
+    dummy_mag_hamiltonian = {
+        ("00100001" + "00000000", "01010110" + "10011010"): 0.33,
+        ("00100001" + "00000000", "01010110" + "10100000"): 0.33
+    }
     dummy_phys_states = [
         (
             (0, 0, 0, 0),
@@ -1117,10 +1117,10 @@ def test_num_ancillas_setter_fails_for_negative_int():
 
 def test_adding_ancilla_register_fails_if_already_exists():
     # Some minimal data to create a LatticeCircuitManager.
-    dummy_mag_hamiltonian = [
-        ("00100001" + "00000000", "01010110" + "10011010", 0.33),
-        ("00100001" + "00000000", "01010110" + "10100000", 0.33)
-    ]
+    dummy_mag_hamiltonian = {
+        ("00100001" + "00000000", "01010110" + "10011010"): 0.33,
+        ("00100001" + "00000000", "01010110" + "10100000"): 0.33
+    }
     dummy_phys_states = [
         (
             (0, 0, 0, 0),
@@ -1162,11 +1162,11 @@ def test_adding_ancilla_register_fails_if_already_exists():
 
 def test_apply_mag_trotter_step_independent_params_for_givens_rotations():
     # Some minimal data to create a LatticeCircuitManager.
-    dummy_mag_hamiltonian = [  # There will be 2 Givens rotations and therefore 2 Parameters.
-        ("00100001" + "00000000", "01010110" + "10011001", 0.99),
-        ("00100001" + "00000000", "01010110" + "10100000", 0.33),
-        ("00100001" + "00000000", "01010110" + "00100000", 0.66)
-    ]
+    dummy_mag_hamiltonian = {  # There will be 2 Givens rotations and therefore 2 Parameters.
+        ("00100001" + "00000000", "01010110" + "10011001"): 0.99,
+        ("00100001" + "00000000", "01010110" + "10100000"): 0.33,
+        ("00100001" + "00000000", "01010110" + "00100000"): 0.66
+    }
     dummy_phys_states = [
         (
             (0, 0, 0, 0),
@@ -1201,15 +1201,15 @@ def test_apply_mag_trotter_step_independent_params_for_givens_rotations():
 
 def test_apply_mag_trotter_step_independent_params_multiple_lp_families():
     # This dummy data creates 3 LP bins. Two of them have 2 Givens rotations, one has 3.
-    dummy_mag_hamiltonian = [
-        ("01010101" + "00000101", "10100101" + "00001010", 0.99), #LP fam 1: LLLLPPPP + PPPPLLLL
-        ("10100000" + "10100101", "01010000" + "10101010", 0.99), #LP fam 1: LLLLPPPP + PPPPLLLL
-        ("01010101" + "01010000", "01011010" + "10100000", 0.99), #LP fam 2: PPPPLLLL + LLLLPPPP
-        ("00001010" + "01010000", "00000101" + "10100000", 0.99), #LP fam 2: PPPPLLLL + LLLLPPPP
-        ("00000000" + "10101010", "00000000" + "01010101", 0.99), #LP fam 3: PPPPPPPP + LLLLLLLL
-        ("00000000" + "01010101", "00000000" + "10101010", 0.99), #LP fam 3: PPPPPPPP + LLLLLLLL
-        ("00000000" + "01011010", "00000000" + "10100101", 0.99), #LP fam 3: PPPPPPPP + LLLLLLLL
-    ]
+    dummy_mag_hamiltonian = {
+        ("01010101" + "00000101", "10100101" + "00001010"): 0.99, #LP fam 1: LLLLPPPP + PPPPLLLL
+        ("10100000" + "10100101", "01010000" + "10101010"): 0.99, #LP fam 1: LLLLPPPP + PPPPLLLL
+        ("01010101" + "01010000", "01011010" + "10100000"): 0.99, #LP fam 2: PPPPLLLL + LLLLPPPP
+        ("00001010" + "01010000", "00000101" + "10100000"): 0.99, #LP fam 2: PPPPLLLL + LLLLPPPP
+        ("00000000" + "10101010", "00000000" + "01010101"): 0.99, #LP fam 3: PPPPPPPP + LLLLLLLL
+        ("00000000" + "01010101", "00000000" + "10101010"): 0.99, #LP fam 3: PPPPPPPP + LLLLLLLL
+        ("00000000" + "01011010", "00000000" + "10100101"): 0.99, #LP fam 3: PPPPPPPP + LLLLLLLL
+    }
 
     dummy_phys_states = [
         (
@@ -1436,7 +1436,7 @@ def test_measure_link_adds_correct_classical_register():
     ]
     lattice_def = LatticeDef(1.5, 2)
     encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
-    mag_ham = [("0000000000000000", "1010010110100101", 1.0)]
+    mag_ham = {("0000000000000000", "1010010110100101"): 1.0}
     lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
     circ_mgr = LatticeCircuitManager(encoder, mag_ham)
     circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
@@ -1461,7 +1461,7 @@ def test_measure_vertex_adds_correct_classical_register():
     ]
     lattice_def = LatticeDef(1.5, 2)
     encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
-    mag_ham = [("0000000000000000", "1010010110100101", 1.0)]
+    mag_ham = {("0000000000000000", "1010010110100101"): 1.0}
     lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
     circ_mgr = LatticeCircuitManager(encoder, mag_ham)
     circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
@@ -1485,7 +1485,7 @@ def test_measure_vertex_with_vertex_qubits():
     ]
     lattice_def = LatticeDef(1.5, 2)
     encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
-    mag_ham = [("00000000000000000000", "01010010101010010101", 1.0)]
+    mag_ham = {("00000000000000000000", "01010010101010010101"): 1.0}
     lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
     circ_mgr = LatticeCircuitManager(encoder, mag_ham)
     circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
@@ -1507,7 +1507,7 @@ def test_measure_plaquette_measures_all_dofs():
     ]
     lattice_def = LatticeDef(1.5, 4)
     encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
-    mag_ham = [("0000000000000000", "1010010110100101", 1.0)]
+    mag_ham = {("0000000000000000", "1010010110100101"): 1.0}
     lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
     circ_mgr = LatticeCircuitManager(encoder, mag_ham)
     circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
@@ -1532,7 +1532,7 @@ def test_measure_plaquette_deduplicates_shared_registers():
     ]
     lattice_def = LatticeDef(1.5, 2)
     encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
-    mag_ham = [("0000000000000000", "1010010110100101", 1.0)]
+    mag_ham = {("0000000000000000", "1010010110100101"): 1.0}
     lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
     circ_mgr = LatticeCircuitManager(encoder, mag_ham)
     circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
@@ -1562,7 +1562,7 @@ def test_forder_aware_plaquette_consistency_check_d_2():
         IRREP_TRUNCATIONS[trunc_string],
         PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string],
         lattice=lattice_def)
-    circ_mgr = LatticeCircuitManager(lattice_encoder, [])
+    circ_mgr = LatticeCircuitManager(lattice_encoder, {})
 
     # Consistent plaquette state in alt-forder tuple representation.
     # Alt forder ctrl dirs: v1=(-1,-2), v2=(-2,+1), v3=(+1,+2), v4=(-1,+2).
@@ -1611,7 +1611,7 @@ def test_forder_aware_duplicate_control_removal_d_2():
         IRREP_TRUNCATIONS[trunc_string],
         PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string],
         lattice=lattice_def)
-    circ_mgr = LatticeCircuitManager(lattice_encoder, [])
+    circ_mgr = LatticeCircuitManager(lattice_encoder, {})
 
     # Use same consistent state as the consistency check test.
     consistent_c_links = (

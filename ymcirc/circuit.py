@@ -564,7 +564,12 @@ class LatticeCircuitManager:
                     cache_key = (plaquette_plane, plaquette_signature)
 
                 # Build or fetch the cached template circuit for this (plane, signature).
-                if cache_mag_evol_circuit and (cache_key in self._cached_mag_evol_circuits):
+                # When givens_have_independent_params is True, the template must
+                # be reused across all plaquettes so that the same theta[m]
+                # Parameter instances are shared (not duplicated). So always
+                # consult the in-memory cache in that case.
+                use_cache = cache_mag_evol_circuit or givens_have_independent_params
+                if use_cache and (cache_key in self._cached_mag_evol_circuits):
                     if cache_key is None:
                         cache_msg = f"Fetching universal cached magnetic evolution circuit."
                     else:
@@ -582,7 +587,7 @@ class LatticeCircuitManager:
                         optimize_circuits=optimize_circuits,
                         use_independent_params_for_each_givens_rot=givens_have_independent_params
                     )
-                    if cache_mag_evol_circuit:
+                    if use_cache:
                         self._cached_mag_evol_circuits[cache_key] = plaquette_local_rotation_circuit_template
 
                 # Assign step-specific parameters to the template.

@@ -152,6 +152,14 @@ The items should be addressed in the following order:
   - [x] Update `_build_mag_evol_circuit` / `apply_magnetic_trotter_step` to use resolved hamiltonian with per-(plane, signature) caching
 
 ### Phase D: Test updates and verification
-- [ ] **Complex Step 6** — Update tests in `test_conventions.py`
-- [ ] **Complex Step 7** — Update tests in `test_circuit.py` and other downstream consumers
-- [ ] Run full test suite (`uv run pytest -v`) to verify no regressions
+- [x] **Complex Step 6** — Update tests in `test_conventions.py`
+- [x] **Complex Step 7** — Update tests in `test_circuit.py` and other downstream consumers
+- [x] Run full test suite (`uv run pytest -v`) to verify no regressions
+
+#### Bug discovered during Phase D
+
+**Symptom:** `test_apply_mag_trotter_step_independent_params_for_givens_rotations` and `test_apply_mag_trotter_step_independent_params_multiple_lp_families` failed with `CircuitError: "name conflict adding parameter 'theta[0]'"`.
+
+**Root cause:** The Phase C refactor of `apply_magnetic_trotter_step` moved the template circuit build *inside* the per-plaquette loop (to support per-(plane, signature) resolution). When `givens_have_independent_params=True`, `_build_mag_evol_circuit` creates a `ParameterVector("theta", n)` producing parameters `theta[0], theta[1], ...`. In the pre-Phase-C code, the template was built *once* outside the loop and the same `theta[m]` `Parameter` instances were shared across all plaquettes via `compose`. After Phase C, the template was rebuilt for each plaquette (since `cache_mag_evol_circuit` defaults to `False`), creating *new* `Parameter` objects with the same names, which Qiskit rejects on the second `compose`.
+
+**Resolution:** Modified the cache lookup condition in `apply_magnetic_trotter_step` (line ~567) from `cache_mag_evol_circuit and (cache_key in ...)` to `(cache_mag_evol_circuit or givens_have_independent_params) and (cache_key in ...)`. This ensures the template is always stored and reused when `givens_have_independent_params=True`, preserving the pre-Phase-C behavior where all plaquettes share the same `theta[m]` parameter instances. The same `use_cache` flag is used for the store step as well.

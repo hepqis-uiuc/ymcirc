@@ -131,15 +131,43 @@ def test_load_magnetic_hamiltonian_constructs_correct_num_rotations():
         (dummy_box_terms_states[1], dummy_box_terms_states[2]): 0.1,  # Asymmetric transition in box
         (dummy_box_terms_states[0], dummy_box_terms_states[2]): 0.9
     }
-    expected_box_plus_box_dagger_rotations = [
-        (dummy_box_terms_states[0], dummy_box_terms_states[1], 0.2), # 0.4 - 0.2
-        (dummy_box_terms_states[1], dummy_box_terms_states[2], 0.1),
-        (dummy_box_terms_states[0], dummy_box_terms_states[2], 0.9)
-    ]
+    expected_box_plus_box_dagger_rotations = {
+        (dummy_box_terms_states[0], dummy_box_terms_states[1]): 0.2, # 0.4 - 0.2
+        (dummy_box_terms_states[1], dummy_box_terms_states[2]): 0.1,
+        (dummy_box_terms_states[0], dummy_box_terms_states[2]): 0.9
+    }
 
     # Run test.
-    list_of_givens_rotations = compute_all_rotations_from_just_box_terms(box_terms=dummy_box_terms_data)
-    assert list_of_givens_rotations == expected_box_plus_box_dagger_rotations
+    givens_rotations = compute_all_rotations_from_just_box_terms(box_terms=dummy_box_terms_data)
+    assert givens_rotations == expected_box_plus_box_dagger_rotations
+
+
+def test_compute_all_rotations_handles_dict_valued_matrix_elements():
+    """Verify that compute_all_rotations_from_just_box_terms correctly merges
+    dict-valued matrix elements via box + box^dagger summation."""
+    s0 = (
+        (0, 0, 0, 0),
+        (ONE, THREE, THREE, THREE_BAR),
+        ((ONE,), (ONE,), (ONE,), (ONE,))
+    )
+    s1 = (
+        (0, 0, 0, 0),
+        (ONE, THREE, THREE_BAR, THREE_BAR),
+        ((ONE,), (THREE,), (ONE,), (ONE,))
+    )
+    plane_a = (1, 2)
+    plane_b = (1, 3)
+
+    # box has (s0→s1) as a dict and (s1→s0) as a dict with overlapping planes.
+    box_terms = {
+        (s0, s1): {plane_a: 0.5, plane_b: 0.3},
+        (s1, s0): {plane_a: 0.1},
+    }
+    result = compute_all_rotations_from_just_box_terms(box_terms=box_terms)
+
+    # box + box†: (s0,s1) gets box_amplitude={a:0.5,b:0.3} + box_dagger_amplitude={a:0.1}
+    # merged = {a: 0.5+0.1, b: 0.3} = {a: 0.6, b: 0.3}
+    assert result[(s0, s1)] == {plane_a: 0.6, plane_b: 0.3}
 
 
 def test_matrix_element_data_are_valid_d_3_2_T1():
@@ -157,7 +185,7 @@ def test_matrix_element_data_are_valid_d_3_2_T1():
             f" plaquette state list: {state_f}."
         assert state_i in PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string], "Encountered state not in physical" \
             f" plaquette state list: {state_i}."
-        assert isinstance(mat_elem_val, (float, int)), f"Non-numeric matrix element: {mat_elem_val}."
+        assert isinstance(mat_elem_val, (float, int, dict)), f"Unexpected matrix element type: {type(mat_elem_val)}, value: {mat_elem_val}."
 
 
 @pytest.mark.slow
@@ -176,7 +204,7 @@ def test_matrix_element_data_are_valid_d_3_2_T2():
             f" plaquette state list: {state_f}."
         assert state_i in PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string], "Encountered state not in physical" \
             f" plaquette state list: {state_i}."
-        assert isinstance(mat_elem_val, (float, int)), f"Non-numeric matrix element: {mat_elem_val}."
+        assert isinstance(mat_elem_val, (float, int, dict)), f"Unexpected matrix element type: {type(mat_elem_val)}, value: {mat_elem_val}."
 
 
 @pytest.mark.slow
@@ -195,7 +223,7 @@ def test_matrix_element_data_are_valid_d_2_T1():
             f" plaquette state list: {state_f}."
         assert state_i in PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string], "Encountered state not in physical" \
             f" plaquette state list: {state_i}."
-        assert isinstance(mat_elem_val, (float, int)), f"Non-numeric matrix element: {mat_elem_val}."
+        assert isinstance(mat_elem_val, (float, int, dict)), f"Unexpected matrix element type: {type(mat_elem_val)}, value: {mat_elem_val}."
 
 
 def test_lattice_encoder_type_error_for_bad_lattice_arg():
