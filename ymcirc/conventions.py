@@ -204,6 +204,10 @@ PlaquetteState = Union[
         Tuple[LinkState, LinkState, LinkState, LinkState],
         Tuple[VertexControlLinks, VertexControlLinks, VertexControlLinks, VertexControlLinks]]
 ]
+# Encoded plaquette state pair used as dict key in HamiltonianData.
+EncodedPlaquetteTransition = Tuple[str, str]
+# Dict mapping encoded state pairs to matrix element values (float or nested dict).
+HamiltonianData = Dict[EncodedPlaquetteTransition, MatrixElementValue]
 
 # Irrep iweights (top row of GT pattern).
 ONE: IrrepWeight = (0, 0, 0)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import logging
 from pathlib import Path
-from ymcirc.conventions import PlaquetteState, LatticeStateEncoder, ONE, THREE, THREE_BAR, MatrixElementValue
+from ymcirc.conventions import (PlaquetteState, LatticeStateEncoder, ONE, THREE, THREE_BAR, MatrixElementValue, HamiltonianData)
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import (
     givens,
@@ -30,12 +30,6 @@ import numpy as np
 
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
-
-
-# Encoded plaquette state pair used as dict key in HamiltonianData.
-EncodedPlaquetteTransition = Tuple[str, str]
-# Dict mapping encoded state pairs to matrix element values (float or nested dict).
-HamiltonianData = Dict[EncodedPlaquetteTransition, MatrixElementValue]
 
 
 class LatticeCircuitManager:
