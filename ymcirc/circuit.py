@@ -568,6 +568,11 @@ class LatticeCircuitManager:
                 # be reused across all plaquettes so that the same theta[m]
                 # Parameter instances are shared (not duplicated). So always
                 # consult the in-memory cache in that case.
+                # NOTE: On nonperiodic lattices, this logic may fail since
+                # in that case, different plaquettes in a lattice may have different
+                # matrix elements and therefore different givens rotations.
+                # Will need to handle that case down the road. The simplest possibility
+                # would be to just forbid this option on such lattices.
                 use_cache = cache_mag_evol_circuit or givens_have_independent_params
                 if use_cache and (cache_key in self._cached_mag_evol_circuits):
                     if cache_key is None:

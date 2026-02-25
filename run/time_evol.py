@@ -36,7 +36,7 @@ if __name__ == "__main__":
     script_options = configure_script_options(
         dimensionality_string="d=3/2",
         truncation_string="T1",
-        lattice_size=4,
+        lattice_size=2,
         sim_times=np.linspace(0.0, 2.5, num=20),
         n_trotter_steps=2,
         n_shots=10000,

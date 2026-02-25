@@ -169,6 +169,28 @@ def test_compute_all_rotations_handles_dict_valued_matrix_elements():
     # merged = {a: 0.5+0.1, b: 0.3} = {a: 0.6, b: 0.3}
     assert result[(s0, s1)] == {plane_a: 0.6, plane_b: 0.3}
 
+    # Test combining at the level of signatures.
+    box_terms_one_overlapping_signature = {
+        (s0, s1): {
+            plane_a: {((-1,), (1,), (1,), (-1,)): 0.5, ((1,), (-1,), (-1,), (1,)): 0.6},
+            plane_b: 0.3,
+        },
+        (s1, s0): {
+            plane_a: {((-1,), (1,), (1,), (-1,)): 0.2, ((1,), (1,), (1,), (1,)): 0.6}
+        },
+    }
+    result_one_overlapping_signature = compute_all_rotations_from_just_box_terms(
+        box_terms_one_overlapping_signature
+    )
+    assert result_one_overlapping_signature[(s0, s1)] == {
+        plane_a: {
+            ((-1,), (1,), (1,), (-1,)): 0.7,
+            ((1,), (-1,), (-1,), (1,)): 0.6,
+            ((1,), (1,), (1,), (1,)): 0.6,
+        },
+        plane_b: 0.3,
+    }
+
 
 def test_matrix_element_data_are_valid_d_3_2_T1():
     dim_string = "d=3/2"
