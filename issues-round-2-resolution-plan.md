@@ -101,7 +101,7 @@ Remove the unused `forder` parameter from `load_magnetic_hamiltonian` (it was le
 
 ### Step 4: Update `HamiltonianData` type alias in `circuit.py`
 
-Change `HamiltonianData` from `List[Tuple[str, str, float]]` to `Dict[Tuple[str, str], MatrixElementValue]`. Import `MatrixElementValue` from `conventions.py`. Also define an `EncodedPlane` type alias (e.g., `EncodedPlane = Tuple[str, str]`) in `circuit.py` and use it for the encoded plane key in `HamiltonianData`, improving readability of the type signature.
+Change `HamiltonianData` from `List[Tuple[str, str, float]]` to `Dict[Tuple[str, str], MatrixElementValue]`. Import `MatrixElementValue` from `conventions.py`. Also define an `EncodedPlaquetteTransition` type alias (e.g., `EncodedPlaquetteTransition = Tuple[str, str]`) in `circuit.py` and use it for the encoded tuple of plaquettes key in `HamiltonianData`, improving readability of the type signature.
 
 ### Step 5: Update `LatticeCircuitManager`
 
@@ -145,11 +145,11 @@ The items should be addressed in the following order:
 - [x] **Complex Step 3** — Update `load_magnetic_hamiltonian` return type to `Dict[Tuple[str, str], MatrixElementValue]`; remove unused `forder` parameter
 
 ### Phase C: Circuit manager updates
-- [ ] **Complex Step 4** — Update `HamiltonianData` type alias in `circuit.py`
-- [ ] **Complex Step 5** — Update `LatticeCircuitManager`:
-  - [ ] Update `__init__` small-lattice filtering to work with dict-typed hamiltonian
-  - [ ] Implement `_resolve_hamiltonian_for_plaquette` helper
-  - [ ] Update `_build_mag_evol_circuit` / `apply_magnetic_trotter_step` to use resolved hamiltonian with per-(plane, signature) caching
+- [x] **Complex Step 4** — Update `HamiltonianData` type alias in `circuit.py`
+- [x] **Complex Step 5** — Update `LatticeCircuitManager`:
+  - [x] Update `__init__` small-lattice filtering to work with dict-typed hamiltonian
+  - [x] Implement `_resolve_hamiltonian_for_plaquette` helper
+  - [x] Update `_build_mag_evol_circuit` / `apply_magnetic_trotter_step` to use resolved hamiltonian with per-(plane, signature) caching
 
 ### Phase D: Test updates and verification
 - [ ] **Complex Step 6** — Update tests in `test_conventions.py`

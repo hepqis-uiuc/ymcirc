@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import logging
 from pathlib import Path
-from ymcirc.conventions import PlaquetteState, LatticeStateEncoder, ONE, THREE, THREE_BAR
+from ymcirc.conventions import PlaquetteState, LatticeStateEncoder, ONE, THREE, THREE_BAR, MatrixElementValue
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import (
     givens,
@@ -16,7 +16,7 @@ from ymcirc.givens import (
     compute_p_tilde,
     gray_to_index,
 )
-from ymcirc._abstract.lattice_data import Plaquette, LinkUnitVectorLabel, LinkAddress, LatticeVector
+from ymcirc._abstract.lattice_data import Plaquette, LinkUnitVectorLabel, LinkAddress, LatticeVector, Plane, Signature
 from ymcirc.utilities import _check_circuits_logically_equivalent, _flatten_circuit, eta_update, fmt_td
 from math import ceil
 from qiskit import transpile
@@ -32,8 +32,10 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-# A list of tuples: (state bitstring1, state bitstring2, matrix element)
-HamiltonianData = List[Tuple[str, str, float]]
+# Encoded plaquette state pair used as dict key in HamiltonianData.
+EncodedPlaquetteTransition = Tuple[str, str]
+# Dict mapping encoded state pairs to matrix element values (float or nested dict).
+HamiltonianData = Dict[EncodedPlaquetteTransition, MatrixElementValue]
 
 
 class LatticeCircuitManager:
@@ -60,7 +62,7 @@ class LatticeCircuitManager:
         # LatticeCircuitManager instance.
         self._encoder = copy.deepcopy(lattice_encoder)
         self._mag_hamiltonian = copy.deepcopy(mag_hamiltonian)
-        self._cached_mag_evol_circuit = None
+        self._cached_mag_evol_circuits: Dict[Tuple[Plane, Signature] | None, QuantumCircuit] = {}
         self._cached_mag_evol_params = {
             "physical_states_for_control_pruning": None,
             "optimize_circuits": None,
@@ -91,10 +93,10 @@ class LatticeCircuitManager:
 
         if self._lattice_is_small is True and self._lattice_is_periodic is True:
             # Filter out magnetic Hamiltonian terms which are inconsistent (repeated control links must have the same value)
-            filtered_and_trimmed_mag_hamiltonian: HamiltonianData = []
-            for matrix_element in self._mag_hamiltonian:
-                final_plaquette_state = lattice_encoder.decode_bit_string_to_plaquette_state(matrix_element[0])
-                initial_plaquette_state = lattice_encoder.decode_bit_string_to_plaquette_state(matrix_element[1])
+            filtered_and_trimmed_mag_hamiltonian: HamiltonianData = {}
+            for (final_bitstring, initial_bitstring), matrix_elem_value in self._mag_hamiltonian.items():
+                final_plaquette_state = lattice_encoder.decode_bit_string_to_plaquette_state(final_bitstring)
+                initial_plaquette_state = lattice_encoder.decode_bit_string_to_plaquette_state(initial_bitstring)
                 final_state_has_inconsistent_controls = self._plaquette_state_has_inconsistent_controls(final_plaquette_state)
                 initial_state_has_inconsistent_controls = self._plaquette_state_has_inconsistent_controls(initial_plaquette_state)
 
@@ -105,12 +107,11 @@ class LatticeCircuitManager:
                     # Matrix element is consistent on shared controls. Trim out duplicate control links, re-encode plaquettes as bitstring, and keep.
                     final_plaquette_state_trimmed_c_links = self._discard_duplicate_controls_from_plaquette_state(final_plaquette_state)
                     initial_plaquette_state_trimmed_c_links = self._discard_duplicate_controls_from_plaquette_state(initial_plaquette_state)
-                    consistent_and_trimmed_matrix_element = (
+                    trimmed_key = (
                         lattice_encoder.encode_plaquette_state_as_bit_string(final_plaquette_state_trimmed_c_links, override_n_c_links_validation=True),
                         lattice_encoder.encode_plaquette_state_as_bit_string(initial_plaquette_state_trimmed_c_links, override_n_c_links_validation=True),
-                        matrix_element[2]
                     )
-                    filtered_and_trimmed_mag_hamiltonian.append(consistent_and_trimmed_matrix_element)
+                    filtered_and_trimmed_mag_hamiltonian[trimmed_key] = matrix_elem_value
 
             # Update the magnetic Hamiltonian data with the trimmed, consistent matrix elements.
             self._mag_hamiltonian = filtered_and_trimmed_mag_hamiltonian
@@ -471,7 +472,7 @@ class LatticeCircuitManager:
                             to be True, then LP families of givens rotations are first Gray code ordered,
                             then redundant controls are removed.
           - cache_mag_evol_circuit: Optional boolean argument to cache the magnetic Hamiltonian
-                                    evolution circuit once generated, and forevermore use that.
+                                    evolution circuit(s) once generated, and forevermore use the cache.
           - givens_have_independent_params: Optional boolean argument with the default set to False.
                                             If True, then each individual Givens rotation subcircuit
                                             will be controlled by a unique parameter.
@@ -489,10 +490,19 @@ class LatticeCircuitManager:
         dt_mag_current = Parameter(f'dt_mag{step_num_separator}{n_dt_mag_params}')
         coupling_g_mag_current = Parameter(f'coupling_g_mag{step_num_separator}{n_coupling_g_mag_params}')
 
-        # Create or fetch the magnetic Hamiltonian evolution circuit template,
-        # and update with Parameters for the current Trotter step.
+        # Determine whether the hamiltonian contains any dict-valued matrix elements.
+        # If all values are plain floats, we can resolve once and reuse for all plaquettes.
+        # NOTE: This logic may break on lattices with non-period boundary conditions.
+        has_dict_values = any(isinstance(v, dict) for v in self._mag_hamiltonian.values())
+        if not has_dict_values:
+            # Universal resolution: convert dict to flat list directly.
+            universal_resolved = [(bs1, bs2, float(v)) for (bs1, bs2), v in self._mag_hamiltonian.items()]
+        else:
+            universal_resolved = None
+
+        # Check if cached circuits need to be invalidated due to changed build params.
         mag_evol_recomputation_needed = (
-            (self._cached_mag_evol_circuit is None)
+            (len(self._cached_mag_evol_circuits) == 0)
             or (control_fusion != self._cached_mag_evol_params["control_fusion"])
             or (optimize_circuits != self._cached_mag_evol_params["optimize_circuits"])
             or (
@@ -500,36 +510,13 @@ class LatticeCircuitManager:
                 != self._cached_mag_evol_params["physical_states_for_control_pruning"]
             )
         )
-        if cache_mag_evol_circuit is True and not mag_evol_recomputation_needed:
-            logger.info("Fetching cached magnetic evolution circuit.")
-            plaquette_local_rotation_circuit_template = self._cached_mag_evol_circuit
-        else:
-            logger.info("Building magnetic evolution circuit from scratch.")
-            # Build template circuit with placeholder paramters.
-            plaquette_local_rotation_circuit_template = self._build_mag_evol_circuit(
-                control_fusion,
-                physical_states_for_control_pruning,
-                coupling_g=Parameter('coupling_g_mag_placeholder'),
-                dt=Parameter('dt_mag_placeholder'),
-                optimize_circuits=optimize_circuits,
-                use_independent_params_for_each_givens_rot=givens_have_independent_params
-            )
-            # Save template if caching is turned on.
-            if cache_mag_evol_circuit is True:
-                logger.info("Storing template magnetic evolution circuit in cache.")
-                self._cached_mag_evol_circuit = plaquette_local_rotation_circuit_template
-                self._cached_mag_evol_params = {
-                    "physical_states_for_control_pruning": physical_states_for_control_pruning,
-                    "optimize_circuits": optimize_circuits,
-                    "control_fusion": control_fusion,
-                }
-        if givens_have_independent_params is False:
-            plaquette_local_rotation_circuit = plaquette_local_rotation_circuit_template.assign_parameters({
-                'coupling_g_mag_placeholder': coupling_g_mag_current,
-                'dt_mag_placeholder': dt_mag_current
-            })
-        else:  # No need to update the circuit parameters if we set the mag evolution to use unique ones per rotation.
-            plaquette_local_rotation_circuit = plaquette_local_rotation_circuit_template
+        if mag_evol_recomputation_needed:
+            self._cached_mag_evol_circuits = {}
+            self._cached_mag_evol_params = {
+                "physical_states_for_control_pruning": physical_states_for_control_pruning,
+                "optimize_circuits": optimize_circuits,
+                "control_fusion": control_fusion,
+            }
 
         # Pre-compute forder-aware skip indices for d=2 on small periodic lattices.
         _v2_skip_ctrl_idx = None
@@ -564,9 +551,50 @@ class LatticeCircuitManager:
 
             # For each plaquette, apply the the local Trotter step circuit.
             for plaquette in plaquettes:
-                # Get qubits for the current plaquette.
+                # Resolve the hamiltonian for this plaquette's plane and signature.
+                plaquette_plane: Plane = plaquette.plane
+                plaquette_signature: Signature = plaquette.control_links_per_vertex
+                if universal_resolved is not None:
+                    resolved_hamiltonian = universal_resolved
+                    cache_key = None  # Single cache entry for the all-float case.
+                else:
+                    resolved_hamiltonian = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(
+                        self._mag_hamiltonian, plaquette_plane, plaquette_signature
+                    )
+                    cache_key = (plaquette_plane, plaquette_signature)
 
-                # Collect the local qubits for stitching purposes.
+                # Build or fetch the cached template circuit for this (plane, signature).
+                if cache_mag_evol_circuit and (cache_key in self._cached_mag_evol_circuits):
+                    if cache_key is None:
+                        cache_msg = f"Fetching universal cached magnetic evolution circuit."
+                    else:
+                        cache_msg = f"Fetching cached magnetic evolution circuit for cache_key={cache_key}."
+                    logger.info(cache_msg)
+                    plaquette_local_rotation_circuit_template = self._cached_mag_evol_circuits[cache_key]
+                else:
+                    logger.info(f"Building magnetic evolution circuit for cache_key={cache_key}.")
+                    plaquette_local_rotation_circuit_template = self._build_mag_evol_circuit(
+                        resolved_hamiltonian,
+                        control_fusion,
+                        physical_states_for_control_pruning,
+                        coupling_g=Parameter('coupling_g_mag_placeholder'),
+                        dt=Parameter('dt_mag_placeholder'),
+                        optimize_circuits=optimize_circuits,
+                        use_independent_params_for_each_givens_rot=givens_have_independent_params
+                    )
+                    if cache_mag_evol_circuit:
+                        self._cached_mag_evol_circuits[cache_key] = plaquette_local_rotation_circuit_template
+
+                # Assign step-specific parameters to the template.
+                if givens_have_independent_params is False:
+                    plaquette_local_rotation_circuit = plaquette_local_rotation_circuit_template.assign_parameters({
+                        'coupling_g_mag_placeholder': coupling_g_mag_current,
+                        'dt_mag_placeholder': dt_mag_current
+                    })
+                else:
+                    plaquette_local_rotation_circuit = plaquette_local_rotation_circuit_template
+
+                # Collect the local qubits for stitching the plaquette rotation circuit.
                 vertex_multiplicity_qubits = []
                 a_link_qubits = []
                 c_link_qubits = []
@@ -603,7 +631,6 @@ class LatticeCircuitManager:
 
                 # Now that we have the qubits for the current plaquette,
                 # Stitch the local magnetic evolution circuit into master circuit.
-
                 master_circuit.compose(
                     plaquette_local_rotation_circuit,
                     qubits=[
@@ -712,8 +739,51 @@ class LatticeCircuitManager:
 
         return stripped_physical_states
 
+    @staticmethod
+    def _resolve_hamiltonian_for_plaquette(
+            hamiltonian: HamiltonianData,
+            plane: Plane,
+            signature: Signature,
+    ) -> List[Tuple[str, str, float]]:
+        """Resolve a HamiltonianData dict to a flat list for a specific plaquette.
+
+        For each entry in the hamiltonian dict:
+        - If the value is a float, include it directly (plane/signature-independent).
+        - If the value is a dict keyed by plane:
+          - Look up the current plane. If absent, skip this entry.
+          - If the plane value is a float, include it (signature-independent for this plane).
+          - If the plane value is a dict keyed by signature, look up the current
+            signature. If absent, skip. Otherwise include the float value.
+
+        Returns:
+            A flat list of (bitstring1, bitstring2, float) tuples suitable for
+            _build_mag_evol_circuit and _sort_matrix_elements_into_lp_bins.
+        """
+        resolved: List[Tuple[str, str, float]] = []
+        for (bs1, bs2), value in hamiltonian.items():
+            if isinstance(value, (int, float)):
+                resolved.append((bs1, bs2, float(value)))
+            elif isinstance(value, dict):
+                plane_val = value.get(plane)
+                if plane_val is None:
+                    continue
+                if isinstance(plane_val, (int, float)):
+                    resolved.append((bs1, bs2, float(plane_val)))
+                elif isinstance(plane_val, dict):
+                    sig_val = plane_val.get(signature)
+                    if sig_val is None:
+                        continue
+                    resolved.append((bs1, bs2, float(sig_val)))
+                else:
+                    raise ValueError(f"Unexpected leaf node in MatrixElementValue: {type(plane_val)}.")
+            else:
+                raise ValueError(f"Unexpected leaf node in MatrixElementValue: {type(value)}.")
+
+        return resolved
+
     def _build_mag_evol_circuit(
         self,
+        resolved_hamiltonian: List[Tuple[str, str, float]],
         control_fusion: bool,
         physical_states_for_control_pruning: Union[None | Set[str]],
         coupling_g: Parameter,
@@ -724,19 +794,28 @@ class LatticeCircuitManager:
         """
         Build the magnetic time-evolution circuit for a plaquette.
 
-        If use_independent_params_for_each_givens_rot is True,
-        then coupling_g and dt will be ignored, and a unique
-        parameter for the rotation angle theta[m] will be assigned for each
-        Givens rotation in the plaquette circuit.
+        Arguments:
+            resolved_hamiltonian: A flat list of (bitstring1, bitstring2, float)
+                tuples — the resolved matrix elements for a specific
+                (plane, signature) combination (or a universal resolution when
+                all values are plain floats).
+            control_fusion: Whether to fuse controls in Givens rotations.
+            physical_states_for_control_pruning: Physical states for pruning.
+            coupling_g: Coupling constant parameter.
+            dt: Time step parameter.
+            optimize_circuits: Whether to transpile with optimization.
+            use_independent_params_for_each_givens_rot: If True, coupling_g
+                and dt are ignored and a unique theta[m] parameter is assigned
+                per Givens rotation.
         """
-        n_givens_rotations = len(self._mag_hamiltonian)
+        n_givens_rotations = len(resolved_hamiltonian)
         logger.info(f"There are {n_givens_rotations} primitive Givens rotation circuits to be constructed for the plaquette.")
         # Sort the bitstrings corresponding to transitions in the magnetic
         # Hamiltonian into LP bins. This step also computes the angle of Givens
         # rotation for each pair of bitstrings. The resulting Givens rotations
         # are characterized by two parameters: dt and the coupling g.
         lp_bin = LatticeCircuitManager._sort_matrix_elements_into_lp_bins(
-            self._mag_hamiltonian,
+            resolved_hamiltonian,
             coupling_g,
             dt,
         )
@@ -761,9 +840,7 @@ class LatticeCircuitManager:
 
         # Iterate over all LP bins and apply givens rotation.
         # Also logs progress of circuit construction at INFO level.
-        plaquette_circ_n_qubits = len(
-            self._mag_hamiltonian[0][0]
-        )  # TODO this is a disgusting way to get the size of the magnetic evol circuit per plaquette.
+        plaquette_circ_n_qubits = len(resolved_hamiltonian[0][0])
         plaquette_local_rotation_circuit = QuantumCircuit(plaquette_circ_n_qubits)
         loop_time_state = None  # For tracking Givens rotation circuit construction progress.
         if (self.num_ancillas > 0):
