@@ -1,7 +1,14 @@
-"""Benchmark ParsedLatticeResult construction for small vs large bitstrings."""
+"""Benchmark ParsedLatticeResult construction for small vs large bitstrings.
+
+# TODO: Consider migrating to pytest-benchmark for automated regression detection.
+# pytest-benchmark can save baseline results as JSON and fail CI if performance
+# regresses beyond a configurable threshold. Install with `uv add --dev pytest-benchmark`
+# and convert benchmark_config() into a pytest fixture-based test.
+
+"""
 import sys
 import os
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import timeit
 from ymcirc._abstract import LatticeDef

@@ -2,10 +2,16 @@
 
 Breaks down PLR construction time into individual components
 to identify which operations dominate the cost.
+
+# TODO: Consider migrating to pytest-benchmark for automated regression detection.
+# pytest-benchmark can save baseline results as JSON and fail CI if performance
+# regresses beyond a configurable threshold. Install with `uv add --dev pytest-benchmark`
+# and convert profile_components() into individual pytest fixture-based tests.
+
 """
 import sys
 import os
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import timeit
 import copy
