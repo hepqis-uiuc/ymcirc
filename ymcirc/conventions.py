@@ -609,11 +609,16 @@ class LatticeStateEncoder:
         # Retain plaquettes states used to create for repr method.
         self.__physical_plaquette_states = copy.deepcopy(physical_plaquette_states)
 
+        # Cache for __repr__ string (computed lazily on first access).
+        self._repr_cache: str | None = None
+
         logger.info(f"Created {self}.")
 
     def __repr__(self):
-        class_name = type(self).__name__
-        return f"{class_name}({self.link_bitmap}, {self.__physical_plaquette_states}, {self._lattice.__repr__()})"
+        if self._repr_cache is None:
+            class_name = type(self).__name__
+            self._repr_cache = f"{class_name}({self.link_bitmap}, {self.__physical_plaquette_states}, {self._lattice.__repr__()})"
+        return self._repr_cache
 
     def __str__(self):
         return f"Lattice encoder:\nlink bitmap = {self.link_bitmap}\nvertex bitmap = {self.vertex_bitmap}\nlattice geometry = {self._lattice}"

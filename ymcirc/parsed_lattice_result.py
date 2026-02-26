@@ -99,8 +99,8 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
 
         # Let's keep these around too. They're handy to have.
         self._global_lattice_measurement_bit_string = global_lattice_measurement_bit_string
-        self._lattice_def = copy.deepcopy(lattice_encoder.lattice_def)
-        self._encoder = copy.deepcopy(lattice_encoder)
+        self._lattice_def = lattice_encoder._lattice
+        self._encoder = lattice_encoder
         self._lattice_encoder_repr = lattice_encoder.__repr__()
 
     def __repr__(self):
@@ -239,7 +239,9 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
 
     def __hash__(self):
         """Hash based on measurement string, and data that uniquely specifies lattice geometry."""
-        return hash((self.global_lattice_measurement_bit_string, self.lattice_def.dim, self.lattice_def.shape, self.lattice_def.periodic_boundary_conds))
+        if not hasattr(self, '_hash_cache'):
+            self._hash_cache = hash((self.global_lattice_measurement_bit_string, self._lattice_def.dim, self._lattice_def.shape, self._lattice_def.periodic_boundary_conds))
+        return self._hash_cache
 
     def __eq__(self, other) -> bool:
         """Equality based on the same fields used by __hash__."""
@@ -247,9 +249,9 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
             return NotImplemented
         return (
             self.global_lattice_measurement_bit_string == other.global_lattice_measurement_bit_string
-            and self.dim == other.dim
-            and self.shape == other.shape
-            and self.periodic_boundary_conds == other.periodic_boundary_conds
+            and self._lattice_def.dim == other._lattice_def.dim
+            and self._lattice_def.shape == other._lattice_def.shape
+            and self._lattice_def.periodic_boundary_conds == other._lattice_def.periodic_boundary_conds
         )
 
     @classmethod
@@ -282,9 +284,9 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
             instance._bit_strings_links[link_addr] = "X" * encoder.expected_link_bit_string_length
 
         instance._global_lattice_measurement_bit_string = None
-        instance._lattice_def = copy.deepcopy(encoder.lattice_def)
-        instance._encoder = copy.deepcopy(encoder)
-        instance._lattice_encoder_repr = repr(encoder)
+        instance._lattice_def = encoder._lattice
+        instance._encoder = encoder
+        instance._lattice_encoder_repr = encoder.__repr__()
 
         return instance
 

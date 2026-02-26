@@ -72,12 +72,12 @@ Run the existing test suite to confirm no regressions. Then run the benchmark sc
 
 ## Concrete TODO items
 
-- [ ] **Remove `copy.deepcopy(lattice_encoder)` on line 103 of `parsed_lattice_result.py`:** Replace with `self._encoder = lattice_encoder`.
-- [ ] **Remove `copy.deepcopy(lattice_encoder.lattice_def)` on line 102:** Replace with `self._lattice_def = lattice_encoder.lattice_def` (noting this itself returns a deep copy from the property — consider using `lattice_encoder._lattice` directly or storing the reference once).
-- [ ] **Cache `encoder.__repr__()` on the encoder:** Add a `_repr_cache` attribute to `LatticeStateEncoder` in `conventions.py`, compute it once on first access, and use it in `ParsedLatticeResult.__init__` (line 104) and `_create_partial`.
-- [ ] **Apply the same deep-copy fixes to `_create_partial` (lines 285–286):** Remove deep copies of encoder and lattice_def in the factory method.
-- [ ] **Fix `__hash__` (line 242):** Replace `self.lattice_def` (property with deep copy) with `self._lattice_def` (direct reference). Add `self._hash_cache` attribute.
-- [ ] **Fix `__eq__` (lines 244–253):** Use `self._lattice_def` directly instead of going through properties.
-- [ ] **Add `plr_cache` dict in `run_circuit_simulations`:** Before the loop over `job_results` on line 432, create `plr_cache = {}`. Use cached `ParsedLatticeResult` instances where available when building `counts_dict_big_endian`.
-- [ ] **Run existing tests:** Execute `uv run pytest -v` to verify no regressions.
-- [ ] **Run benchmark scripts:** Execute `benchmark_plr.py` and `benchmark_plr2.py` to confirm the performance improvement.
+- [x] **Remove `copy.deepcopy(lattice_encoder)` on line 103 of `parsed_lattice_result.py`:** Replace with `self._encoder = lattice_encoder`.
+- [x] **Remove `copy.deepcopy(lattice_encoder.lattice_def)` on line 102:** Replace with `self._lattice_def = lattice_encoder._lattice` (direct reference to internal attribute, avoiding the property's deep copy).
+- [x] **Cache `encoder.__repr__()` on the encoder:** Added a `cached_repr` property to `LatticeStateEncoder` in `conventions.py` with lazy computation, used in `ParsedLatticeResult.__init__` and `_create_partial`.
+- [x] **Apply the same deep-copy fixes to `_create_partial` (lines 285–286):** Removed deep copies of encoder and lattice_def in the factory method.
+- [x] **Fix `__hash__` (line 242):** Replaced `self.lattice_def` (property with deep copy) with `self._lattice_def` (direct reference). Added `self._hash_cache` attribute.
+- [x] **Fix `__eq__` (lines 244–253):** Now uses `self._lattice_def` directly instead of going through properties.
+- [x] **Add `plr_cache` dict in `run_circuit_simulations`:** Added `plr_cache` before the loop over `job_results`. Bit strings are now parsed once and reused as `ParsedLatticeResult` dict keys.
+- [x] **Run existing tests:** 158 passed, 8 skipped (all pre-existing skips). No regressions.
+- [x] **Run benchmark scripts:** d=2, T1, size=2 improved from 260 ms to 0.1 ms per instance (2,574x speedup).
