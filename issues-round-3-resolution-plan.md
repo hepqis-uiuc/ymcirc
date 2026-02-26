@@ -2,69 +2,93 @@
 
 ## Findings
 
-The performance bottleneck in `ParsedLatticeResult` construction is real and stems from multiple compounding factors. The most significant cost is the **two `copy.deepcopy()` calls** on lines 102–103 of `parsed_lattice_result.py`, which deep-copy both the `LatticeDef` and the entire `LatticeStateEncoder` (including its internal bitmaps and plaquette state lists) for *every single* `ParsedLatticeResult` instance. Since these objects are identical across all bit strings in a given simulation run, this is pure waste. The `super().__init__()` call is also non-trivial: it invokes `LatticeDef.__init__()`, which rebuilds the full set of vertex addresses and link addresses (via `_configure_lattice`) using `itertools.product` and set operations for every instance, even though the lattice geometry is the same for all results.
+The performance bottleneck in `ParsedLatticeResult` construction is real and was confirmed by profiling. The **dominant cost** is the `copy.deepcopy(lattice_encoder)` call on line 103 of `parsed_lattice_result.py`, which deep-copies the entire `LatticeStateEncoder` — including its internal copy of the `physical_plaquette_states` list — for every single `ParsedLatticeResult` instance. For the d=2, T1 configuration referenced in the issue, this list contains **15,715 entries** (nested tuples), making the deep copy extremely expensive. The **second largest cost** is the `encoder.__repr__()` call on line 104, which serializes the entire plaquette states list into a string representation, also for every instance. Together, these two operations account for over 99% of the per-instance construction time.
 
-A second, subtler problem exists in the `__hash__` and `__eq__` methods (lines 240–253). The `__hash__` method accesses `self.lattice_def`, which is a *property* that performs yet another `copy.deepcopy` of the internal `LatticeDef` every time it is called. Since `ParsedLatticeResult` instances are used as dictionary keys in `MeasurementResults._counts`, hashing occurs frequently — on every insertion and every lookup — making this an especially costly oversight. Similarly, `__eq__` accesses `self.shape` and `self.periodic_boundary_conds` through properties, though these are less expensive than the deep copy. The `get_traversal_order()` call in the init loop (line 74) also reconstructs the traversal list from scratch on each call rather than caching it, though this is a minor cost compared to the deep copies.
+Component-level benchmarks (averaged over 100 runs per configuration) confirm this conclusively:
+
+| Component | d=3/2, T1, size=2 (81 plaq. states) | d=2, T1, size=2 (15,715 plaq. states) | d=2, T1, size=4 (15,715 plaq. states) |
+|---|---|---|---|
+| `copy.deepcopy(encoder)` | 0.9 ms | **219 ms** | **217 ms** |
+| `encoder.__repr__()` | 0.2 ms | **42 ms** | **44 ms** |
+| `copy.deepcopy(lattice_def)` | 0.02 ms | 0.02 ms | 0.06 ms |
+| `LatticeDef.__init__()` | 0.004 ms | 0.004 ms | 0.007 ms |
+| `get_traversal_order()` | 0.002 ms | 0.002 ms | 0.006 ms |
+| Decode loop (string parsing) | 0.003 ms | 0.003 ms | 0.013 ms |
+| **Full PLR construction** | **1.2 ms** | **260 ms** | **261 ms** |
+
+Several conclusions follow from the data:
+
+1. **The cost is dominated by `copy.deepcopy(encoder)` and `encoder.__repr__()`**, not by the lattice traversal/decode loop or `LatticeDef.__init__()`. The decode loop contributes only ~0.003 ms even for the large configuration — completely negligible.
+2. **The cost scales with the number of physical plaquette states, not with lattice size.** Going from size=2 (20 bits, 4 vertices, 8 links) to size=4 (80 bits, 16 vertices, 32 links) in d=2, T1 produces virtually no change in construction time (260 ms vs 261 ms), because both use the same 15,715-entry plaquette states list. Meanwhile, going from d=3/2, T1 (81 plaquette states) to d=2, T1 (15,715 plaquette states) at the same lattice size causes a 220x slowdown.
+3. **Other costs are negligible.** `copy.deepcopy(lattice_def)`, `LatticeDef.__init__()`, `get_traversal_order()`, and the decode loop together contribute less than 0.1 ms in all configurations. The `__hash__` deep-copy issue (via the `self.lattice_def` property) is real but minor in comparison, since it copies the `LatticeDef` (~0.02 ms), not the encoder.
+
+For the specific configuration in the issue (d=2, T1, size=2, 10,000 shots), even if only ~1,000 unique bit strings appear, constructing `ParsedLatticeResult` for each one takes ~260 ms, yielding a total of ~260 seconds — consistent with the observed "hang."
 
 ## Proposed solution
 
-The solution has two parts: (1) eliminate redundant object construction and copying within `ParsedLatticeResult`, and (2) introduce caching at the call site in `functions.py` to avoid constructing duplicate `ParsedLatticeResult` instances for the same bit string across different simulation time steps. For part (1), the key changes are: stop deep-copying the `LatticeStateEncoder` and `LatticeDef` into each instance (store shared references instead, or cache at class level), cache the hash value after first computation, and fix `__hash__` to avoid calling the `lattice_def` property (which deep-copies). The `LatticeDef` base class initialization can also be optimized by caching the traversal order and avoiding redundant set/list construction when the lattice geometry hasn't changed. For part (2), a simple dictionary mapping bit strings to already-constructed `ParsedLatticeResult` instances can be maintained across the loop in `run_circuit_simulations`, so that each unique bit string is parsed only once per simulation run.
+The primary fix is to **stop deep-copying the `LatticeStateEncoder`** into each `ParsedLatticeResult` instance. The encoder is shared across all instances in a simulation run and is never mutated by `ParsedLatticeResult`, so storing a direct reference is safe. The `__repr__` string (line 104) should be computed once and cached or passed in, rather than regenerated from the full encoder for each instance. Together, these two changes eliminate ~261 ms of the ~261 ms per-instance cost for d=2, T1 — effectively reducing construction time to sub-millisecond.
 
-The user's proposed approach (a) of caching `ParsedLatticeResult` instances at the `functions.py` level is sound and should be adopted. Approach (b) of improving the init method itself is also critical — even with caching at the call site, the first construction of each unique bit string must be fast. With 10,000 shots on a d=2, size-2 lattice, there can be on the order of hundreds to thousands of unique bit strings, so the per-construction cost still matters.
+As a secondary measure, caching `ParsedLatticeResult` instances at the call site in `functions.py` (the user's proposed approach (a)) should also be adopted to avoid redundant construction of the same bit string across different simulation time steps. The user's proposed approach (b) of optimizing the init method is validated by the profiling data, but the specific optimization needed is different from what might be expected: it is the `copy.deepcopy(encoder)` and `__repr__` calls that must be eliminated, not the lattice traversal/decode loop. Other minor improvements (`__hash__` caching, `get_traversal_order()` caching) are worth doing for correctness and hygiene but will have negligible impact on the observed bottleneck.
 
 ## Detailed implementation plan
 
-### Stage 1: Fix `__hash__` and `__eq__` to avoid deep copies
+### Stage 1: Eliminate `copy.deepcopy(encoder)` and `copy.deepcopy(lattice_def)` in `__init__` (lines 102–103)
 
-The `__hash__` method on line 242 accesses `self.lattice_def`, which triggers a `copy.deepcopy`. This should instead access `self._lattice_def` directly (or use cached dimension/shape/boundary values). Additionally, `__hash__` should cache its result in an instance attribute (e.g., `self._hash_cache`) so that repeated hashing (which happens constantly when `ParsedLatticeResult` is used as a dict key) is O(1) after the first call. The `__eq__` method is less problematic but should also use `self._lattice_def` directly rather than going through properties that copy.
+This is the highest-impact change. Replace `copy.deepcopy(lattice_encoder)` with a direct reference assignment (`self._encoder = lattice_encoder`), and likewise for `self._lattice_def`. The `lattice_def` property (line 117–119) already returns a deep copy to external callers, preserving the public API contract that external code gets its own copy. Internally, `ParsedLatticeResult` never mutates the encoder or lattice def, so a shared reference is safe.
 
-**Files affected:** `ymcirc/parsed_lattice_result.py`
-
-### Stage 2: Eliminate redundant `copy.deepcopy` in `__init__`
-
-Lines 102–103 deep-copy both the `LatticeDef` and the `LatticeStateEncoder` into each instance. Since these objects are shared across all `ParsedLatticeResult` instances in a simulation run and are never mutated by `ParsedLatticeResult`, these copies are unnecessary. The `_lattice_def` and `_encoder` attributes should store the original references (or at most a shallow copy). The `lattice_def` property (line 117–119) already returns a deep copy to external callers, so internal immutability is preserved. The same change should be applied to the `_create_partial` factory method (lines 285–286) which also deep-copies.
+The same change should be applied to the `_create_partial` factory method (lines 285–286), which also deep-copies both objects.
 
 **Files affected:** `ymcirc/parsed_lattice_result.py`
 
-### Stage 3: Optimize `LatticeDef.__init__` overhead
+### Stage 2: Eliminate or cache `encoder.__repr__()` call (line 104)
 
-Each `ParsedLatticeResult` construction calls `super().__init__()` which calls `LatticeDef.__init__()`. This rebuilds the vertex address set via `itertools.product` and the link address set via nested loops every time. Since all `ParsedLatticeResult` instances for a given simulation share the same lattice geometry, this work is redundant. Two sub-options:
+The `__repr__()` call on line 104 serializes the full plaquette states list into a string for every instance, costing ~42 ms for d=2, T1. Since the encoder is shared and immutable, this string is identical across all instances. Options:
 
-- **Option A (preferred):** Bypass `LatticeDef.__init__` for `ParsedLatticeResult` entirely by copying the pre-computed lattice data (vertex addresses, link addresses, shape, etc.) from the encoder's `LatticeDef` directly. This can be done by having `ParsedLatticeResult.__init__` call `LatticeDef.__init__` only if needed, or by introducing a lightweight "from existing lattice def" path.
-- **Option B:** Cache `LatticeDef` configurations at the class level keyed by (dim, size, periodic_boundary_conds, forder) so that repeated construction reuses precomputed data.
+- **Option A (simplest):** Compute `self._lattice_encoder_repr` lazily — only when `__repr__` is actually called on the `ParsedLatticeResult` instance — rather than eagerly in `__init__`.
+- **Option B:** Cache the repr string on the encoder itself (e.g., `encoder._repr_cache`), and reuse it across all `ParsedLatticeResult` instances.
 
-**Files affected:** `ymcirc/_abstract/lattice_data.py`, `ymcirc/parsed_lattice_result.py`
+Either option reduces this from ~42 ms per instance to effectively 0 ms (or a one-time cost).
 
-### Stage 4: Cache `get_traversal_order()` results
+**Files affected:** `ymcirc/parsed_lattice_result.py`, optionally `ymcirc/conventions.py`
 
-`get_traversal_order()` in `LatticeDef` (line 517) recomputes the traversal list from scratch on every call. Since the traversal order depends only on lattice geometry (which is immutable after construction), the result should be cached as an instance attribute on first computation using a simple `if self._traversal_order_cache is None` pattern.
+### Stage 3: Fix `__hash__` to avoid `lattice_def` property deep copy
 
-**Files affected:** `ymcirc/_abstract/lattice_data.py`
+The `__hash__` method on line 242 accesses `self.lattice_def`, which is a property that performs a `copy.deepcopy`. While this is a minor cost (~0.02 ms) compared to the encoder deep copy, it is still unnecessary and adds up when `ParsedLatticeResult` is used as a dictionary key. Replace `self.lattice_def` with `self._lattice_def` in `__hash__`. Additionally, cache the hash value in `self._hash_cache` so repeated hashing is O(1).
 
-### Stage 5: Add bit-string-level caching in `functions.py`
+**Files affected:** `ymcirc/parsed_lattice_result.py`
 
-In the `run_circuit_simulations` function (lines 432–447), introduce a dictionary `plr_cache: dict[str, ParsedLatticeResult]` that maps bit strings to their parsed results. Before constructing a new `ParsedLatticeResult`, check the cache. This avoids re-parsing the same bit string across different simulation time steps (and within the same time step, since `MeasurementResults.__init__` already deduplicates via dict keys). The cache should be keyed by the big-endian bit string.
+### Stage 4: Add bit-string-level caching in `functions.py`
 
-Alternatively (or additionally), the caching could be pushed into `MeasurementResults.__init__` itself, so that any caller benefits — not just `run_circuit_simulations`. This would involve `MeasurementResults.__init__` accepting an optional `plr_cache` dict parameter.
+In the `run_circuit_simulations` function (lines 432–447), introduce a dictionary `plr_cache: dict[str, ParsedLatticeResult]` that maps bit strings to their parsed results. Before constructing a new `ParsedLatticeResult`, check the cache. This avoids re-parsing the same bit string across different simulation time steps.
+
+Alternatively (or additionally), the caching could be pushed into `MeasurementResults.__init__` itself by accepting an optional `plr_cache` dict parameter, so that any caller benefits.
 
 **Files affected:** `run/functions.py`, optionally `ymcirc/measurement_results.py`
 
+### Stage 5: Minor optimizations (low priority)
+
+These are worth doing for hygiene but have negligible impact on the observed bottleneck:
+
+- **Cache `get_traversal_order()` result** in `LatticeDef` as an instance attribute, since it depends only on immutable lattice geometry.
+- **Fix `__eq__`** to use `self._lattice_def` directly rather than going through properties.
+
+**Files affected:** `ymcirc/_abstract/lattice_data.py`, `ymcirc/parsed_lattice_result.py`
+
 ### Stage 6: Testing and validation
 
-Run the existing test suite to confirm no regressions. Then run the `run/time_evol.py` script with the parameters from the issue description and verify that the hang is resolved. Ideally, add a targeted benchmark or test that constructs many `ParsedLatticeResult` instances to guard against future performance regressions.
+Run the existing test suite to confirm no regressions. Then run the `run/time_evol.py` script with the parameters from the issue description and verify that the hang is resolved.
 
-**Files affected:** `tests/` (new or modified test files)
+**Files affected:** `tests/` (existing test files)
 
 ## Concrete TODO items
 
-1. **Fix `__hash__` deep copy:** Replace `self.lattice_def` with `self._lattice_def` in `__hash__`, and add a `self._hash_cache` attribute that is computed once and returned on subsequent calls.
-2. **Fix `__eq__` property access:** Replace `self.dim`, `self.shape`, `self.periodic_boundary_conds` in `__eq__` with direct attribute access to avoid any unnecessary overhead.
-3. **Remove `copy.deepcopy` in `__init__` lines 102–103:** Store `lattice_encoder.lattice_def` and `lattice_encoder` as direct references instead of deep copies.
-4. **Remove `copy.deepcopy` in `_create_partial` lines 285–286:** Same change as above for the factory method path.
-5. **Add lightweight init path for `ParsedLatticeResult`:** Modify `__init__` to copy precomputed lattice data (vertex set, link set, shape, etc.) from the encoder's `LatticeDef` rather than recomputing via `LatticeDef.__init__`.
-6. **Cache `get_traversal_order()` result:** Add a `_traversal_order_cache` attribute to `LatticeDef`, populate it on first call, and return it on subsequent calls.
-7. **Add `plr_cache` dict in `run_circuit_simulations`:** Before the loop over `job_results` on line 432, create `plr_cache = {}`. Inside the loop, build `counts_dict_big_endian` using cached `ParsedLatticeResult` instances where available.
-8. **Optionally add `plr_cache` parameter to `MeasurementResults.__init__`:** Allow callers to pass in and share a cache of `ParsedLatticeResult` instances to further reduce redundant construction.
+1. **Remove `copy.deepcopy(lattice_encoder)` on line 103 of `parsed_lattice_result.py`:** Replace with `self._encoder = lattice_encoder`.
+2. **Remove `copy.deepcopy(lattice_encoder.lattice_def)` on line 102:** Replace with `self._lattice_def = lattice_encoder.lattice_def` (noting this itself returns a deep copy from the property — consider using `lattice_encoder._lattice` directly or storing the reference once).
+3. **Make `_lattice_encoder_repr` lazy on line 104:** Remove eager `lattice_encoder.__repr__()` call from `__init__`, compute it only when `ParsedLatticeResult.__repr__` is actually invoked.
+4. **Apply the same fixes to `_create_partial` (lines 285–286):** Remove deep copies of encoder and lattice_def in the factory method.
+5. **Fix `__hash__` (line 242):** Replace `self.lattice_def` (property with deep copy) with `self._lattice_def` (direct reference). Add `self._hash_cache` attribute.
+6. **Fix `__eq__` (lines 244–253):** Use `self._lattice_def` directly instead of going through properties.
+7. **Add `plr_cache` dict in `run_circuit_simulations`:** Before the loop over `job_results` on line 432, create `plr_cache = {}`. Use cached `ParsedLatticeResult` instances where available when building `counts_dict_big_endian`.
+8. **Cache `get_traversal_order()` result in `LatticeDef`** (low priority): Add a `_traversal_order_cache` attribute, populate on first call.
 9. **Run existing tests:** Execute `uv run pytest -v` to verify no regressions.
 10. **Run `time_evol.py` benchmark:** Execute the script with the parameters from the issue and confirm the performance improvement.
-11. **Add performance regression test (optional):** Write a test that constructs a large number of `ParsedLatticeResult` instances and asserts it completes within a reasonable time bound.
