@@ -24,13 +24,13 @@ In `circuit.py:553`, the code currently does `plaquette_signature: Signature = p
 
 ## Step-by-step plan
 
-### 1. Update `Signature` type alias and add `compute_all_link_dirs_per_vertex` [Feedback: can you rename this new method `compute_signature`? Otherwise, this is fine.]
+### 1. Update `Signature` type alias and add `compute_signature`
 
 **File: `ymcirc/_abstract/lattice_data.py`**
 
 - **Update `Signature`** type alias: change inner tuples from `Tuple[int, int, int]` to `Tuple[int, ...]` and update the docstring to describe direction-label tuples (not i-weight tuples).
 
-- **Add `Plaquette.compute_all_link_dirs_per_vertex(dim, plane, forder)`** static method: similar to `compute_control_link_dirs_per_vertex`, but returns ALL existing half-link directions at each vertex (including active link directions), sorted by forder. This output will match the signature keys in the data files. Implementation: for each of the 4 vertices, compute the existing directions (applying the d=3/2 bottom/top vertex restriction), sort by forder position, and return as a 4-tuple.
+- **Add `Plaquette.compute_signature(dim, plane, forder)`** static method: similar to `compute_control_link_dirs_per_vertex`, but returns ALL existing half-link directions at each vertex (including active link directions), sorted by forder. This output will match the signature keys in the data files. Implementation: for each of the 4 vertices, compute the existing directions (applying the d=3/2 bottom/top vertex restriction), sort by forder position, and return as a 4-tuple.
 
 ### 2. Simplify `MatrixElementValue` and remove float branches in `conventions.py`
 
@@ -38,7 +38,7 @@ In `circuit.py:553`, the code currently does `plaquette_signature: Signature = p
 
 - **Change `MatrixElementValue`** from `Union[float, Dict[Plane, Union[float, Dict[Signature, float]]]]` to `Dict[Plane, Dict[Signature, float]]`. Every matrix element value is now always a two-level nested dict.
 
-- **Simplify `_normalize_hamiltonian_value`**: remove the `isinstance(value, (int, float))` branch. The function should now only accept dicts. Validate that the value is a dict, and return it. (Or consider removing this function entirely if `_load_hamiltonian` can just pass dicts through directly.) [Feedback: remove this function; the simplified data type means we don't need to normalize the loaded data anymore.]
+- **Remove `_normalize_hamiltonian_value`**: the simplified data type means we no longer need to normalize loaded data. Remove the function and update `_load_hamiltonian` to pass dict values through directly.
 
 - **Simplify `_filter_matrix_element_value`**: remove the float branch at the top (`isinstance(value, (int, float))`). Remove the intermediate float branch for plane values (`isinstance(plane_val, (int, float))`). The function should only handle `Dict[Plane, Dict[Signature, float]]`.
 
@@ -60,7 +60,7 @@ In `circuit.py:553`, the code currently does `plaquette_signature: Signature = p
   ```python
   plaquette_signature: Signature = plaquette.control_links_per_vertex
   ```
-  with a call to the new `Plaquette.compute_all_link_dirs_per_vertex(dim, plane, forder)` to produce a direction-label signature matching the data file format. The `dim`, `plane`, and `forder` are available from `self._encoder.lattice_def.dim`, `plaquette.plane`, and `self._encoder.forder` respectively.
+  with a call to the new `Plaquette.compute_signature(dim, plane, forder)` to produce a direction-label signature matching the data file format. The `dim`, `plane`, and `forder` are available from `self._encoder.lattice_def.dim`, `plaquette.plane`, and `self._encoder.forder` respectively.
 
 - **Update docstrings** on `apply_magnetic_trotter_step`, `_build_mag_evol_circuit`, and `_resolve_hamiltonian_for_plaquette` to reflect that all matrix element values are now dicts.
 
@@ -97,7 +97,7 @@ In `circuit.py:553`, the code currently does `plaquette_signature: Signature = p
 
 - **Add a unit test for `_resolve_hamiltonian_for_plaquette`** that verifies: (a) entries matching the target plane+signature are included, (b) entries with wrong plane are excluded, (c) entries with right plane but wrong signature are excluded.
 
-- **Add a unit test for `Plaquette.compute_all_link_dirs_per_vertex`** for d=3/2 and d=2 with the default forder, verifying the output matches the known data file signature format.
+- **Add a unit test for `Plaquette.compute_signature`** for d=3/2 and d=2 with the default forder, verifying the output matches the known data file signature format.
 
 - Existing integration tests (`test_apply_magnetic_trotter_step_*`) should continue to pass with no changes (or minimal fixture updates) since the data files have already been updated.
 
@@ -112,28 +112,28 @@ In `circuit.py:553`, the code currently does `plaquette_signature: Signature = p
 
 | File | Changes |
 |------|---------|
-| `ymcirc/_abstract/lattice_data.py` | Update `Signature` type alias; add `compute_all_link_dirs_per_vertex` |
-| `ymcirc/conventions.py` | Simplify `MatrixElementValue`; simplify `_normalize_hamiltonian_value`, `_filter_matrix_element_value`, `_sum_matrix_element_values`, `compute_all_rotations_from_just_box_terms`, `load_magnetic_hamiltonian` |
+| `ymcirc/_abstract/lattice_data.py` | Update `Signature` type alias; add `compute_signature` |
+| `ymcirc/conventions.py` | Simplify `MatrixElementValue`; remove `_normalize_hamiltonian_value`; simplify `_filter_matrix_element_value`, `_sum_matrix_element_values`, `compute_all_rotations_from_just_box_terms`, `load_magnetic_hamiltonian` |
 | `ymcirc/circuit.py` | Simplify `_resolve_hamiltonian_for_plaquette`; remove `universal_resolved` fast path; fix signature computation; update cache key types; update docstrings |
 | `ymcirc/CLAUDE.md` | Update domain concept descriptions |
 | `tests/test_conventions.py` | Update existing tests; add unit tests for `_filter_matrix_element_value`, `_sum_matrix_element_values` |
-| `tests/test_circuit.py` | Add unit tests for `_resolve_hamiltonian_for_plaquette`, `compute_all_link_dirs_per_vertex` |
+| `tests/test_circuit.py` | Add unit tests for `_resolve_hamiltonian_for_plaquette`, `compute_signature` |
 
 ---
 
 ## Todo list
 
 - [ ] 1. Update `Signature` type alias in `_abstract/lattice_data.py` (change inner tuples to `Tuple[int, ...]`, update docstring)
-- [ ] 2. Add `Plaquette.compute_all_link_dirs_per_vertex` static method in `_abstract/lattice_data.py`
+- [ ] 2. Add `Plaquette.compute_signature` static method in `_abstract/lattice_data.py`
 - [ ] 3. Simplify `MatrixElementValue` type alias in `conventions.py`
-- [ ] 4. Simplify `_normalize_hamiltonian_value` in `conventions.py`
+- [ ] 4. Remove `_normalize_hamiltonian_value` in `conventions.py`; update `_load_hamiltonian` to pass dicts through directly
 - [ ] 5. Simplify `_filter_matrix_element_value` in `conventions.py`
 - [ ] 6. Simplify `_sum_matrix_element_values` in `conventions.py` (handle empty-dict identity)
 - [ ] 7. Update `compute_all_rotations_from_just_box_terms` in `conventions.py` (change default from `0` to `{}`)
 - [ ] 8. Update `load_magnetic_hamiltonian` docstring in `conventions.py`
 - [ ] 9. Simplify `_resolve_hamiltonian_for_plaquette` in `circuit.py`
 - [ ] 10. Remove `universal_resolved` fast path in `apply_magnetic_trotter_step` in `circuit.py`
-- [ ] 11. Fix signature computation in `apply_magnetic_trotter_step` (use `compute_all_link_dirs_per_vertex`)
+- [ ] 11. Fix signature computation in `apply_magnetic_trotter_step` (use `compute_signature`)
 - [ ] 12. Update cache key type hint in `LatticeCircuitManager.__init__`
 - [ ] 13. Update docstrings in `circuit.py`
 - [ ] 14. Update CLAUDE.md domain concept descriptions
@@ -143,6 +143,6 @@ In `circuit.py:553`, the code currently does `plaquette_signature: Signature = p
 - [ ] 18. Add unit test for `_filter_matrix_element_value` (dict-only)
 - [ ] 19. Add unit test for `_sum_matrix_element_values` (dict-only, including empty-dict identity)
 - [ ] 20. Add unit test for `_resolve_hamiltonian_for_plaquette` in `test_circuit.py`
-- [ ] 21. Add unit test for `compute_all_link_dirs_per_vertex` in `test_circuit.py`
+- [ ] 21. Add unit test for `compute_signature` in `test_circuit.py`
 - [ ] 22. Run `uv run pytest -v` and verify all tests pass
 - [ ] 23. Run `uv run pytest --runslow` and verify slow tests pass
