@@ -123,26 +123,26 @@ In `circuit.py:553`, the code currently does `plaquette_signature: Signature = p
 
 ## Todo list
 
-- [ ] 1. Update `Signature` type alias in `_abstract/lattice_data.py` (change inner tuples to `Tuple[int, ...]`, update docstring)
-- [ ] 2. Add `Plaquette.compute_signature` static method in `_abstract/lattice_data.py`
-- [ ] 3. Simplify `MatrixElementValue` type alias in `conventions.py`
-- [ ] 4. Remove `_normalize_hamiltonian_value` in `conventions.py`; update `_load_hamiltonian` to pass dicts through directly
-- [ ] 5. Simplify `_filter_matrix_element_value` in `conventions.py`
-- [ ] 6. Simplify `_sum_matrix_element_values` in `conventions.py` (handle empty-dict identity)
-- [ ] 7. Update `compute_all_rotations_from_just_box_terms` in `conventions.py` (change default from `0` to `{}`)
-- [ ] 8. Update `load_magnetic_hamiltonian` docstring in `conventions.py`
-- [ ] 9. Simplify `_resolve_hamiltonian_for_plaquette` in `circuit.py`
-- [ ] 10. Remove `universal_resolved` fast path in `apply_magnetic_trotter_step` in `circuit.py`
-- [ ] 11. Fix signature computation in `apply_magnetic_trotter_step` (use `compute_signature`)
-- [ ] 12. Update cache key type hint in `LatticeCircuitManager.__init__`
-- [ ] 13. Update docstrings in `circuit.py`
-- [ ] 14. Update CLAUDE.md domain concept descriptions
-- [ ] 15. Update `test_compute_all_rotations_handles_dict_valued_matrix_elements` in `test_conventions.py`
-- [ ] 16. Update `test_load_magnetic_hamiltonian_constructs_correct_num_rotations` in `test_conventions.py`
-- [ ] 17. Update `test_matrix_element_data_are_valid_*` tests in `test_conventions.py`
-- [ ] 18. Add unit test for `_filter_matrix_element_value` (dict-only)
-- [ ] 19. Add unit test for `_sum_matrix_element_values` (dict-only, including empty-dict identity)
-- [ ] 20. Add unit test for `_resolve_hamiltonian_for_plaquette` in `test_circuit.py`
-- [ ] 21. Add unit test for `compute_signature` in `test_circuit.py`
-- [ ] 22. Run `uv run pytest -v` and verify all tests pass
-- [ ] 23. Run `uv run pytest --runslow` and verify slow tests pass
+- [x] 1. Update `Signature` type alias in `_abstract/lattice_data.py` (change inner tuples to `Tuple[int, ...]`, update docstring)
+- [x] 2. Add `Plaquette.compute_signature` static method in `_abstract/lattice_data.py`
+- [x] 3. Simplify `MatrixElementValue` type alias in `conventions.py`
+- [x] 4. Remove `_normalize_hamiltonian_value` in `conventions.py`; update `_load_hamiltonian` to pass dicts through directly
+- [x] 5. Simplify `_filter_matrix_element_value` in `conventions.py`
+- [x] 6. Simplify `_sum_matrix_element_values` in `conventions.py` (handle empty-dict identity)
+- [x] 7. Update `compute_all_rotations_from_just_box_terms` in `conventions.py` (change default from `0` to `{}`)
+- [x] 8. Update `load_magnetic_hamiltonian` docstring in `conventions.py`
+- [x] 9. Simplify `_resolve_hamiltonian_for_plaquette` in `circuit.py`
+- [x] 10. Remove `universal_resolved` fast path in `apply_magnetic_trotter_step` in `circuit.py`
+- [x] 11. Fix signature computation in `apply_magnetic_trotter_step` (use `compute_signature`)
+- [x] 12. Update cache key type hint in `LatticeCircuitManager.__init__`
+- [x] 13. Update docstrings in `circuit.py`
+- [x] 14. Update CLAUDE.md domain concept descriptions
+- [x] 15. Update `test_compute_all_rotations_handles_dict_valued_matrix_elements` in `test_conventions.py`
+- [x] 16. Update `test_load_magnetic_hamiltonian_constructs_correct_num_rotations` in `test_conventions.py`
+- [x] 17. Update `test_matrix_element_data_are_valid_*` tests in `test_conventions.py`
+- [x] 18. Add unit test for `_filter_matrix_element_value` (dict-only)
+- [x] 19. Add unit test for `_sum_matrix_element_values` (dict-only, including empty-dict identity)
+- [x] 20. Add unit test for `_resolve_hamiltonian_for_plaquette` in `test_circuit.py`
+- [x] 21. Add unit test for `compute_signature` in `test_circuit.py`
+- [x] 22. Run `uv run pytest -v` and verify all tests pass
+- [x] 23. Run `uv run pytest --runslow` and verify slow tests pass

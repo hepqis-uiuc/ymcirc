@@ -1,10 +1,12 @@
 import pytest
 from ymcirc._abstract import LatticeDef
+from ymcirc._abstract.lattice_data import Plaquette
 from ymcirc.conventions import (
     PHYSICAL_PLAQUETTE_STATES, IRREP_TRUNCATIONS, ONE, THREE,
     THREE_BAR, SIX, SIX_BAR, EIGHT,
     LatticeStateEncoder, HAMILTONIAN_BOX_TERMS,
-    compute_all_rotations_from_just_box_terms
+    compute_all_rotations_from_just_box_terms,
+    _filter_matrix_element_value, _sum_matrix_element_values
 )
 
 
@@ -107,8 +109,10 @@ def test_load_magnetic_hamiltonian_constructs_correct_num_rotations():
         "for an nxn matrix."
     )
 
-    # Configure test data.
-    dummy_box_terms_states: List[PlaquetteState] = [
+    # Configure test data. All values are Dict[Plane, Dict[Signature, float]].
+    plane_a = (1, 2)
+    sig_a = ((-1,), (1,), (1,), (-1,))
+    dummy_box_terms_states = [
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
@@ -126,15 +130,15 @@ def test_load_magnetic_hamiltonian_constructs_correct_num_rotations():
         )
     ]
     dummy_box_terms_data = {
-        (dummy_box_terms_states[0], dummy_box_terms_states[1]): 0.4,
-        (dummy_box_terms_states[1], dummy_box_terms_states[0]): -0.2,  # Opposite transition exists in box, different amplitude
-        (dummy_box_terms_states[1], dummy_box_terms_states[2]): 0.1,  # Asymmetric transition in box
-        (dummy_box_terms_states[0], dummy_box_terms_states[2]): 0.9
+        (dummy_box_terms_states[0], dummy_box_terms_states[1]): {plane_a: {sig_a: 0.4}},
+        (dummy_box_terms_states[1], dummy_box_terms_states[0]): {plane_a: {sig_a: -0.2}},  # Opposite transition exists in box, different amplitude
+        (dummy_box_terms_states[1], dummy_box_terms_states[2]): {plane_a: {sig_a: 0.1}},  # Asymmetric transition in box
+        (dummy_box_terms_states[0], dummy_box_terms_states[2]): {plane_a: {sig_a: 0.9}}
     }
     expected_box_plus_box_dagger_rotations = {
-        (dummy_box_terms_states[0], dummy_box_terms_states[1]): 0.2, # 0.4 - 0.2
-        (dummy_box_terms_states[1], dummy_box_terms_states[2]): 0.1,
-        (dummy_box_terms_states[0], dummy_box_terms_states[2]): 0.9
+        (dummy_box_terms_states[0], dummy_box_terms_states[1]): {plane_a: {sig_a: 0.2}},  # 0.4 + (-0.2)
+        (dummy_box_terms_states[1], dummy_box_terms_states[2]): {plane_a: {sig_a: 0.1}},
+        (dummy_box_terms_states[0], dummy_box_terms_states[2]): {plane_a: {sig_a: 0.9}}
     }
 
     # Run test.
@@ -157,26 +161,28 @@ def test_compute_all_rotations_handles_dict_valued_matrix_elements():
     )
     plane_a = (1, 2)
     plane_b = (1, 3)
+    sig_a = ((-1,), (1,), (1,), (-1,))
+    sig_b = ((1,), (-1,), (-1,), (1,))
+    sig_c = ((1,), (1,), (1,), (1,))
 
     # box has (s0→s1) as a dict and (s1→s0) as a dict with overlapping planes.
     box_terms = {
-        (s0, s1): {plane_a: 0.5, plane_b: 0.3},
-        (s1, s0): {plane_a: 0.1},
+        (s0, s1): {plane_a: {sig_a: 0.5}, plane_b: {sig_a: 0.3}},
+        (s1, s0): {plane_a: {sig_a: 0.1}},
     }
     result = compute_all_rotations_from_just_box_terms(box_terms=box_terms)
 
-    # box + box†: (s0,s1) gets box_amplitude={a:0.5,b:0.3} + box_dagger_amplitude={a:0.1}
-    # merged = {a: 0.5+0.1, b: 0.3} = {a: 0.6, b: 0.3}
-    assert result[(s0, s1)] == {plane_a: 0.6, plane_b: 0.3}
+    # box + box†: (s0,s1) gets box_amplitude + box_dagger_amplitude merged
+    assert result[(s0, s1)] == {plane_a: {sig_a: 0.6}, plane_b: {sig_a: 0.3}}
 
-    # Test combining at the level of signatures.
+    # Test combining at the level of signatures with overlapping and non-overlapping keys.
     box_terms_one_overlapping_signature = {
         (s0, s1): {
-            plane_a: {((-1,), (1,), (1,), (-1,)): 0.5, ((1,), (-1,), (-1,), (1,)): 0.6},
-            plane_b: 0.3,
+            plane_a: {sig_a: 0.5, sig_b: 0.6},
+            plane_b: {sig_a: 0.3},
         },
         (s1, s0): {
-            plane_a: {((-1,), (1,), (1,), (-1,)): 0.2, ((1,), (1,), (1,), (1,)): 0.6}
+            plane_a: {sig_a: 0.2, sig_c: 0.6}
         },
     }
     result_one_overlapping_signature = compute_all_rotations_from_just_box_terms(
@@ -184,11 +190,11 @@ def test_compute_all_rotations_handles_dict_valued_matrix_elements():
     )
     assert result_one_overlapping_signature[(s0, s1)] == {
         plane_a: {
-            ((-1,), (1,), (1,), (-1,)): 0.7,
-            ((1,), (-1,), (-1,), (1,)): 0.6,
-            ((1,), (1,), (1,), (1,)): 0.6,
+            sig_a: 0.7,
+            sig_b: 0.6,
+            sig_c: 0.6,
         },
-        plane_b: 0.3,
+        plane_b: {sig_a: 0.3},
     }
 
 
@@ -207,7 +213,7 @@ def test_matrix_element_data_are_valid_d_3_2_T1():
             f" plaquette state list: {state_f}."
         assert state_i in PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string], "Encountered state not in physical" \
             f" plaquette state list: {state_i}."
-        assert isinstance(mat_elem_val, (float, int, dict)), f"Unexpected matrix element type: {type(mat_elem_val)}, value: {mat_elem_val}."
+        assert isinstance(mat_elem_val, dict), f"Unexpected matrix element type: {type(mat_elem_val)}, value: {mat_elem_val}."
 
 
 @pytest.mark.slow
@@ -226,7 +232,7 @@ def test_matrix_element_data_are_valid_d_3_2_T2():
             f" plaquette state list: {state_f}."
         assert state_i in PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string], "Encountered state not in physical" \
             f" plaquette state list: {state_i}."
-        assert isinstance(mat_elem_val, (float, int, dict)), f"Unexpected matrix element type: {type(mat_elem_val)}, value: {mat_elem_val}."
+        assert isinstance(mat_elem_val, dict), f"Unexpected matrix element type: {type(mat_elem_val)}, value: {mat_elem_val}."
 
 
 @pytest.mark.slow
@@ -245,7 +251,7 @@ def test_matrix_element_data_are_valid_d_2_T1():
             f" plaquette state list: {state_f}."
         assert state_i in PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string], "Encountered state not in physical" \
             f" plaquette state list: {state_i}."
-        assert isinstance(mat_elem_val, (float, int, dict)), f"Unexpected matrix element type: {type(mat_elem_val)}, value: {mat_elem_val}."
+        assert isinstance(mat_elem_val, dict), f"Unexpected matrix element type: {type(mat_elem_val)}, value: {mat_elem_val}."
 
 
 def test_lattice_encoder_type_error_for_bad_lattice_arg():
@@ -1323,3 +1329,50 @@ def test_non_default_forder_plaquette_encode_decode_round_trip():
 
     assert default_round_trip == default_state, "Default forder round-trip failed."
     assert alt_round_trip == alt_state, "Alt forder round-trip failed."
+
+
+def test_filter_matrix_element_value():
+    """Test _filter_matrix_element_value with Dict[Plane, Dict[Signature, float]] inputs."""
+    plane_a = (1, 2)
+    plane_b = (1, 3)
+    sig_a = ((-1,), (1,), (1,), (-1,))
+    sig_b = ((1,), (-1,), (-1,), (1,))
+
+    value = {
+        plane_a: {sig_a: 0.5, sig_b: 0.001},
+        plane_b: {sig_a: 0.002},
+    }
+
+    # With threshold=0.01: sig_b under plane_a and sig_a under plane_b should be dropped.
+    result = _filter_matrix_element_value(value, 0.01)
+    assert result == {plane_a: {sig_a: 0.5}}
+
+    # With threshold=0: everything preserved.
+    result_no_threshold = _filter_matrix_element_value(value, 0)
+    assert result_no_threshold == value
+
+    # With threshold above all values: returns None.
+    result_all_filtered = _filter_matrix_element_value(value, 1.0)
+    assert result_all_filtered is None
+
+
+def test_sum_matrix_element_values():
+    """Test _sum_matrix_element_values with Dict[Plane, Dict[Signature, float]] inputs."""
+    plane_a = (1, 2)
+    plane_b = (1, 3)
+    sig_a = ((-1,), (1,), (1,), (-1,))
+    sig_b = ((1,), (-1,), (-1,), (1,))
+
+    a = {plane_a: {sig_a: 0.5, sig_b: 0.3}}
+    b = {plane_a: {sig_a: 0.1}, plane_b: {sig_b: 0.7}}
+
+    result = _sum_matrix_element_values(a, b)
+    assert result == {
+        plane_a: {sig_a: 0.6, sig_b: 0.3},
+        plane_b: {sig_b: 0.7},
+    }
+
+    # Check empty dict is identity element.
+    assert _sum_matrix_element_values({}, a) == a
+    assert _sum_matrix_element_values(a, {}) == a
+    assert _sum_matrix_element_values({}, {}) == {}

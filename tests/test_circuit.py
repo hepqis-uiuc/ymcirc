@@ -1,7 +1,7 @@
 from pathlib import Path
 import pytest
 import numpy as np
-from ymcirc._abstract import LatticeDef
+from ymcirc._abstract import LatticeDef, Plaquette
 from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.conventions import LatticeStateEncoder, ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT, IRREP_TRUNCATIONS, PHYSICAL_PLAQUETTE_STATES, load_magnetic_hamiltonian
 from ymcirc.lattice_registers import LatticeRegisters
@@ -203,8 +203,11 @@ def test_apply_magnetic_trotter_step_d_3_2_large_lattice():
     #          mapping each substring in the plaquette encoding onto actual registers in the lattice.
     #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or projector operator involved determines the control states.
     # Ask yourself if you REALLY feel like doing all that before mucking about with this test data.
+    # Signature for d=3/2, plane=(1,2), default forder.
+    _sig_3_2 = ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
+    _plane_12 = (1, 2)
     dummy_mag_hamiltonian = {
-        ("00100000" + "00000000", "01010100" + "10011010"): 0.33  # One matrix element, plaquette only has a_link and c_link substrings.
+        ("00100000" + "00000000", "01010100" + "10011010"): {_plane_12: {_sig_3_2: 0.33}}  # One matrix element, plaquette only has a_link and c_link substrings.
     }
     dummy_phys_states = [
         (  # Matches the first encoded state in the dummy magnetic hamiltonian.
@@ -319,9 +322,12 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice():
     #          mapping each substring in the plaquette encoding onto actual registers in the lattice.
     #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or projector operator involved determines the control states (raising to get to final state is on, projector onto 1 is on).
     # Ask yourself if you REALLY feel like doing all that before mucking about with this test data.
+    # Signature for d=3/2, plane=(1,2), default forder.
+    _sig_3_2 = ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
+    _plane_12 = (1, 2)
     dummy_mag_hamiltonian = {
-        ("00100001" + "00000000", "01010110" + "10011010"): 0.33,  # One matrix element, plaquette only has a_link and c_link substrings. Should get filtered out based on c_link consistency.
-        ("00100001" + "00000000", "01010110" + "10100000"): 0.33  # One matrix element, plaquette only has a_link and c_link substrings. Should not get filtered out based on c_link consistency.
+        ("00100001" + "00000000", "01010110" + "10011010"): {_plane_12: {_sig_3_2: 0.33}},  # One matrix element, plaquette only has a_link and c_link substrings. Should get filtered out based on c_link consistency.
+        ("00100001" + "00000000", "01010110" + "10100000"): {_plane_12: {_sig_3_2: 0.33}}  # One matrix element, plaquette only has a_link and c_link substrings. Should not get filtered out based on c_link consistency.
     }
     dummy_phys_states = [
         (  # Matches the first encoded state in the dummy magnetic hamiltonian.
@@ -437,8 +443,11 @@ def test_apply_magnetic_trotter_step_d_2_large_lattice():
     #          mapping each substring in the plaquette encoding onto actual registers in the lattice.
     #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or projector operator involved determines the control states.
     # Ask yourself if you REALLY feel like doing all that before mucking about with this test data.
+    # Signature for d=2, plane=(1,2), default forder.
+    _sig_2 = ((1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2))
+    _plane_12 = (1, 2)
     dummy_mag_hamiltonian = {
-        ("0000" + "00100000" + "0000000000000010", "0010" + "01010100" + "1001101000000010"): 0.33  # One matrix element, plaquette has v, a_link, and c_link substrings.
+        ("0000" + "00100000" + "0000000000000010", "0010" + "01010100" + "1001101000000010"): {_plane_12: {_sig_2: 0.33}}  # One matrix element, plaquette has v, a_link, and c_link substrings.
     }
     dummy_phys_states = [
         (  # Matches the first encoded state in the dummy magnetic hamiltonian.
@@ -583,9 +592,12 @@ def test_apply_magnetic_trotter_step_d_2_small_lattice():
     #          mapping each substring in the plaquette encoding onto actual registers in the lattice.
     #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or projector operator involved determines the control states.
     # Ask yourself if you REALLY feel like doing all that before mucking about with this test data.
+    # Signature for d=2, plane=(1,2), default forder.
+    _sig_2 = ((1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2))
+    _plane_12 = (1, 2)
     dummy_mag_hamiltonian = {
-        ("0000" + "00100000" + "0000000000000010", "0010" + "01010100" + "1001101000000010"): 0.33, # One matrix element, plaquette has v, a_link, and c_link substrings. Should get filtered out based on c_link consistency.
-        ("0000" + "00100000" + "0000000010000010", "0010" + "01010100" + "1001101000100100"): 0.33  # One matrix element, plaquette has v, a_link, and c_link substrings. Should not get filtered out based on c_link consistency.
+        ("0000" + "00100000" + "0000000000000010", "0010" + "01010100" + "1001101000000010"): {_plane_12: {_sig_2: 0.33}}, # One matrix element, plaquette has v, a_link, and c_link substrings. Should get filtered out based on c_link consistency.
+        ("0000" + "00100000" + "0000000010000010", "0010" + "01010100" + "1001101000100100"): {_plane_12: {_sig_2: 0.33}}  # One matrix element, plaquette has v, a_link, and c_link substrings. Should not get filtered out based on c_link consistency.
     }
     dummy_phys_states = [
         (  # Matches the first encoded state in the dummy magnetic hamiltonian that isn't discarded.
@@ -878,9 +890,12 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice_with_ancillas():
     #          mapping each substring in the plaquette encoding onto actual registers in the lattice.
     #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or projector operator involved determines the control states (raising to get to final state is on, projector onto 1 is on).
     # Ask yourself if you REALLY feel like doing all that before mucking about with this test data.
+    # Signature for d=3/2, plane=(1,2), default forder.
+    _sig_3_2 = ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
+    _plane_12 = (1, 2)
     dummy_mag_hamiltonian = {
-        ("00100001" + "00000000", "01010110" + "10011010"): 0.33,  # One matrix element, plaquette only has a_link and c_link substrings. Should get filtered out based on c_link consistency.
-        ("00100001" + "00000000", "01010110" + "10100000"): 0.33  # One matrix element, plaquette only has a_link and c_link substrings. Should not get filtered out based on c_link consistency.
+        ("00100001" + "00000000", "01010110" + "10011010"): {_plane_12: {_sig_3_2: 0.33}},  # One matrix element, plaquette only has a_link and c_link substrings. Should get filtered out based on c_link consistency.
+        ("00100001" + "00000000", "01010110" + "10100000"): {_plane_12: {_sig_3_2: 0.33}}  # One matrix element, plaquette only has a_link and c_link substrings. Should not get filtered out based on c_link consistency.
     }
     dummy_phys_states = [
         (  # Matches the first encoded state in the dummy magnetic hamiltonian.
@@ -1162,10 +1177,12 @@ def test_adding_ancilla_register_fails_if_already_exists():
 
 def test_apply_mag_trotter_step_independent_params_for_givens_rotations():
     # Some minimal data to create a LatticeCircuitManager.
+    _sig_3_2 = ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
+    _plane_12 = (1, 2)
     dummy_mag_hamiltonian = {  # There will be 2 Givens rotations and therefore 2 Parameters.
-        ("00100001" + "00000000", "01010110" + "10011001"): 0.99,
-        ("00100001" + "00000000", "01010110" + "10100000"): 0.33,
-        ("00100001" + "00000000", "01010110" + "00100000"): 0.66
+        ("00100001" + "00000000", "01010110" + "10011001"): {_plane_12: {_sig_3_2: 0.99}},
+        ("00100001" + "00000000", "01010110" + "10100000"): {_plane_12: {_sig_3_2: 0.33}},
+        ("00100001" + "00000000", "01010110" + "00100000"): {_plane_12: {_sig_3_2: 0.66}}
     }
     dummy_phys_states = [
         (
@@ -1201,14 +1218,16 @@ def test_apply_mag_trotter_step_independent_params_for_givens_rotations():
 
 def test_apply_mag_trotter_step_independent_params_multiple_lp_families():
     # This dummy data creates 3 LP bins. Two of them have 2 Givens rotations, one has 3.
+    _sig_3_2 = ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
+    _plane_12 = (1, 2)
     dummy_mag_hamiltonian = {
-        ("01010101" + "00000101", "10100101" + "00001010"): 0.99, #LP fam 1: LLLLPPPP + PPPPLLLL
-        ("10100000" + "10100101", "01010000" + "10101010"): 0.99, #LP fam 1: LLLLPPPP + PPPPLLLL
-        ("01010101" + "01010000", "01011010" + "10100000"): 0.99, #LP fam 2: PPPPLLLL + LLLLPPPP
-        ("00001010" + "01010000", "00000101" + "10100000"): 0.99, #LP fam 2: PPPPLLLL + LLLLPPPP
-        ("00000000" + "10101010", "00000000" + "01010101"): 0.99, #LP fam 3: PPPPPPPP + LLLLLLLL
-        ("00000000" + "01010101", "00000000" + "10101010"): 0.99, #LP fam 3: PPPPPPPP + LLLLLLLL
-        ("00000000" + "01011010", "00000000" + "10100101"): 0.99, #LP fam 3: PPPPPPPP + LLLLLLLL
+        ("01010101" + "00000101", "10100101" + "00001010"): {_plane_12: {_sig_3_2: 0.99}}, #LP fam 1: LLLLPPPP + PPPPLLLL
+        ("10100000" + "10100101", "01010000" + "10101010"): {_plane_12: {_sig_3_2: 0.99}}, #LP fam 1: LLLLPPPP + PPPPLLLL
+        ("01010101" + "01010000", "01011010" + "10100000"): {_plane_12: {_sig_3_2: 0.99}}, #LP fam 2: PPPPLLLL + LLLLPPPP
+        ("00001010" + "01010000", "00000101" + "10100000"): {_plane_12: {_sig_3_2: 0.99}}, #LP fam 2: PPPPLLLL + LLLLPPPP
+        ("00000000" + "10101010", "00000000" + "01010101"): {_plane_12: {_sig_3_2: 0.99}}, #LP fam 3: PPPPPPPP + LLLLLLLL
+        ("00000000" + "01010101", "00000000" + "10101010"): {_plane_12: {_sig_3_2: 0.99}}, #LP fam 3: PPPPPPPP + LLLLLLLL
+        ("00000000" + "01011010", "00000000" + "10100101"): {_plane_12: {_sig_3_2: 0.99}}, #LP fam 3: PPPPPPPP + LLLLLLLL
     }
 
     dummy_phys_states = [
@@ -1641,3 +1660,55 @@ def test_forder_aware_duplicate_control_removal_d_2():
     # Vertex multiplicities and active links should be unchanged.
     assert result[0] == plaquette[0]
     assert result[1] == plaquette[1]
+
+
+def test_resolve_hamiltonian_for_plaquette():
+    """Test _resolve_hamiltonian_for_plaquette filters by plane and signature."""
+    plane_a = (1, 2)
+    plane_b = (1, 3)
+    sig_a = ((-1,), (1,), (1,), (-1,))
+    sig_b = ((1,), (-1,), (-1,), (1,))
+
+    hamiltonian = {
+        ("00", "11"): {plane_a: {sig_a: 0.5, sig_b: 0.3}, plane_b: {sig_a: 0.7}},
+        ("01", "10"): {plane_a: {sig_a: 0.2}},
+        ("10", "01"): {plane_b: {sig_b: 0.9}},
+    }
+
+    # Match plane_a, sig_a: should get entries from first two hamiltonian entries.
+    result = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(hamiltonian, plane_a, sig_a)
+    assert len(result) == 2
+    assert ("00", "11", 0.5) in result
+    assert ("01", "10", 0.2) in result
+
+    # Match plane_a, sig_b: only one entry has sig_b under plane_a.
+    result_b = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(hamiltonian, plane_a, sig_b)
+    assert len(result_b) == 1
+    assert ("00", "11", 0.3) in result_b
+
+    # Match plane_b, sig_b: only last entry matches.
+    result_c = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(hamiltonian, plane_b, sig_b)
+    assert len(result_c) == 1
+    assert ("10", "01", 0.9) in result_c
+
+    # No match: plane_b, sig with no entries.
+    result_empty = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(hamiltonian, plane_b, sig_b + ((2,),))
+    assert len(result_empty) == 0
+
+
+def test_compute_signature():
+    """Test Plaquette.compute_signature for d=3/2 and d=2 with default forder."""
+    default_forder = [1, 2, 3, -1, -2, -3]
+
+    # d=3/2, plane (1, 2):
+    # v1 (bottom): all dirs except -2 → {1, 2, -1} sorted by forder → (1, 2, -1)
+    # v2 (bottom): all dirs except -2 → {1, 2, -1} sorted by forder → (1, 2, -1)
+    # v3 (top):    all dirs except +2 → {1, -1, -2} sorted by forder → (1, -1, -2)
+    # v4 (top):    all dirs except +2 → {1, -1, -2} sorted by forder → (1, -1, -2)
+    sig_3_2 = Plaquette.compute_signature(1.5, (1, 2), default_forder)
+    assert sig_3_2 == ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
+
+    # d=2, plane (1, 2):
+    # All vertices have all dirs {1, 2, -1, -2} sorted by forder → (1, 2, -1, -2)
+    sig_2 = Plaquette.compute_signature(2, (1, 2), default_forder)
+    assert sig_2 == ((1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2))

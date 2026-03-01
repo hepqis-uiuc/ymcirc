@@ -56,7 +56,7 @@ class LatticeCircuitManager:
         # LatticeCircuitManager instance.
         self._encoder = copy.deepcopy(lattice_encoder)
         self._mag_hamiltonian = copy.deepcopy(mag_hamiltonian)
-        self._cached_mag_evol_circuits: Dict[Tuple[Plane, Signature] | None, QuantumCircuit] = {}
+        self._cached_mag_evol_circuits: Dict[Tuple[Plane, Signature], QuantumCircuit] = {}
         self._cached_mag_evol_params = {
             "physical_states_for_control_pruning": None,
             "optimize_circuits": None,
@@ -487,16 +487,6 @@ class LatticeCircuitManager:
         dt_mag_current = Parameter(f'dt_mag{step_num_separator}{n_dt_mag_params}')
         coupling_g_mag_current = Parameter(f'coupling_g_mag{step_num_separator}{n_coupling_g_mag_params}')
 
-        # Determine whether the hamiltonian contains any dict-valued matrix elements.
-        # If all values are plain floats, we can resolve once and reuse for all plaquettes.
-        # NOTE: This logic may break on lattices with non-period boundary conditions.
-        has_dict_values = any(isinstance(v, dict) for v in self._mag_hamiltonian.values())
-        if not has_dict_values:
-            # Universal resolution: convert dict to flat list directly.
-            universal_resolved = [(bs1, bs2, float(v)) for (bs1, bs2), v in self._mag_hamiltonian.items()]
-        else:
-            universal_resolved = None
-
         # Check if cached circuits need to be invalidated due to changed build params.
         mag_evol_recomputation_needed = (
             (len(self._cached_mag_evol_circuits) == 0)
@@ -550,15 +540,13 @@ class LatticeCircuitManager:
             for plaquette in plaquettes:
                 # Resolve the hamiltonian for this plaquette's plane and signature.
                 plaquette_plane: Plane = plaquette.plane
-                plaquette_signature: Signature = plaquette.control_links_per_vertex
-                if universal_resolved is not None:
-                    resolved_hamiltonian = universal_resolved
-                    cache_key = None  # Single cache entry for the all-float case.
-                else:
-                    resolved_hamiltonian = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(
-                        self._mag_hamiltonian, plaquette_plane, plaquette_signature
-                    )
-                    cache_key = (plaquette_plane, plaquette_signature)
+                plaquette_signature: Signature = Plaquette.compute_signature(
+                    self._encoder.lattice_def.dim, plaquette_plane, self._encoder.forder
+                )
+                resolved_hamiltonian = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(
+                    self._mag_hamiltonian, plaquette_plane, plaquette_signature
+                )
+                cache_key = (plaquette_plane, plaquette_signature)
 
                 # Build or fetch the cached template circuit for this (plane, signature).
                 # When givens_have_independent_params is True, the template must
@@ -572,11 +560,7 @@ class LatticeCircuitManager:
                 # would be to just forbid this option on such lattices.
                 use_cache = cache_mag_evol_circuit or givens_have_independent_params
                 if use_cache and (cache_key in self._cached_mag_evol_circuits):
-                    if cache_key is None:
-                        cache_msg = f"Fetching universal cached magnetic evolution circuit."
-                    else:
-                        cache_msg = f"Fetching cached magnetic evolution circuit for cache_key={cache_key}."
-                    logger.info(cache_msg)
+                    logger.info(f"Fetching cached magnetic evolution circuit for cache_key={cache_key}.")
                     plaquette_local_rotation_circuit_template = self._cached_mag_evol_circuits[cache_key]
                 else:
                     logger.info(f"Building magnetic evolution circuit for cache_key={cache_key}.")
@@ -754,13 +738,11 @@ class LatticeCircuitManager:
     ) -> List[Tuple[str, str, float]]:
         """Resolve a HamiltonianData dict to a flat list for a specific plaquette.
 
-        For each entry in the hamiltonian dict:
-        - If the value is a float, include it directly (plane/signature-independent).
-        - If the value is a dict keyed by plane:
-          - Look up the current plane. If absent, skip this entry.
-          - If the plane value is a float, include it (signature-independent for this plane).
-          - If the plane value is a dict keyed by signature, look up the current
-            signature. If absent, skip. Otherwise include the float value.
+        For each entry in the hamiltonian dict (whose values are
+        ``Dict[Plane, Dict[Signature, float]]``):
+        - Look up the current plane. If absent, skip this entry.
+        - Within the plane's sub-dict, look up the current signature.
+          If absent, skip. Otherwise include the float value.
 
         Returns:
             A flat list of (bitstring1, bitstring2, float) tuples suitable for
@@ -768,23 +750,13 @@ class LatticeCircuitManager:
         """
         resolved: List[Tuple[str, str, float]] = []
         for (bs1, bs2), value in hamiltonian.items():
-            if isinstance(value, (int, float)):
-                resolved.append((bs1, bs2, float(value)))
-            elif isinstance(value, dict):
-                plane_val = value.get(plane)
-                if plane_val is None:
-                    continue
-                if isinstance(plane_val, (int, float)):
-                    resolved.append((bs1, bs2, float(plane_val)))
-                elif isinstance(plane_val, dict):
-                    sig_val = plane_val.get(signature)
-                    if sig_val is None:
-                        continue
-                    resolved.append((bs1, bs2, float(sig_val)))
-                else:
-                    raise ValueError(f"Unexpected leaf node in MatrixElementValue: {type(plane_val)}.")
-            else:
-                raise ValueError(f"Unexpected leaf node in MatrixElementValue: {type(value)}.")
+            plane_val = value.get(plane)
+            if plane_val is None:
+                continue
+            sig_val = plane_val.get(signature)
+            if sig_val is None:
+                continue
+            resolved.append((bs1, bs2, float(sig_val)))
 
         return resolved
 
@@ -804,8 +776,7 @@ class LatticeCircuitManager:
         Arguments:
             resolved_hamiltonian: A flat list of (bitstring1, bitstring2, float)
                 tuples — the resolved matrix elements for a specific
-                (plane, signature) combination (or a universal resolution when
-                all values are plain floats).
+                (plane, signature) combination.
             control_fusion: Whether to fuse controls in Givens rotations.
             physical_states_for_control_pruning: Physical states for pruning.
             coupling_g: Coupling constant parameter.

@@ -147,6 +147,7 @@ not satisfy these equality constraints will be discarded. This logic is handled 
 the ymcirc.circuit module.
 """
 from __future__ import annotations
+import ast
 import copy
 import logging
 from pathlib import Path
@@ -189,9 +190,8 @@ MultiplicityIndex = int
 IrrepBitmap = Dict[IrrepWeight, BitString]
 VertexMultiplicityBitmap = Dict[MultiplicityIndex, BitString]
 VertexControlLinks = Tuple[LinkState, ...]  # Variable-length tuple of i-weights at one vertex
-# Matrix element value: either a plain float, or a dict keyed by plane (whose values
-# are either floats or dicts keyed by signature -> float).
-MatrixElementValue = Union[float, Dict[Plane, Union[float, Dict[Signature, float]]]]
+# Matrix element value: a nested dict keyed by plane, then signature.
+MatrixElementValue = Dict[Plane, Dict[Signature, float]]
 # Tuple of 4 vertex multiplicites, tuple of 4 "active links", tuple of 4 per-vertex control tuples.
 PlaquetteState = Union[
     Tuple[
@@ -206,7 +206,7 @@ PlaquetteState = Union[
 ]
 # Encoded plaquette state pair used as dict key in HamiltonianData.
 EncodedPlaquetteTransition = Tuple[str, str]
-# Dict mapping encoded state pairs to matrix element values (float or nested dict).
+# Dict mapping encoded state pairs to matrix element values (nested dict).
 HamiltonianData = Dict[EncodedPlaquetteTransition, MatrixElementValue]
 
 # Irrep iweights (top row of GT pattern).
@@ -238,25 +238,6 @@ IRREP_TRUNCATIONS: Dict[str, IrrepBitmap] = {
 _DATA_METADATA: Dict[Tuple[str, str], dict] = {}
 
 
-def _normalize_hamiltonian_value(value) -> Union[float, dict]:
-    """Normalize a Hamiltonian matrix element value to a canonical Python type.
-
-    The Hamiltonian JSON can have values that are:
-    - A float or int: normalized to a float.
-    - A dict (keyed by plane/signature): preserved as-is.
-
-    Downstream consumers that receive a dict value must supply plane and
-    signature information to look up the relevant float. The signature should
-    be a length-4 tuple of per-vertex F-ordered control link tuples, matching
-    the pattern used in Plaquette.control_links_per_vertex.
-    """
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, dict):
-        return value
-    raise TypeError(f"Unexpected Hamiltonian value type: {type(value)}")
-
-
 def _load_plaquette_states(path: Path) -> List:
     """Load plaquette states from a .json.gz file, caching metadata."""
     data, metadata = json_loader(path)
@@ -270,14 +251,27 @@ def _load_plaquette_states(path: Path) -> List:
 def _load_hamiltonian(path: Path) -> Dict:
     """Load Hamiltonian matrix elements from a .json.gz file and cache metadata.
 
-    Values are coerced to floats where possible; dict-valued entries (keyed by
-    plane/signature) are preserved as-is for downstream plane/signature-aware consumers.
+    Every value is expected to be a nested dict: ``{Plane: {Signature: float}}``.
+    JSON encodes all dict keys as strings; this function converts the nested
+    plane and signature keys to tuples via ``ast.literal_eval`` so downstream
+    lookups work with native Python tuples.
     """
     data, metadata = json_loader(path)
     dim_string = metadata.get("dim", "")
     trunc_string = f"{metadata['truncation_mode']}{metadata['cutoff']}"
     _DATA_METADATA[(dim_string, trunc_string)] = metadata
-    return {key: _normalize_hamiltonian_value(value) for key, value in data.items()}
+    result = {}
+    for key, value in data.items():
+        converted_value = {}
+        for plane_str, plane_val in value.items():
+            plane_key = ast.literal_eval(plane_str) if isinstance(plane_str, str) else plane_str
+            converted_sigs = {}
+            for sig_str, sig_val in plane_val.items():
+                sig_key = ast.literal_eval(sig_str) if isinstance(sig_str, str) else sig_str
+                converted_sigs[sig_key] = sig_val
+            converted_value[plane_key] = converted_sigs
+        result[key] = converted_value
+    return result
 
 
 def get_data_metadata(dim_string: str, trunc_string: str, refresh: bool = False) -> dict:
@@ -329,29 +323,18 @@ def _filter_matrix_element_value(
 ) -> MatrixElementValue | None:
     """Apply a threshold filter to a MatrixElementValue.
 
-    For float values, returns the value if abs(value) >= threshold, else None.
-    For dict values, recurses into the structure: drops leaf floats below
-    threshold, prunes plane keys whose values become empty after filtering,
-    and returns None if all plane keys are pruned.
+    Drops leaf floats if abs value is below threshold, prunes plane keys whose values become
+    empty after filtering, and returns None if all plane keys are pruned.
     """
-    if isinstance(value, (int, float)):
-        return float(value) if abs(value) >= threshold else None
-
-    # value is a dict keyed by plane.
-    filtered: Dict[Plane, Union[float, Dict[Signature, float]]] = {}
+    filtered: Dict[Plane, Dict[Signature, float]] = {}
     for plane_key, plane_val in value.items():
-        if isinstance(plane_val, (int, float)):
-            if abs(plane_val) >= threshold:
-                filtered[plane_key] = float(plane_val)
-        else:
-            # plane_val is a dict keyed by signature.
-            filtered_sigs = {
-                sig: float(sig_val)
-                for sig, sig_val in plane_val.items()
-                if abs(sig_val) >= threshold
-            }
-            if filtered_sigs:
-                filtered[plane_key] = filtered_sigs
+        filtered_sigs = {
+            sig: float(sig_val)
+            for sig, sig_val in plane_val.items()
+            if abs(sig_val) >= threshold
+        }
+        if filtered_sigs:
+            filtered[plane_key] = filtered_sigs
     return filtered if filtered else None
 
 
@@ -368,8 +351,7 @@ def load_magnetic_hamiltonian(
     This is a convenience method to obtain the magnetic Hamiltonian terms in a
     format which facilitates the construction of rotation circuits. The returned
     dict maps (encoded_state_1, encoded_state_2) bit-string pairs to
-    MatrixElementValues — either a float or a nested dict keyed by
-    plane and/or signature.
+    MatrixElementValues (``Dict[Plane, Dict[Signature, float]]``).
 
     Necessary arguments:
       - dim_string: a string of the form "d=3/2" which specifies what
@@ -407,72 +389,41 @@ def load_magnetic_hamiltonian(
             continue
         mag_hamiltonian[(state_1_bitstring, state_2_bitstring)] = matrix_elem
 
-    logger.info(f"Loaded pre-computed magnetic Hamiltonian data from disk for {dim_string}, {trunc_string}. There are {len(mag_hamiltonian)} Givens rotations per plaquette.")
+    logger.info(f"Loaded pre-computed magnetic Hamiltonian data from disk for {dim_string}, {trunc_string}. There are {len(mag_hamiltonian)} encoded state-pair entries (not yet resolved per plaquette via plane+signature filtering).")
 
     return mag_hamiltonian
 
 
 def _sum_matrix_element_values(a: MatrixElementValue, b: MatrixElementValue) -> MatrixElementValue:
-    """Sum two MatrixElementValues, preserving dict structure where applicable.
+    """Sum two MatrixElementValues by merging their nested dict structures.
 
-    - float + float -> float (simple addition).
-    - dict + dict -> merge by key, recursively summing values for matching keys
-      and preserving keys that appear only in one operand.
-    - float + dict or dict + float -> ValueError (indicates malformed data).
+    Both operands must be ``Dict[Plane, Dict[Signature, float]]``.
+    An empty dict ``{}`` acts as the identity element.
 
-    Raises:
-        ValueError: If one operand is a float and the other is a dict.
+    For matching plane keys, signature sub-dicts are merged: matching signature
+    keys have their float values summed; non-overlapping keys are preserved.
     """
-    a_is_float = isinstance(a, (int, float))
-    b_is_float = isinstance(b, (int, float))
+    if not a:
+        return dict(b)
+    if not b:
+        return dict(a)
 
-    if a_is_float and b_is_float:
-        return float(a) + float(b)
-
-    if a_is_float != b_is_float:
-        # TODO: Reconsider this case in the future. The proposed logic would be to
-        # broadcast the float to every leaf of the dict (i.e., add the float
-        # to each leaf value). For now, this indicates malformed data.
-        raise ValueError(
-            "Cannot sum a float-valued matrix element with a dict-valued one. "
-            "This indicates mixing plane-independent and plane-dependent amplitudes "
-            f"for the same transition. Got types: {type(a)}, {type(b)}."
-        )
-
-    # Both are dicts — merge by key recursively.
-    assert isinstance(a, dict) and isinstance(b, dict)
-    merged = dict(a)
-    for key, b_val in b.items():
-        if key in merged:
-            a_val = merged[key]
-            # Recurse: both values could be floats, dicts, or mixed.
-            a_val_is_float = isinstance(a_val, (int, float))
-            b_val_is_float = isinstance(b_val, (int, float))
-            if a_val_is_float and b_val_is_float:
-                merged[key] = float(a_val) + float(b_val)
-            elif a_val_is_float != b_val_is_float:
-                # TODO: Same broadcast consideration as above.
-                raise ValueError(
-                    f"Cannot sum float and dict values for key {key}. "
-                    f"Got types: {type(a_val)}, {type(b_val)}."
-                )
-            else:
-                # Both are dicts (signature-level) — merge by signature key.
-                assert isinstance(a_val, dict) and isinstance(b_val, dict)
-                inner_merged = dict(a_val)
-                for sig_key, sig_b_val in b_val.items():
-                    if sig_key in inner_merged:
-                        inner_merged[sig_key] = float(inner_merged[sig_key]) + float(sig_b_val)
-                    else:
-                        inner_merged[sig_key] = sig_b_val
-                merged[key] = inner_merged
-        else:
-            merged[key] = b_val
+    merged: Dict[Plane, Dict[Signature, float]] = {}
+    for plane_key in set(a) | set(b):
+        a_sigs = a.get(plane_key, {})
+        b_sigs = b.get(plane_key, {})
+        inner_merged: Dict[Signature, float] = dict(a_sigs)
+        for sig_key, sig_b_val in b_sigs.items():
+            if sig_key in inner_merged: # sig_a match, add sig_b_val to it
+                inner_merged[sig_key] = float(inner_merged[sig_key]) + float(sig_b_val)
+            else:               # no sig_a match, nothing to add to
+                inner_merged[sig_key] = sig_b_val
+        merged[plane_key] = inner_merged
     return merged
 
 
 def compute_all_rotations_from_just_box_terms(
-        box_terms: Dict[Tuple[PlaquetteState, PlaquetteState], Union[float, dict]]
+        box_terms: Dict[Tuple[PlaquetteState, PlaquetteState], MatrixElementValue]
 ) -> Dict[Tuple[PlaquetteState, PlaquetteState], MatrixElementValue]:
     """
     Compute the set of Givens rotations needed to simulate a magnetic Hamiltonian.
@@ -481,10 +432,9 @@ def compute_all_rotations_from_just_box_terms(
     Additionally assumes a convention has been chosen where box has no complex elements.
 
     Returns a dict whose keys are (final_state, initial_state) tuples and whose
-    values are MatrixElementValues — either a float or a nested dict keyed by
-    plane and/or signature. When both box and box^dagger amplitudes are floats,
-    they are summed directly. When at least one is a dict, the dict structures
-    are merged via _sum_matrix_element_values.
+    values are MatrixElementValues (``Dict[Plane, Dict[Signature, float]]``).
+    The dict structures are merged via _sum_matrix_element_values, which effectively
+    computes box + box^dagger.
     """
     # Get list of all state transitions appearing in box and box dagger, with no repetition for ordering.
     all_transitions_unordered = []
@@ -496,8 +446,8 @@ def compute_all_rotations_from_just_box_terms(
     # transitions between states.
     box_plus_box_dagger_rotations: Dict[Tuple[PlaquetteState, PlaquetteState], MatrixElementValue] = {}
     for state_1, state_2 in all_transitions_unordered:
-        box_amplitude = box_terms.get((state_1, state_2), 0)
-        box_dagger_amplitude = box_terms.get((state_2, state_1), 0)
+        box_amplitude = box_terms.get((state_1, state_2), {})
+        box_dagger_amplitude = box_terms.get((state_2, state_1), {})
         summed = _sum_matrix_element_values(box_amplitude, box_dagger_amplitude)
         box_plus_box_dagger_rotations[(state_1, state_2)] = summed
 

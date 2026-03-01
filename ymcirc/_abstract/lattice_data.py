@@ -17,15 +17,15 @@ LinkAddress = Tuple[LatticeVector, LinkUnitVectorLabel]
 DimensionalitySpecifier = Union[int, float, str]  # Allows specification of d = 3/2 via strings or floats.
 # A pair of lattice directions defining a plaquette plane.
 Plane = Tuple[int, int]
-# A signature is a tuple of 4 per-vertex control link tuples, each sorted by FORDER.
-# Each inner tuple contains i-weight tuples (Tuple[int, int, int]) for the control links
-# at that vertex. This is equivalent to Tuple[VertexControlLinks, ...] from conventions.py,
-# but defined here in terms of primitives to avoid circular imports.
+# A signature is a tuple of 4 per-vertex direction-label tuples, each sorted by FORDER.
+# Each inner tuple contains the half-link direction labels (integers) for ALL existing
+# links at that vertex (both active and control), sorted by FORDER position.
+# This matches the signature keys used in the Hamiltonian data files.
 Signature = Tuple[
-    Tuple[Tuple[int, int, int], ...],
-    Tuple[Tuple[int, int, int], ...],
-    Tuple[Tuple[int, int, int], ...],
-    Tuple[Tuple[int, int, int], ...],
+    Tuple[int, ...],
+    Tuple[int, ...],
+    Tuple[int, ...],
+    Tuple[int, ...],
 ]
 
 # Constants
@@ -78,6 +78,45 @@ class Plaquette(Generic[T]):
         plane (tuple[LinkUnitVectorLabel, LinkUnitVectorLabel]):
             Retrieve a length-2 tuple of lattice unit vectors defining the plane of the lattice.
     """
+
+    @staticmethod
+    def compute_signature(
+            dim: float | int,
+            plane: tuple[int, int],
+            forder: List[int]
+    ) -> Signature:
+        """Compute the data-file signature for a plaquette geometry.
+
+        For each of the 4 plaquette vertices, returns a tuple of ALL existing
+        half-link directions at that vertex (both active and control), sorted
+        by their position in the forder list. This matches the signature keys
+        used in the Hamiltonian matrix element data files.
+
+        Arguments:
+            dim: Lattice dimensionality (1.5, 2, 3, ...).
+            plane: Pair of directions (e1, e2) defining the plaquette.
+            forder: Half-link ordering convention list.
+
+        Returns:
+            A 4-tuple of per-vertex direction-label tuples (CCW from bottom-left).
+        """
+        e1, e2 = plane
+        # All possible directions for this dimensionality.
+        all_dirs = set(range(1, ceil(dim) + 1)) | set(range(-1, -ceil(dim) - 1, -1))
+
+        result = []
+        for vertex_idx in range(4):
+            existing_dirs = set(all_dirs)
+            # For d=3/2: bottom vertices (v1, v2) have no -2; top vertices (v3, v4) have no +2.
+            if dim == 1.5:
+                if vertex_idx in (0, 1):  # bottom vertices
+                    existing_dirs.discard(-2)
+                else:  # top vertices
+                    existing_dirs.discard(2)
+            # Sort by position in forder.
+            sorted_dirs = sorted(existing_dirs, key=lambda d: forder.index(d))
+            result.append(tuple(sorted_dirs))
+        return tuple(result)
 
     @staticmethod
     def compute_control_link_dirs_per_vertex(
