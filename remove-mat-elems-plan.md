@@ -24,7 +24,7 @@ In `circuit.py:553`, the code currently does `plaquette_signature: Signature = p
 
 ## Step-by-step plan
 
-### 1. Update `Signature` type alias and add `compute_all_link_dirs_per_vertex`
+### 1. Update `Signature` type alias and add `compute_all_link_dirs_per_vertex` [Feedback: can you rename this new method `compute_signature`? Otherwise, this is fine.]
 
 **File: `ymcirc/_abstract/lattice_data.py`**
 
@@ -38,7 +38,7 @@ In `circuit.py:553`, the code currently does `plaquette_signature: Signature = p
 
 - **Change `MatrixElementValue`** from `Union[float, Dict[Plane, Union[float, Dict[Signature, float]]]]` to `Dict[Plane, Dict[Signature, float]]`. Every matrix element value is now always a two-level nested dict.
 
-- **Simplify `_normalize_hamiltonian_value`**: remove the `isinstance(value, (int, float))` branch. The function should now only accept dicts. Validate that the value is a dict, and return it. (Or consider removing this function entirely if `_load_hamiltonian` can just pass dicts through directly.)
+- **Simplify `_normalize_hamiltonian_value`**: remove the `isinstance(value, (int, float))` branch. The function should now only accept dicts. Validate that the value is a dict, and return it. (Or consider removing this function entirely if `_load_hamiltonian` can just pass dicts through directly.) [Feedback: remove this function; the simplified data type means we don't need to normalize the loaded data anymore.]
 
 - **Simplify `_filter_matrix_element_value`**: remove the float branch at the top (`isinstance(value, (int, float))`). Remove the intermediate float branch for plane values (`isinstance(plane_val, (int, float))`). The function should only handle `Dict[Plane, Dict[Signature, float]]`.
 
@@ -46,7 +46,7 @@ In `circuit.py:553`, the code currently does `plaquette_signature: Signature = p
 
 - **Update `compute_all_rotations_from_just_box_terms`**: the `box_terms.get((state_1, state_2), 0)` default of `0` (a float) will no longer be valid since `_sum_matrix_element_values` won't accept floats. Change the default to `{}` (empty dict) and update `_sum_matrix_element_values` to handle the empty-dict identity case.
 
-- **Update `load_magnetic_hamiltonian`**: remove the `_filter_matrix_element_value` call's interaction with float values (already handled by simplifying `_filter_matrix_element_value`). Update the logger message since not all entries produce Givens rotations (some are filtered by plane/signature downstream). Update docstring.
+- **Update `load_magnetic_hamiltonian`**: the threshold filtering call to `_filter_matrix_element_value` stays as-is (its internal simplification is handled by the bullet above). Update the logger message since not all entries produce Givens rotations (some are filtered by plane/signature downstream). Update docstring.
 
 ### 3. Update `_resolve_hamiltonian_for_plaquette` and `apply_magnetic_trotter_step` in `circuit.py`
 
