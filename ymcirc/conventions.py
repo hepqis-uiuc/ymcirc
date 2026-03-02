@@ -437,9 +437,12 @@ def compute_all_rotations_from_just_box_terms(
     computes box + box^dagger.
     """
     # Get list of all state transitions appearing in box and box dagger, with no repetition for ordering.
+    seen_pairs: set = set()
     all_transitions_unordered = []
     for f, i in box_terms.keys():
-        if (f, i) not in all_transitions_unordered and (i, f) not in all_transitions_unordered:
+        pair = frozenset((f, i))  # frozenset in membership test is O(1) vs. O(n) for a regular set.
+        if pair not in seen_pairs:
+            seen_pairs.add(pair)
             all_transitions_unordered.append((f, i))
 
     # Use state transitions to sum the box and box^dagger amplitudes for
