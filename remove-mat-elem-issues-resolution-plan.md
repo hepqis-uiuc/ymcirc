@@ -55,11 +55,9 @@ This replaces the static `compute_control_link_dirs_per_vertex` method.
 
 Note: this property already effectively exists as `control_links_per_vertex` (which returns the link *data*), but we need a version that returns just the *directions*.
 
-#### 4. Deprecate but keep the static methods [Feedback: There are no external callers beyond this codebase. Remove the static methods.]
+#### 4. Remove the static methods
 
-Keep `compute_signature` and `compute_control_link_dirs_per_vertex` as static methods for backward compatibility (they still work correctly for periodic lattices). Add a deprecation note in their docstrings pointing to the new instance properties as the preferred API.
-
-Alternatively, if there are no external callers beyond this codebase, they could be removed outright. The choice depends on whether external code uses them. Since this is alpha-stage, removing them is acceptable.
+Delete both `compute_signature` and `compute_control_link_dirs_per_vertex` static methods. There are no external callers beyond this codebase, and this is alpha-stage software, so there is no backward-compatibility concern.
 
 #### 5. Update call site in `circuit.py` (line 543)
 
@@ -78,57 +76,55 @@ The `plaquette` instance is already available at this call site (it's iterated f
 
 #### 6. Update call sites for `compute_control_link_dirs_per_vertex`
 
-There are three call sites in the production code:
+All call sites must be migrated to use the new `control_link_dirs_per_vertex` property on a `Plaquette` instance. The static method is being removed entirely.
 
-1. **`circuit.py` line 512** (small periodic lattice d=2 optimization): This is called before any plaquette iteration and uses hardcoded `dim=2, plane=(1,2)`. For periodic lattices, the static method is correct. However, to be consistent, we could construct a temporary plaquette or keep using the static method here since this code path is guarded by `self._lattice_is_periodic`. **Decision: leave this call site using the static method**, since it's explicitly for periodic lattices and doesn't need boundary awareness. [Feedback: remove the static method call. It's more work now, but will lead to better code in the future.]
+1. **`circuit.py` line 512** (small periodic lattice d=2 optimization): This is called before any plaquette iteration and uses hardcoded `dim=2, plane=(1,2)`. Refactor to obtain control link directions from a `Plaquette` instance. Since this code is inside `apply_magnetic_trotter_step` which iterates over plaquettes shortly after, one approach is to construct a representative plaquette for this purpose, or move the computation into the per-plaquette loop and cache it after the first plaquette is processed.
 
-2. **`circuit.py` lines 900, 944** (redundant control detection for small periodic lattices): Same situation—guarded by periodicity checks. **Leave as-is.** [Feedback: remove the static method call. It's more work now, but will lead to better code in the future.]
+2. **`circuit.py` lines 900, 944** (redundant control detection for small periodic lattices): These are inside methods that already have access to plaquette instances. Refactor to use `plaquette.control_link_dirs_per_vertex` from the plaquette being processed.
 
-3. **`parsed_lattice_result.py` line 427**: This is used during bitstring decoding. Here the plaquette is being reconstructed from measurement data, not from a `Plaquette` instance. We don't have a `Plaquette` instance available. **Two options:**
-   - (a) Keep using the static method here, which is safe because `ParsedLatticeResult` currently only supports periodic lattices.
-   - (b) Refactor to construct a temporary `Plaquette` instance and use the property. [Feedback: use option b.]
-
-   **Decision: use option (a) for now**, with a TODO comment noting that this will need updating when non-periodic lattice support is added to `ParsedLatticeResult`.
+3. **`parsed_lattice_result.py` line 427**: This is used during bitstring decoding. Currently there is no `Plaquette` instance available here. Refactor to construct a `Plaquette` instance from the available lattice data and vertex information, then use its `control_link_dirs_per_vertex` property.
 
 #### 7. Update tests
 
-- **Modify `test_compute_signature`**: Update to also test the new `signature` property by constructing actual `Plaquette` instances. Verify that the property produces the same result as the static method for periodic lattices.
-- **Add a test for a non-periodic scenario**: Construct a non-periodic d=3/2 lattice (once `LatticeDef` supports non-periodic boundary conditions) and verify that `plaquette.signature` correctly reflects the missing directions at boundary vertices. If non-periodic `LatticeDef` support is not yet available, add a placeholder test marked with `@pytest.mark.skip` with a note explaining what it should test. [Feedback: you will have to do the placeholder test option because non-periodic `LatticeDef` support isn't available yet.]
+- **Rename `test_compute_signature` to `test_signature`**: Since the static method is being removed, the test should target the new `signature` property. Construct actual `Plaquette` instances (using periodic `LatticeData` objects for d=3/2 and d=2) and verify the property output matches the previously expected values.
+- **Add a placeholder test for a non-periodic scenario**: Add a test marked with `@pytest.mark.skip` explaining that it should verify `plaquette.signature` correctly reflects missing directions at boundary vertices on a non-periodic lattice, once non-periodic `LatticeDef` support is available.
 
 #### 8. Update `CLAUDE.md`
 
-Update the `Plaquette` class description to document the new `signature` and `control_link_dirs_per_vertex` properties.
+Update the `Plaquette` class description to document the new `signature` and `control_link_dirs_per_vertex` properties, and remove references to the deleted static methods.
 
 ### Files changed
 
 | File | Changes |
 |------|---------|
-| `ymcirc/_abstract/lattice_data.py` | Add `_existing_dirs_at_vertex`, `signature` property, `control_link_dirs_per_vertex` property; deprecate or remove static methods |
-| `ymcirc/circuit.py` | Update `compute_signature` call (line 543) to use `plaquette.signature` |
-| `tests/test_circuit.py` | Update `test_compute_signature` to also test new property; add non-periodic placeholder test |
+| `ymcirc/_abstract/lattice_data.py` | Add `_existing_dirs_at_vertex`, `signature` property, `control_link_dirs_per_vertex` property; remove both static methods |
+| `ymcirc/circuit.py` | Update all `compute_signature` and `compute_control_link_dirs_per_vertex` call sites to use instance properties |
+| `ymcirc/parsed_lattice_result.py` | Construct `Plaquette` instance for control link direction lookup |
+| `tests/test_circuit.py` | Rename test; rewrite to test instance properties; add skipped non-periodic placeholder test |
 | `ymcirc/CLAUDE.md` | Update `Plaquette` class description |
 
 ### Risks and considerations
 
-- **Correctness for periodic lattices**: The new property must produce identical results to the static method for all currently-supported periodic configurations. This is testable.
+- **Correctness for periodic lattices**: The new properties must produce identical results to the old static methods for all currently-supported periodic configurations. This is testable.
 - **`Plaquette.__init__` control link discovery**: The `try/except KeyError` on line 218 silently skips links that don't exist. This is exactly the behavior we want—it means `_control_links` only contains directions that are actually valid. We rely on this being correct.
 - **Active link existence**: We assume all 4 active links exist for any plaquette that was successfully constructed. This is guaranteed because `Plaquette.__init__` calls `lattice.get_link` for each active link without catching exceptions.
-- **Performance**: Computing the signature from instance data (iterating over `_control_links` keys) is comparable in cost to the static method. No performance concern.
-- **Non-periodic `LatticeDef` support**: `_validate_lattice_params` currently raises `NotImplementedError` for non-bool `periodic_boundary_conds` (line 363). The signature property will be ready for non-periodic lattices once that restriction is lifted—no further changes to the signature logic itself should be needed.
+- **Performance**: Computing the signature from instance data (iterating over `_control_links` keys) is comparable in cost to the old static method. No performance concern.
+- **`parsed_lattice_result.py` refactor**: Constructing a `Plaquette` instance where one didn't exist before adds some overhead and requires that the lattice data context is available. This should be the case since the encoder's lattice is accessible, but the exact construction path needs care.
+- **Non-periodic `LatticeDef` support**: `_validate_lattice_params` currently raises `NotImplementedError` for non-bool `periodic_boundary_conds` (line 363). The new properties will be ready for non-periodic lattices once that restriction is lifted—no further changes to the signature/control-link-dirs logic itself should be needed.
 
 ---
 
-## Issue 2 (Minor): Add nonstandard F-order test for `test_compute_signature` [Feedback: I suppose this test should be renamed since we are removing the `compute_signature` static method in favor of a `signature` property.]
+## Issue 2 (Minor): Add nonstandard F-order test for `test_signature`
 
 ### Problem summary
 
-`test_compute_signature` only tests the default forder `[1, 2, 3, -1, -2, -3]`. A nonstandard forder should also be tested to verify the sorting logic works correctly.
+The existing `test_compute_signature` (to be renamed `test_signature`) only tests the default forder `[1, 2, 3, -1, -2, -3]`. A nonstandard forder should also be tested to verify the sorting logic works correctly.
 
 ### Step-by-step plan
 
 #### 1. Add test cases with a nonstandard forder
 
-In `test_compute_signature`, add assertions for a nonstandard forder such as `[-1, 2, -3, 1, -2, 3]`:
+In `test_signature`, add assertions using `Plaquette` instances constructed from lattices with a nonstandard forder such as `[-1, 2, -3, 1, -2, 3]`:
 
 - **d=3/2, plane (1, 2), forder `[-1, 2, -3, 1, -2, 3]`**:
   - v1, v2 (bottom): directions `{1, 2, -1}` sorted by this forder → `(-1, 2, 1)`
@@ -139,21 +135,19 @@ In `test_compute_signature`, add assertions for a nonstandard forder such as `[-
   - All vertices: directions `{1, 2, -1, -2}` sorted by this forder → `(-1, 2, 1, -2)`
   - Expected: `((-1, 2, 1, -2), (-1, 2, 1, -2), (-1, 2, 1, -2), (-1, 2, 1, -2))`
 
-#### 2. Also test the new `signature` property with nonstandard forder
-
-If the new property from Issue 1 has been implemented, construct `Plaquette` instances using a `LatticeDef` with the nonstandard forder and verify the property output matches.
-
 ### Files changed
 
 | File | Changes |
 |------|---------|
-| `tests/test_circuit.py` | Add nonstandard forder assertions to `test_compute_signature` |
+| `tests/test_circuit.py` | Add nonstandard forder assertions to `test_signature` |
 
 ---
 
 ## Implementation order
 
-1. Issue 1 steps 1-6 (add properties, update call sites)
-2. Issue 2 (add nonstandard forder tests)
-3. Issue 1 steps 7-8 (update tests and docs)
-4. Run `uv run pytest -v` to verify all tests pass
+1. Issue 1 steps 1-3 (add helper, `signature` property, `control_link_dirs_per_vertex` property)
+2. Issue 1 step 4 (remove static methods)
+3. Issue 1 steps 5-6 (update all call sites in `circuit.py` and `parsed_lattice_result.py`)
+4. Issue 1 step 7 + Issue 2 (rename and rewrite tests, add nonstandard forder cases, add skipped non-periodic placeholder)
+5. Issue 1 step 8 (update `CLAUDE.md`)
+6. Run `uv run pytest -v` to verify all tests pass
