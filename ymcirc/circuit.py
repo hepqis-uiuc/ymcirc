@@ -85,6 +85,13 @@ class LatticeCircuitManager:
                 raise NotImplementedError(f"Dim {lattice_encoder.lattice_def.dim} lattice not yet supported.")
         self._lattice_is_small = True if lattice_size <= lattice_size_threshold_for_smallness else False
 
+        # Cache control link dirs for d=2 small periodic lattices (used by consistency/discard methods).
+        self._cached_ctrl_dirs_d2 = None
+        if self._lattice_is_small and self._lattice_is_periodic and self._encoder.lattice_def.dim == 2:
+            _temp_lattice = LatticeRegisters.from_lattice_state_encoder(self._encoder)
+            _temp_plaq = _temp_lattice.get_plaquettes((0, 0), 1, 2) # Construct temp plaquette to extract ctrl dirs.
+            self._cached_ctrl_dirs_d2 = _temp_plaq.control_link_dirs_per_vertex
+
         if self._lattice_is_small is True and self._lattice_is_periodic is True:
             # Filter out magnetic Hamiltonian terms which are inconsistent (repeated control links must have the same value)
             filtered_and_trimmed_mag_hamiltonian: HamiltonianData = {}
@@ -509,9 +516,8 @@ class LatticeCircuitManager:
         _v2_skip_ctrl_idx = None
         _v3_skip_ctrl_idx = None
         if self._lattice_is_small and self._lattice_is_periodic and self._encoder.lattice_def.dim == 2:
-            _ctrl_dirs = Plaquette.compute_control_link_dirs_per_vertex(
-                2, (1, 2), self._encoder.forder
-            )
+            _representative_plaq = lattice.get_plaquettes((0, 0), 1, 2)
+            _ctrl_dirs = _representative_plaq.control_link_dirs_per_vertex
             _v2_skip_ctrl_idx = _ctrl_dirs[1].index(1)   # skip the dir +e1 control at v2
             _v3_skip_ctrl_idx = _ctrl_dirs[2].index(2)   # skip the dir +e2 control at v3
 
@@ -540,9 +546,7 @@ class LatticeCircuitManager:
             for plaquette in plaquettes:
                 # Resolve the hamiltonian for this plaquette's plane and signature.
                 plaquette_plane: Plane = plaquette.plane
-                plaquette_signature: Signature = Plaquette.compute_signature(
-                    self._encoder.lattice_def.dim, plaquette_plane, self._encoder.forder
-                )
+                plaquette_signature: Signature = plaquette.signature
                 resolved_hamiltonian = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(
                     self._mag_hamiltonian, plaquette_plane, plaquette_signature
                 )
@@ -897,9 +901,7 @@ class LatticeCircuitManager:
                 # For plane (e1=1, e2=2) on a size-2 periodic lattice, the four shared
                 # physical links are: (v1 dir-e1, v2 dir+e1), (v1 dir-e2, v4 dir+e2),
                 # (v2 dir-e2, v3 dir+e2), (v3 dir+e1, v4 dir-e1).
-                ctrl_dirs = Plaquette.compute_control_link_dirs_per_vertex(
-                    2, (1, 2), self._encoder.forder
-                )
+                ctrl_dirs = self._cached_ctrl_dirs_d2
                 e1, e2 = 1, 2
                 plaquette_state_has_inconsistent_controls = (
                     (c_links[0][ctrl_dirs[0].index(-e1)] != c_links[1][ctrl_dirs[1].index(e1)]) or
@@ -941,9 +943,7 @@ class LatticeCircuitManager:
                 # For plane (e1=1, e2=2): v1 keeps both; v2 keeps dir -e2 only
                 # (dir +e1 duplicates v1's dir -e1); v3 keeps dir +e1 only
                 # (dir +e2 duplicates v2's dir -e2); v4 drops both.
-                ctrl_dirs = Plaquette.compute_control_link_dirs_per_vertex(
-                    2, (1, 2), self._encoder.forder
-                )
+                ctrl_dirs = self._cached_ctrl_dirs_d2
                 e1, e2 = 1, 2
                 physical_c_links = (
                     c_links[0],

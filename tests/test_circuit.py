@@ -1696,19 +1696,44 @@ def test_resolve_hamiltonian_for_plaquette():
     assert len(result_empty) == 0
 
 
-def test_compute_signature():
-    """Test Plaquette.compute_signature for d=3/2 and d=2 with default forder."""
+def test_signature():
+    """Test Plaquette.signature property for d=3/2 and d=2 with default and nonstandard forder."""
     default_forder = [1, 2, 3, -1, -2, -3]
+    link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    vertex_bitmap = {}
 
-    # d=3/2, plane (1, 2):
+    # d=3/2, plane (1, 2), default forder:
     # v1 (bottom): all dirs except -2 → {1, 2, -1} sorted by forder → (1, 2, -1)
     # v2 (bottom): all dirs except -2 → {1, 2, -1} sorted by forder → (1, 2, -1)
     # v3 (top):    all dirs except +2 → {1, -1, -2} sorted by forder → (1, -1, -2)
     # v4 (top):    all dirs except +2 → {1, -1, -2} sorted by forder → (1, -1, -2)
-    sig_3_2 = Plaquette.compute_signature(1.5, (1, 2), default_forder)
-    assert sig_3_2 == ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
+    lattice_3_2 = LatticeRegisters(1.5, 2, True, link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap, forder=default_forder)
+    plaq_3_2 = lattice_3_2.get_plaquettes((0, 0), 1, 2)
+    assert plaq_3_2.signature == ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
 
-    # d=2, plane (1, 2):
+    # d=2, plane (1, 2), default forder:
     # All vertices have all dirs {1, 2, -1, -2} sorted by forder → (1, 2, -1, -2)
-    sig_2 = Plaquette.compute_signature(2, (1, 2), default_forder)
-    assert sig_2 == ((1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2))
+    lattice_2 = LatticeRegisters(2, 2, True, link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap, forder=default_forder)
+    plaq_2 = lattice_2.get_plaquettes((0, 0), 1, 2)
+    assert plaq_2.signature == ((1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2))
+
+    # d=3/2, plane (1, 2), nonstandard forder [-1, 2, -3, 1, -2, 3]:
+    nonstandard_forder = [-1, 2, -3, 1, -2, 3]
+    lattice_3_2_ns = LatticeRegisters(1.5, 2, True, link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap, forder=nonstandard_forder)
+    plaq_3_2_ns = lattice_3_2_ns.get_plaquettes((0, 0), 1, 2)
+    # v1, v2 (bottom): dirs {1, 2, -1} sorted by nonstandard forder → (-1, 2, 1)
+    # v3, v4 (top): dirs {1, -1, -2} sorted by nonstandard forder → (-1, 1, -2)
+    assert plaq_3_2_ns.signature == ((-1, 2, 1), (-1, 2, 1), (-1, 1, -2), (-1, 1, -2))
+
+    # d=2, plane (1, 2), nonstandard forder [-1, 2, -3, 1, -2, 3]:
+    lattice_2_ns = LatticeRegisters(2, 2, True, link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap, forder=nonstandard_forder)
+    plaq_2_ns = lattice_2_ns.get_plaquettes((0, 0), 1, 2)
+    # All vertices: dirs {1, 2, -1, -2} sorted by nonstandard forder → (-1, 2, 1, -2)
+    assert plaq_2_ns.signature == ((-1, 2, 1, -2), (-1, 2, 1, -2), (-1, 2, 1, -2), (-1, 2, 1, -2))
+
+
+@pytest.mark.skip(reason="Non-periodic LatticeDef support not yet available. "
+                         "Should verify plaquette.signature reflects missing directions at boundary vertices.")
+def test_signature_nonperiodic():
+    """Placeholder: verify signature correctness on a non-periodic lattice."""
+    pass

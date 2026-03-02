@@ -79,91 +79,6 @@ class Plaquette(Generic[T]):
             Retrieve a length-2 tuple of lattice unit vectors defining the plane of the lattice.
     """
 
-    @staticmethod
-    def compute_signature(
-            dim: float | int,
-            plane: tuple[int, int],
-            forder: List[int]
-    ) -> Signature:
-        """Compute the data-file signature for a plaquette geometry.
-
-        For each of the 4 plaquette vertices, returns a tuple of ALL existing
-        half-link directions at that vertex (both active and control), sorted
-        by their position in the forder list. This matches the signature keys
-        used in the Hamiltonian matrix element data files.
-
-        Arguments:
-            dim: Lattice dimensionality (1.5, 2, 3, ...).
-            plane: Pair of directions (e1, e2) defining the plaquette.
-            forder: Half-link ordering convention list.
-
-        Returns:
-            A 4-tuple of per-vertex direction-label tuples (CCW from bottom-left).
-        """
-        e1, e2 = plane
-        # All possible directions for this dimensionality.
-        all_dirs = set(range(1, ceil(dim) + 1)) | set(range(-1, -ceil(dim) - 1, -1))
-
-        result = []
-        for vertex_idx in range(4):
-            existing_dirs = set(all_dirs)
-            # For d=3/2: bottom vertices (v1, v2) have no -2; top vertices (v3, v4) have no +2.
-            if dim == 1.5:
-                if vertex_idx in (0, 1):  # bottom vertices
-                    existing_dirs.discard(-2)
-                else:  # top vertices
-                    existing_dirs.discard(2)
-            # Sort by position in forder.
-            sorted_dirs = sorted(existing_dirs, key=lambda d: forder.index(d))
-            result.append(tuple(sorted_dirs))
-        return tuple(result)
-
-    @staticmethod
-    def compute_control_link_dirs_per_vertex(
-            dim: float | int,
-            plane: tuple[int, int],
-            forder: List[int]
-    ) -> Tuple[Tuple[int, ...], ...]:
-        """Compute per-vertex control link directions sorted by FORDER.
-
-        For each of the 4 plaquette vertices, returns a tuple of the
-        non-active link directions that exist at that vertex, sorted
-        by their position in the forder list.
-
-        Arguments:
-            dim: Lattice dimensionality (1.5, 2, 3, ...).
-            plane: Pair of directions (e1, e2) defining the plaquette.
-            forder: Half-link ordering convention list.
-
-        Returns:
-            Tuple of 4 tuples, one per vertex (CCW from bottom-left).
-        """
-        e1, e2 = plane
-        # Active link directions per vertex (CCW: v1, v2, v3, v4).
-        active_dirs_per_vertex = [
-            {e1, e2},      # v1
-            {-e1, e2},     # v2
-            {-e1, -e2},    # v3
-            {e1, -e2},     # v4
-        ]
-        # All possible directions for this dimensionality.
-        all_dirs = set(range(1, ceil(dim) + 1)) | set(range(-1, -ceil(dim) - 1, -1))
-
-        result = []
-        for vertex_idx in range(4):
-            existing_dirs = set(all_dirs)
-            # For d=3/2: bottom vertices (v1, v2) have no -2; top vertices (v3, v4) have no +2.
-            if dim == 1.5:
-                if vertex_idx in (0, 1):  # bottom vertices
-                    existing_dirs.discard(-2)
-                else:  # top vertices
-                    existing_dirs.discard(2)
-            control_dirs = existing_dirs - active_dirs_per_vertex[vertex_idx]
-            # Sort by position in forder.
-            sorted_controls = sorted(control_dirs, key=lambda d: forder.index(d))
-            result.append(tuple(sorted_controls))
-        return tuple(result)
-
     def __init__(
             self,
             lattice: LatticeData,
@@ -269,8 +184,71 @@ class Plaquette(Generic[T]):
         Control links are ordered by iterating over vertices counter-clockwise
         starting from the bottom-left vertex. Within each vertex, control links
         are sorted by their position in the FORDER list.
+
+        Note that this property returns the data associated with control links,
+        not the directions in which they extend. For direction information,
+        use the control_link_dirs_per_vertex method.
         """
         return tuple(link for vertex in self.control_links_per_vertex for link in vertex)
+
+    def _existing_dirs_at_vertex(self, vertex_idx: int) -> set[int]:
+        """Return the set of half-link directions that actually exist at a given vertex.
+
+        Combines active link directions (from the plaquette plane) with
+        control link directions that were successfully resolved during __init__.
+
+        Arguments:
+            vertex_idx: Vertex index 0-3 (CCW from bottom-left).
+        """
+        e1, e2 = self._plane
+        # Active link directions per vertex (CCW: v1, v2, v3, v4).
+        active_dirs = [{e1, e2}, {-e1, e2}, {-e1, -e2}, {e1, -e2}][vertex_idx]
+
+        # Control link directions that were successfully resolved.
+        vertex_vector = self._ordered_vertex_vectors[vertex_idx]
+        control_dirs = {addr[1] for addr in self._control_links[vertex_vector].keys()}
+
+        return active_dirs | control_dirs
+
+    @property
+    def signature(self) -> Signature:
+        """Compute the signature for this plaquette.
+
+        For each of the 4 plaquette vertices, returns a tuple of ALL existing
+        half-link directions at that vertex (both active and control), sorted
+        by their position in the forder list. This matches the signature keys
+        used in the Hamiltonian matrix element data files.
+
+        Physically, the signature encodes whether a plaquette is in the
+        "interior" of a lattice, on a "corner", on an "edge", etc.
+        """
+        forder = self._lattice.forder
+        result = []
+        for vertex_idx in range(4):
+            dirs = self._existing_dirs_at_vertex(vertex_idx)
+            sorted_dirs = sorted(dirs, key=lambda d: forder.index(d))
+            result.append(tuple(sorted_dirs))
+        return tuple(result)
+
+    @property
+    def control_link_dirs_per_vertex(self) -> Tuple[Tuple[int, ...], ...]:
+        """Per-vertex control link directions sorted by FORDER.
+
+        For each of the 4 plaquette vertices, returns a tuple of the
+        non-active link directions that exist at that vertex, sorted
+        by their position in the forder list.
+
+        Note that this property returns the directions in which control
+        links extend, not the data which are associated with each link.
+        For the actual data, use the control_links_ordered method.
+        """
+        forder = self._lattice.forder
+        result = []
+        for vertex_vector in self._ordered_vertex_vectors:
+            ctrl_addrs = list(self._control_links[vertex_vector].keys())
+            ctrl_dirs = sorted([addr[1] for addr in ctrl_addrs], key=lambda d: forder.index(d))
+            result.append(tuple(ctrl_dirs))
+        return tuple(result)
 
     @property
     def bottom_left_vertex(self) -> LatticeVector:

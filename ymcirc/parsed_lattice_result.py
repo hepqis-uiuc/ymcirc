@@ -8,6 +8,7 @@ from ymcirc._abstract.lattice_data import (
     LatticeData, LatticeDef, Plaquette, DimensionalitySpecifier, LatticeVector,
     LinkUnitVectorLabel, LinkAddress)
 from ymcirc.conventions import LatticeStateEncoder, IrrepWeight, MultiplicityIndex
+from ymcirc.lattice_registers import LatticeRegisters
 
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
@@ -422,11 +423,13 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
                     plaq_bits_idx += link_len
 
                 # Populate control link data in canonical ordering.
-                # Use compute_control_link_dirs_per_vertex to match the
-                # bitstring encoding order (same as control_links_ordered).
-                control_link_dirs = Plaquette.compute_control_link_dirs_per_vertex(
-                    encoder.lattice_def.dim, (e1, e2), encoder.lattice_def.forder
-                )
+                # Use a representative plaquette's control_link_dirs_per_vertex to match
+                # the bitstring encoding order (same as control_links_ordered).
+                # TODO: bit of an abuse to use LatticeRegisters for this purpose.
+                # Consider cleaner solution for creating a LatticeDef subclass instance.
+                _temp_lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
+                _temp_plaq = _temp_lattice.get_plaquettes(bottom_left_vertex, e1, e2)
+                control_link_dirs = _temp_plaq.control_link_dirs_per_vertex
                 for vertex_idx, v_addr in enumerate(vertex_addrs):
                     for link_dir in control_link_dirs[vertex_idx]:
                         c_link_addr = (v_addr, link_dir)
