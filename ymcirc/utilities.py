@@ -2,6 +2,7 @@
 from __future__ import annotations
 import ast
 from collections.abc import Mapping
+import gzip
 import json
 import logging
 import numpy as np
@@ -21,6 +22,11 @@ class LazyDict(Mapping):
     It makes working with dictionaries which have expensive-to-compute
     values less painful. Taken from:
     https://stackoverflow.com/questions/16669367/setup-dictionary-lazily.
+
+    Note: LazyDict does NOT cache loaded values. Every __getitem__ call
+    invokes the loader function with its argument, re-executing the load
+    from scratch. If caching is desired, it must be handled externally
+    (e.g., by the loader function itself storing results in a separate dict).
     """
 
     def __init__(self, *args, **kwargs):
@@ -55,13 +61,22 @@ class LazyDict(Mapping):
         return len(self._raw_dict)
 
 
-def json_loader(json_path: Path) -> Dict | List:
+def json_loader(json_path: Path) -> Tuple[Dict | List, dict]:
     """
-    Load the json file at json_path, and return the data as dict or list.
+    Load a gzip-compressed JSON file at json_path and return (data, metadata).
+
+    The file is expected to be a .json.gz file with a top-level dict containing
+    "metadata" and "data" keys. The "data" portion has ast.literal_eval applied
+    to convert string representations of tuples back to Python objects.
+
+    Returns a 2-tuple of (data, metadata) where data is a dict or list and
+    metadata is a dict.
     """
     logger.debug(f"Loading json data from disk.")
-    with json_path.open('r') as json_file:
-        raw_data = json.load(json_file)
+    with gzip.open(json_path, 'rt') as json_file:
+        raw_top_level = json.load(json_file)
+        metadata = raw_top_level["metadata"]
+        raw_data = raw_top_level["data"]
         # Safer to use ast.literal_eval than eval to convert data keys to tuples.
         # The latter can execute arbitrary potentially malicious code while
         # the worst case attack vector for literal_eval would be to crash
@@ -72,7 +87,7 @@ def json_loader(json_path: Path) -> Dict | List:
             result = {ast.literal_eval(key): value for key, value in raw_data.items()}
         elif isinstance(raw_data, list):
             result = [ast.literal_eval(item) for item in raw_data]
-    return result
+    return result, metadata
 
 
 # The following methods are intended for package-internal use.

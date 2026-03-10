@@ -34,17 +34,17 @@ def good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed() -> List[Plaq
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE)
+            ((ONE,), (THREE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (ONE, ONE, ONE, ONE),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         )
     ]
 
@@ -55,22 +55,22 @@ def good_physical_plaquette_states_d_3_2_T1_vertex_data_needed() -> List[Plaquet
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE)
+            ((ONE,), (THREE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 1),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE)
+            ((ONE,), (THREE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (ONE, ONE, ONE, ONE),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         )
     ]
 
@@ -81,32 +81,32 @@ def good_physical_plaquette_states_d_3_2_T2_two_vertex_qubits_needed() -> List[P
         (
             (0, 0, 0, 0),
             (ONE, EIGHT, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 1, 0, 0),
             (ONE, EIGHT, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 2, 0, 0),
             (ONE, EIGHT, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE)
+            ((ONE,), (THREE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 1),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE)
+            ((ONE,), (THREE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (ONE, ONE, SIX, ONE),
-            (ONE, SIX_BAR, ONE, ONE)
+            ((ONE,), (SIX_BAR,), (ONE,), (ONE,))
         )
     ]
 
@@ -117,22 +117,22 @@ def good_physical_plaquette_states_d_2_T1_one_vertex_qubit() -> List[PlaquetteSt
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         ),
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE, THREE, THREE, THREE, ONE)
+            ((ONE, THREE), (ONE, ONE), (THREE, THREE), (THREE, ONE))
         ),
         (
             (0, 0, 0, 1),
             (ONE, THREE, THREE_BAR, THREE_BAR),
-            (ONE, THREE, ONE, ONE, THREE, THREE, THREE, ONE)
+            ((ONE, THREE), (ONE, ONE), (THREE, THREE), (THREE, ONE))
         ),
         (
             (0, 0, 0, 0),
             (ONE, ONE, ONE, ONE),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         )
     ]
 
@@ -434,7 +434,7 @@ def test_parse_d_2_lattice_with_vertex_data(
     expected_decoded_plaquette_result_dict = {
         (0, 0): {
             "a_links": (ONE, THREE, ONE, ONE),
-            "c_links_ordered": (THREE_BAR, None, THREE, THREE_BAR, THREE, THREE, None, THREE),
+            "c_links_ordered": (THREE_BAR, None, THREE_BAR, THREE, THREE, THREE, None, THREE),
             "vertices": (0, 0, 0, 1)
         },
         (0, 1): {
@@ -444,7 +444,7 @@ def test_parse_d_2_lattice_with_vertex_data(
         },
         (1, 0): {
             "a_links": (THREE_BAR, ONE, THREE, THREE),
-            "c_links_ordered": (ONE, THREE, None, ONE, ONE, None, THREE, ONE),
+            "c_links_ordered": (ONE, THREE, ONE, None, ONE, None, THREE, ONE),
             "vertices": (0, 0, 1, 0)
         },
         (1, 1): {
@@ -456,7 +456,7 @@ def test_parse_d_2_lattice_with_vertex_data(
     expected_bit_string_plaquette_result_dict = {
         (0, 0): {
             "a_links": ("00", "10", "00", "00"),
-            "c_links_ordered": ("01", "11", "10", "01", "10", "10", "11", "10"),
+            "c_links_ordered": ("01", "11", "01", "10", "10", "10", "11", "10"),
             "vertices": ("0", "0", "0", "1")
         },
         (0, 1): {
@@ -466,7 +466,7 @@ def test_parse_d_2_lattice_with_vertex_data(
         },
         (1, 0): {
             "a_links": ("01", "00", "10", "10"),
-            "c_links_ordered": ("00", "10", "11", "00", "00", "11", "10", "00"),
+            "c_links_ordered": ("00", "10", "00", "11", "00", "11", "10", "00"),
             "vertices": ("0", "0", "1", "0")
         },
         (1, 1): {

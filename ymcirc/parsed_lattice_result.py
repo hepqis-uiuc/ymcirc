@@ -8,6 +8,7 @@ from ymcirc._abstract.lattice_data import (
     LatticeData, LatticeDef, Plaquette, DimensionalitySpecifier, LatticeVector,
     LinkUnitVectorLabel, LinkAddress)
 from ymcirc.conventions import LatticeStateEncoder, IrrepWeight, MultiplicityIndex
+from ymcirc.lattice_registers import LatticeRegisters
 
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
             periodic_boundary_conds: bool | tuple[bool, ...] = True,
             ):
         """Parse through global_lattice_measurement_bitstring and convert to i-weights."""
-        super().__init__(dimensions, size, periodic_boundary_conds)
+        super().__init__(dimensions, size, periodic_boundary_conds, forder=lattice_encoder.lattice_def.forder)
 
         # Do some validation.
         expected_num_bits = self.n_links * lattice_encoder.expected_link_bit_string_length + self.n_vertices * lattice_encoder.expected_vertex_bit_string_length
@@ -99,8 +100,8 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
 
         # Let's keep these around too. They're handy to have.
         self._global_lattice_measurement_bit_string = global_lattice_measurement_bit_string
-        self._lattice_def = copy.deepcopy(lattice_encoder.lattice_def)
-        self._encoder = copy.deepcopy(lattice_encoder)
+        self._lattice_def = lattice_encoder._lattice
+        self._encoder = lattice_encoder
         self._lattice_encoder_repr = lattice_encoder.__repr__()
 
     def __repr__(self):
@@ -239,7 +240,9 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
 
     def __hash__(self):
         """Hash based on measurement string, and data that uniquely specifies lattice geometry."""
-        return hash((self.global_lattice_measurement_bit_string, self.lattice_def.dim, self.lattice_def.shape, self.lattice_def.periodic_boundary_conds))
+        if not hasattr(self, '_hash_cache'):
+            self._hash_cache = hash((self.global_lattice_measurement_bit_string, self._lattice_def.dim, self._lattice_def.shape, self._lattice_def.periodic_boundary_conds))
+        return self._hash_cache
 
     def __eq__(self, other) -> bool:
         """Equality based on the same fields used by __hash__."""
@@ -247,9 +250,9 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
             return NotImplemented
         return (
             self.global_lattice_measurement_bit_string == other.global_lattice_measurement_bit_string
-            and self.dim == other.dim
-            and self.shape == other.shape
-            and self.periodic_boundary_conds == other.periodic_boundary_conds
+            and self._lattice_def.dim == other._lattice_def.dim
+            and self._lattice_def.shape == other._lattice_def.shape
+            and self._lattice_def.periodic_boundary_conds == other._lattice_def.periodic_boundary_conds
         )
 
     @classmethod
@@ -264,7 +267,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         lattice_def = encoder.lattice_def
         size = lattice_def.shape[0]
         instance = cls.__new__(cls)
-        LatticeDef.__init__(instance, lattice_def.dim, size, lattice_def.periodic_boundary_conds)
+        LatticeDef.__init__(instance, lattice_def.dim, size, lattice_def.periodic_boundary_conds, forder=lattice_def.forder)
 
         instance._decoded_links = {}
         instance._decoded_vertices = {}
@@ -282,9 +285,9 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
             instance._bit_strings_links[link_addr] = "X" * encoder.expected_link_bit_string_length
 
         instance._global_lattice_measurement_bit_string = None
-        instance._lattice_def = copy.deepcopy(encoder.lattice_def)
-        instance._encoder = copy.deepcopy(encoder)
-        instance._lattice_encoder_repr = repr(encoder)
+        instance._lattice_def = encoder._lattice
+        instance._encoder = encoder
+        instance._lattice_encoder_repr = encoder.__repr__()
 
         return instance
 
@@ -420,13 +423,13 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
                     plaq_bits_idx += link_len
 
                 # Populate control link data in canonical ordering.
-                # Must use _CONTROL_LINK_DIRS_PER_VERTEX_MAP to match the
-                # bitstring encoding order (same as control_links_ordered).
-                # Using control_links.values() would rely on dict insertion
-                # order from set iteration, which may not match the canonical
-                # encoding order for d>=2 where vertices have multiple
-                # control link directions.
-                control_link_dirs = Plaquette._CONTROL_LINK_DIRS_PER_VERTEX_MAP[encoder.lattice_def.dim]
+                # Use a representative plaquette's control_link_dirs_per_vertex to match
+                # the bitstring encoding order (same as control_links_ordered).
+                # TODO: bit of an abuse to use LatticeRegisters for this purpose.
+                # Consider cleaner solution for creating a LatticeDef subclass instance.
+                _temp_lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
+                _temp_plaq = _temp_lattice.get_plaquettes(bottom_left_vertex, e1, e2)
+                control_link_dirs = _temp_plaq.control_link_dirs_per_vertex
                 for vertex_idx, v_addr in enumerate(vertex_addrs):
                     for link_dir in control_link_dirs[vertex_idx]:
                         c_link_addr = (v_addr, link_dir)

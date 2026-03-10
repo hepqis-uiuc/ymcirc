@@ -107,9 +107,17 @@ def test_this_is_some_slow_test():
 uv run pytest --runslow
 ```
 
+## Benchmarks
+The `benchmarks/` directory contains scripts for profiling performance-critical code paths. These are useful for verifying that optimizations hold and for diagnosing future performance regressions. To run a benchmark:
+```shell
+uv run benchmarks/benchmark_plr.py
+```
+
 ## Usage
 See the `run` directory for example usage and logging configuration of ymcirc. To run the modules within `run`, call (for example):
 ```
 uv run -m run.time_evol
 ```
 Replace `run.time_evol` with the particular desired module in the `run` directory.
+
+Time evolution depends on precomputed magnetic Hamiltonian matrix element data. These are included with the `ymcirc`, and were generated using [pyclebsch](https://github.com/hepqis-uiuc/pyclebsch).

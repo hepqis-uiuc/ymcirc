@@ -54,9 +54,10 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
             n_qubits_per_link: int = 1,
             n_qubits_per_vertex: int = 0,
             link_bitmap: Union[IrrepBitmap, None] = None,
-            vertex_bitmap: Union[VertexMultiplicityBitmap, None] = None):
+            vertex_bitmap: Union[VertexMultiplicityBitmap, None] = None,
+            forder: list[int] | None = None):
         """Initialize all registers needed to simulate the lattice."""
-        super().__init__(dimensions, size, periodic_boundary_conds)
+        super().__init__(dimensions, size, periodic_boundary_conds, forder=forder)
         # Infer qubit requirements if bit mappings provided,
         # and perform validation.
         if link_bitmap is not None:
@@ -266,5 +267,6 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
             size=size,
             periodic_boundary_conds=lattice_def.periodic_boundary_conds,
             link_bitmap=lattice_encoder.link_bitmap,
-            vertex_bitmap=lattice_encoder.vertex_bitmap
+            vertex_bitmap=lattice_encoder.vertex_bitmap,
+            forder=lattice_def.forder
         )

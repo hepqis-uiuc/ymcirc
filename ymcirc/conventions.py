@@ -4,7 +4,7 @@ This module is a canonical source for project conventions, including:
 - Bit string encodings.
 - Magnetic Hamiltonian box term data.
 
-This module loads data for both of these from package-local json files.
+This module loads data for both of these from package-local json.gz files.
 The module also provides the class LatticeStateEncoder for converting
 link, vertex multiplicity, and plaquette states to and from bit string encodings.
 See the documentation on the class itself for more information.
@@ -79,47 +79,40 @@ The first two elements of plaquette are length-4 tuples consisting of multiplici
 vertex_multiplicities = (0, 0, 0, 2)
 a_links = (ONE, ONE, THREE, THREE)
 
-The final element of a plaquette is a tuple of i-Weights whose length depends on the
-dimensionality of the lattice. These i-Weights give the states of the "control" links
-to the plaquette, which are defined as all links connected to a vertex which aren't an
-active link. The number of controls per-vertex is 2*(d - 1). We use a convention where
-control links are ordered counter-clockwise according to vertex.
+The final element of a plaquette is a tuple of per-vertex control link tuples. Each
+inner tuple contains the i-Weights for the control links at that vertex, sorted by
+the FORDER convention. The number of controls per-vertex is 2*(d - 1).
 
-In d=3/2:
+In d=3/2 (1 control per vertex):
 
-c_links = (c1, c2, c3, c4)
+c_links = ((c_v1,), (c_v2,), (c_v3,), (c_v4,))
 
- c4 ---- v4 ----l3--- v3 ---- c3
-         |            |
-         |            |
-         l4           l2
-         |            |
-         |            |
- c1 ---- v1 ----l1--- v2 ---- c2
+ c_v4 --- v4 ----l3--- v3 --- c_v3
+          |            |
+          |            |
+          l4           l2
+          |            |
+          |            |
+ c_v1 --- v1 ----l1--- v2 --- c_v2
 
-In d=2:
+In d=2 (2 controls per vertex, with default FORDER [1,2,3,-1,-2,-3]):
 
-c_links = (c1, c2, c3, c4, c5, c6, c7, c8)
+c_links = (
+    (c_v1_dir-1, c_v1_dir-2),   # v1: dirs (-1, -2)
+    (c_v2_dir+1, c_v2_dir-2),   # v2: dirs (+1, -2)
+    (c_v3_dir+1, c_v3_dir+2),   # v3: dirs (+1, +2)
+    (c_v4_dir+2, c_v4_dir-1)    # v4: dirs (+2, -1)
+)
 
-         c7           c6
-         |            |
-         |            |
-         |            |
- c8 ---- v4 ----l3--- v3 ---- c5
-         |            |
-         |            |
-         l4           l2
-         |            |
-         |            |
- c1 ---- v1 ----l1--- v2 ---- c4
-         |            |
-         |            |
-         |            |
-         c2           c3
-
-In d=3, c1 through c8 match d=2. c9 through c12 are the four links "above" the plaquette as
-determined by the right-hand rule, ordered counter-clockwise starting from v1. c13 through c16
-are similarly the four links "below" the plaquette.
+              c_v4_dir+2   c_v3_dir+2
+                   |            |
+c_v4_dir-1 ---- v4 ----l3--- v3 ---- c_v3_dir+1
+                   |            |
+                   l4           l2
+                   |            |
+c_v1_dir-1 ---- v1 ----l1--- v2 ---- c_v2_dir+1
+                   |            |
+              c_v1_dir-2   c_v2_dir-2
 
 Finally, it is a special quirk of d=3/2, T1 that there are no nontrivial singlet multiplicities,
 and those data can be ignored.
@@ -154,12 +147,13 @@ not satisfy these equality constraints will be discarded. This logic is handled 
 the ymcirc.circuit module.
 """
 from __future__ import annotations
+import ast
 import copy
 import logging
 from pathlib import Path
 import numpy as np
 from typing import Tuple, Dict, Union, List
-from ymcirc._abstract import LatticeDef
+from ymcirc._abstract import LatticeDef, Plane, Signature
 from ymcirc.utilities import LazyDict, json_loader
 
 # Set up module-specific logger
@@ -172,19 +166,19 @@ _HAMILTONIAN_DATA_DIR = _PROJECT_ROOT / "_ymcirc_data/magnetic-hamiltonian-box-t
 _PLAQUETTE_STATES_DATA_DIR = _PROJECT_ROOT / "_ymcirc_data/plaquette-states/"
 _HAMILTONIAN_DATA_FILE_PATHS: Dict[str, Dict[str, Path]] = {
     "d=3/2": {
-        "T1": _HAMILTONIAN_DATA_DIR / "T1_dim(3_2)_magnetic_hamiltonian.json",
-        "T2": _HAMILTONIAN_DATA_DIR / "T2_dim(3_2)_magnetic_hamiltonian.json"},
+        "T1": _HAMILTONIAN_DATA_DIR / "T1_dim(3_2)_magnetic_hamiltonian.json.gz",
+        "T2": _HAMILTONIAN_DATA_DIR / "T2_dim(3_2)_magnetic_hamiltonian.json.gz"},
     "d=2": {
-        "T1": _HAMILTONIAN_DATA_DIR / "T1_dim(2)_magnetic_hamiltonian.json"
+        "T1": _HAMILTONIAN_DATA_DIR / "T1_dim(2)_magnetic_hamiltonian.json.gz"
     }
 }
 _PLAQUETTE_STATES_DATA_FILE_PATHS: Dict[str, Dict[str, Path]] = {
     "d=3/2": {
-        "T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(3_2)_plaquette_states.json",
-        "T2": _PLAQUETTE_STATES_DATA_DIR / "T2_dim(3_2)_plaquette_states.json"
+        "T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(3_2)_plaquette_states.json.gz",
+        "T2": _PLAQUETTE_STATES_DATA_DIR / "T2_dim(3_2)_plaquette_states.json.gz"
     },
     "d=2": {
-        "T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(2)_plaquette_states.json"
+        "T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(2)_plaquette_states.json.gz"
     }
 }
 
@@ -195,18 +189,25 @@ BitString = str
 MultiplicityIndex = int
 IrrepBitmap = Dict[IrrepWeight, BitString]
 VertexMultiplicityBitmap = Dict[MultiplicityIndex, BitString]
-# Tuple of 4 vertex multiplicites, tuple of 4 "active links", tuple of arbitrary num "control links".
+VertexControlLinks = Tuple[LinkState, ...]  # Variable-length tuple of i-weights at one vertex
+# Matrix element value: a nested dict keyed by plane, then signature.
+MatrixElementValue = Dict[Plane, Dict[Signature, float]]
+# Tuple of 4 vertex multiplicites, tuple of 4 "active links", tuple of 4 per-vertex control tuples.
 PlaquetteState = Union[
     Tuple[
         Tuple[MultiplicityIndex, MultiplicityIndex, MultiplicityIndex, MultiplicityIndex],
         Tuple[LinkState, LinkState, LinkState, LinkState],
-        Tuple[LinkState, ...]
+        Tuple[VertexControlLinks, VertexControlLinks, VertexControlLinks, VertexControlLinks]
     ],
     Tuple[
         Tuple[None, None, None, None],
         Tuple[LinkState, LinkState, LinkState, LinkState],
-        Tuple[LinkState, ...]]
+        Tuple[VertexControlLinks, VertexControlLinks, VertexControlLinks, VertexControlLinks]]
 ]
+# Encoded plaquette state pair used as dict key in HamiltonianData.
+EncodedPlaquetteTransition = Tuple[str, str]
+# Dict mapping encoded state pairs to matrix element values (nested dict).
+HamiltonianData = Dict[EncodedPlaquetteTransition, MatrixElementValue]
 
 # Irrep iweights (top row of GT pattern).
 ONE: IrrepWeight = (0, 0, 0)
@@ -233,25 +234,108 @@ IRREP_TRUNCATIONS: Dict[str, IrrepBitmap] = {
     }
 }
 
-# Lazy-load vertex physical plaquette states from precomputed json files.
+# Module-level metadata cache, populated when data is first loaded.
+_DATA_METADATA: Dict[Tuple[str, str], dict] = {}
+
+
+def _load_plaquette_states(path: Path) -> List:
+    """Load plaquette states from a .json.gz file, caching metadata."""
+    data, metadata = json_loader(path)
+    # Determine the (dim_string, trunc_string) key from metadata.
+    dim_string = metadata.get("dim", "")
+    trunc_string = f"{metadata['truncation_mode']}{metadata['cutoff']}"
+    _DATA_METADATA[(dim_string, trunc_string)] = metadata
+    return data
+
+
+def _load_hamiltonian(path: Path) -> Dict:
+    """Load Hamiltonian matrix elements from a .json.gz file and cache metadata.
+
+    Every value is expected to be a nested dict: ``{Plane: {Signature: float}}``.
+    JSON encodes all dict keys as strings; this function converts the nested
+    plane and signature keys to tuples via ``ast.literal_eval`` so downstream
+    lookups work with native Python tuples.
+    """
+    data, metadata = json_loader(path)
+    dim_string = metadata.get("dim", "")
+    trunc_string = f"{metadata['truncation_mode']}{metadata['cutoff']}"
+    _DATA_METADATA[(dim_string, trunc_string)] = metadata
+    result = {}
+    for key, value in data.items():
+        converted_value = {}
+        for plane_str, plane_val in value.items():
+            plane_key = ast.literal_eval(plane_str) if isinstance(plane_str, str) else plane_str
+            converted_sigs = {}
+            for sig_str, sig_val in plane_val.items():
+                sig_key = ast.literal_eval(sig_str) if isinstance(sig_str, str) else sig_str
+                converted_sigs[sig_key] = sig_val
+            converted_value[plane_key] = converted_sigs
+        result[key] = converted_value
+    return result
+
+
+def get_data_metadata(dim_string: str, trunc_string: str, refresh: bool = False) -> dict:
+    """Return the metadata dict for the given dimension and truncation.
+
+    Uses _DATA_METADATA as a cache layer. On the first call for a given
+    (dim_string, trunc_string) pair, data is loaded from disk via the
+    PHYSICAL_PLAQUETTE_STATES LazyDict, which populates _DATA_METADATA as a
+    side effect. Subsequent calls return the cached value without disk access.
+
+    Note: LazyDict does not cache its loaded values internally — it re-reads
+    from disk on every __getitem__ call. The caching here is handled entirely
+    by _DATA_METADATA.
+
+    If refresh is True, a disk reload is forced regardless of whether metadata
+    is already cached, and _DATA_METADATA is updated with the fresh result.
+    """
+    key = (dim_string, trunc_string)
+    if key not in _DATA_METADATA or refresh:
+        # Force load by accessing the lazy dict.
+        _ = PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string]
+    return _DATA_METADATA[key]
+
+
+# Lazy-load vertex physical plaquette states from precomputed json.gz files.
 # Entries has the format s, a, c,
 # where s is a tuple of 4 site multiplicity indices,
 # a is a tuple of 4 "active link" iweights,
-# and c is a variable-length tuple of "control_link" iweights.
+# and c is a tuple of 4 per-vertex control link tuples.
 PHYSICAL_PLAQUETTE_STATES: Dict[str, LazyDict] = {
-    dim_string: LazyDict({trunc_string: (json_loader, file_path) for trunc_string, file_path in _PLAQUETTE_STATES_DATA_FILE_PATHS[dim_string].items()})
+    dim_string: LazyDict({trunc_string: (_load_plaquette_states, file_path) for trunc_string, file_path in _PLAQUETTE_STATES_DATA_FILE_PATHS[dim_string].items()})
     for dim_string in _PLAQUETTE_STATES_DATA_FILE_PATHS.keys()
 }
 
-# Lazy-load magnetic Hamiltonian box terms from precomputed json files.
+# Lazy-load magnetic Hamiltonian box terms from precomputed json.gz files.
 # The following magnetic Hamiltonian box term data is available:
 # d=3/2, T1
 # d=3/2, T2
 # d=2, T1
 HAMILTONIAN_BOX_TERMS:  Dict[str, LazyDict] = {
-    dim_string: LazyDict({trunc_string: (json_loader, file_path) for trunc_string, file_path in _HAMILTONIAN_DATA_FILE_PATHS[dim_string].items()})
+    dim_string: LazyDict({trunc_string: (_load_hamiltonian, file_path) for trunc_string, file_path in _HAMILTONIAN_DATA_FILE_PATHS[dim_string].items()})
     for dim_string in _HAMILTONIAN_DATA_FILE_PATHS.keys()
 }
+
+
+def _filter_matrix_element_value(
+        value: MatrixElementValue,
+        threshold: float
+) -> MatrixElementValue | None:
+    """Apply a threshold filter to a MatrixElementValue.
+
+    Drops leaf floats if abs value is below threshold, prunes plane keys whose values become
+    empty after filtering, and returns None if all plane keys are pruned.
+    """
+    filtered: Dict[Plane, Dict[Signature, float]] = {}
+    for plane_key, plane_val in value.items():
+        filtered_sigs = {
+            sig: float(sig_val)
+            for sig, sig_val in plane_val.items()
+            if abs(sig_val) >= threshold
+        }
+        if filtered_sigs:
+            filtered[plane_key] = filtered_sigs
+    return filtered if filtered else None
 
 
 def load_magnetic_hamiltonian(
@@ -259,17 +343,15 @@ def load_magnetic_hamiltonian(
         trunc_string: str,
         lattice_encoder: LatticeStateEncoder,
         mag_hamiltonian_matrix_element_threshold: float = 0,
-        only_include_elems_connected_to_electric_vacuum: bool = False
-) -> List[Tuple[str, str, float]]:
+        only_include_elems_connected_to_electric_vacuum: bool = False,
+) -> Dict[Tuple[str, str], MatrixElementValue]:
     """
-    Compute box + box^dagger as a list.
+    Compute box + box^dagger as a dict keyed by encoded plaquette state pairs.
 
-    This is a convenince method to obtain the magnetic Hamiltonian terms in a format
-    which facilitates the construction of rotation cicuits.
-    The return list consists of tuples whose first two elements
-    are encoded plaquette states representing a matrix element of
-    box + box dagger. The third element of each tuple is the numerical
-    value of the matrix element.
+    This is a convenience method to obtain the magnetic Hamiltonian terms in a
+    format which facilitates the construction of rotation circuits. The returned
+    dict maps (encoded_state_1, encoded_state_2) bit-string pairs to
+    MatrixElementValues (``Dict[Plane, Dict[Signature, float]]``).
 
     Necessary arguments:
       - dim_string: a string of the form "d=3/2" which specifies what
@@ -282,48 +364,95 @@ def load_magnetic_hamiltonian(
         as bit strings.
 
     Optional arguments:
-      - mag_hamiltonian_matrix_element_threshold: Only include matrix elements greater than this value.
-      - only_include_elems_connected_to_electric_vacuum: Drop any matrix elements which aren't connected to the electric vacuum state.
+      - mag_hamiltonian_matrix_element_threshold: Only include matrix elements
+        whose absolute value (or leaf absolute values, for dict-valued entries)
+        is at least this value.
+      - only_include_elems_connected_to_electric_vacuum: Drop any matrix elements
+        which aren't connected to the electric vacuum state.
     """
-    mag_hamiltonian: List[Tuple[str, str, float]] = []
-    for plaquette_state_1, plaquette_state_2, matrix_elem in compute_all_rotations_from_just_box_terms(HAMILTONIAN_BOX_TERMS[dim_string][trunc_string]):
-        if abs(matrix_elem) < mag_hamiltonian_matrix_element_threshold:
-            continue
+    rotations = compute_all_rotations_from_just_box_terms(
+        HAMILTONIAN_BOX_TERMS[dim_string][trunc_string]
+    )
+
+    mag_hamiltonian: Dict[Tuple[str, str], MatrixElementValue] = {}
+    for (plaquette_state_1, plaquette_state_2), matrix_elem in rotations.items():
+        # Apply threshold filter.
+        if mag_hamiltonian_matrix_element_threshold > 0:
+            filtered = _filter_matrix_element_value(matrix_elem, mag_hamiltonian_matrix_element_threshold)
+            if filtered is None:
+                continue
+            matrix_elem = filtered
+
         state_1_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state_1)
         state_2_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state_2)
         if only_include_elems_connected_to_electric_vacuum and ('1' in state_1_bitstring) and ('1' in state_2_bitstring):
             continue
-        mag_hamiltonian.append((state_1_bitstring, state_2_bitstring, matrix_elem))
+        mag_hamiltonian[(state_1_bitstring, state_2_bitstring)] = matrix_elem
 
-    logger.info(f"Loaded pre-computed magnetic Hamiltonian data from disk for {dim_string}, {trunc_string}. There are {len(mag_hamiltonian)} Givens rotations per plaquette.")
+    logger.info(f"Loaded pre-computed magnetic Hamiltonian data from disk for {dim_string}, {trunc_string}. There are {len(mag_hamiltonian)} encoded state-pair entries (not yet resolved per plaquette via plane+signature filtering).")
 
     return mag_hamiltonian
 
 
-def compute_all_rotations_from_just_box_terms(box_terms: Dict[Tuple[PlaquetteState, PlaquetteState], float]) -> List[Tuple[PlaquetteState, PlaquetteState, float]]:
+def _sum_matrix_element_values(a: MatrixElementValue, b: MatrixElementValue) -> MatrixElementValue:
+    """Sum two MatrixElementValues by merging their nested dict structures.
+
+    Both operands must be ``Dict[Plane, Dict[Signature, float]]``.
+    An empty dict ``{}`` acts as the identity element.
+
+    For matching plane keys, signature sub-dicts are merged: matching signature
+    keys have their float values summed; non-overlapping keys are preserved.
+    """
+    if not a:
+        return dict(b)
+    if not b:
+        return dict(a)
+
+    merged: Dict[Plane, Dict[Signature, float]] = {}
+    for plane_key in set(a) | set(b):
+        a_sigs = a.get(plane_key, {})
+        b_sigs = b.get(plane_key, {})
+        inner_merged: Dict[Signature, float] = dict(a_sigs)
+        for sig_key, sig_b_val in b_sigs.items():
+            if sig_key in inner_merged: # sig_a match, add sig_b_val to it
+                inner_merged[sig_key] = float(inner_merged[sig_key]) + float(sig_b_val)
+            else:               # no sig_a match, nothing to add to
+                inner_merged[sig_key] = sig_b_val
+        merged[plane_key] = inner_merged
+    return merged
+
+
+def compute_all_rotations_from_just_box_terms(
+        box_terms: Dict[Tuple[PlaquetteState, PlaquetteState], MatrixElementValue]
+) -> Dict[Tuple[PlaquetteState, PlaquetteState], MatrixElementValue]:
     """
     Compute the set of Givens rotations needed to simulate a magnetic Hamiltonian.
 
     Note that box^dagger is automatically computed internally, do not input box + box^dagger!
     Additionally assumes a convention has been chosen where box has no complex elements.
 
-    Returns a list of 3-tuples whose first two elements are final and initial plaquette states,
-    and whose final element is the numerical value of the box + box^dagger
-    matrix element.
+    Returns a dict whose keys are (final_state, initial_state) tuples and whose
+    values are MatrixElementValues (``Dict[Plane, Dict[Signature, float]]``).
+    The dict structures are merged via _sum_matrix_element_values, which effectively
+    computes box + box^dagger.
     """
     # Get list of all state transitions appearing in box and box dagger, with no repetition for ordering.
+    seen_pairs: set = set()
     all_transitions_unordered = []
     for f, i in box_terms.keys():
-        if (f, i) not in all_transitions_unordered and (i, f) not in all_transitions_unordered:
+        pair = frozenset((f, i))  # frozenset in membership test is O(1) vs. O(n) for a regular set.
+        if pair not in seen_pairs:
+            seen_pairs.add(pair)
             all_transitions_unordered.append((f, i))
 
     # Use state transitions to sum the box and box^dagger amplitudes for
     # transitions between states.
-    box_plus_box_dagger_rotations = []
+    box_plus_box_dagger_rotations: Dict[Tuple[PlaquetteState, PlaquetteState], MatrixElementValue] = {}
     for state_1, state_2 in all_transitions_unordered:
-        box_amplitude = box_terms[(state_1, state_2)] if (state_1, state_2) in box_terms.keys() else 0
-        box_dagger_amplitude = box_terms[(state_2, state_1)] if (state_2, state_1) in box_terms.keys() else 0
-        box_plus_box_dagger_rotations.append((state_1, state_2, box_amplitude + box_dagger_amplitude))
+        box_amplitude = box_terms.get((state_1, state_2), {})
+        box_dagger_amplitude = box_terms.get((state_2, state_1), {})
+        summed = _sum_matrix_element_values(box_amplitude, box_dagger_amplitude)
+        box_plus_box_dagger_rotations[(state_1, state_2)] = summed
 
     return box_plus_box_dagger_rotations
 
@@ -340,7 +469,7 @@ class LatticeStateEncoder:
             self,
             link_bitmap: IrrepBitmap,
             physical_plaquette_states: List[PlaquetteState],
-            lattice: LatticeDef
+            lattice: LatticeDef,
     ):
         """
         Create a LatticeStateEncoder for states on lattice using link_bitmap and list of physical plaquette states.
@@ -350,6 +479,7 @@ class LatticeStateEncoder:
         - physical_plaquette_states: a list of physical plaquette states.
         - lattice: a LatticeDef or child class. This provides information
             about the size of the lattice, boundary conditions, dimensionality, etc.
+            The F-order convention is inherited from lattice.forder.
 
         The link bitmap is assumed to have unique bit strings as values,
         and the desired link iWeight tuple as keys as keys. A multiplicity bitmap is
@@ -357,6 +487,9 @@ class LatticeStateEncoder:
         vertex multiplicity integer n appearing among the physical states, and allocating
         a length l = floor(log2(n) + 1) bitstring to store the binary encoding of each integer.
         Inverting of the bitmaps is handled internally when decoding.
+
+        Control links in plaquette states use a per-vertex nested format:
+        c_links = ((c_at_v1, ...), (c_at_v2, ...), (c_at_v3, ...), (c_at_v4, ...))
 
         ValueError raised if there are inconsistent length bit strings among the values
         of the link bitmap dictionary, or there are duplicate entries in the
@@ -368,7 +501,13 @@ class LatticeStateEncoder:
         link_bitmap_has_unique_values = len(set(bit_string for bit_string in link_bitmap.values())) \
             == len([bit_string for bit_string in link_bitmap.values()])
         plaquette_states_are_unique = len(physical_plaquette_states) == len(set(physical_plaquette_states))
-        consistent_num_controls_in_plaquette_states = all([len(plaquette[2]) == len(physical_plaquette_states[0][2]) for plaquette in physical_plaquette_states])
+        # Count total controls across all vertices in the nested format.
+        _count_total_controls = lambda c_links: sum(len(vc) for vc in c_links)
+        first_total_controls = _count_total_controls(physical_plaquette_states[0][2])
+        consistent_num_controls_in_plaquette_states = all(
+            _count_total_controls(plaquette[2]) == first_total_controls
+            for plaquette in physical_plaquette_states
+        )
         if link_bitmap_has_unique_values is False:
             raise ValueError("Argument link_bitmap must be a dict with unique values. "
                              f"Encountered: {link_bitmap}")
@@ -394,7 +533,7 @@ class LatticeStateEncoder:
                 for multiplicity_index in range(max_zero_indexed_multiplicity + 1)
             }
         self._expected_link_bit_string_length = len(list(link_bitmap.values())[0])
-        n_total_control_links = len(physical_plaquette_states[0][2])
+        n_total_control_links = first_total_controls
         if not n_total_control_links == lattice.n_control_links_per_plaquette:
             raise ValueError(f"Expected {lattice.n_control_links_per_plaquette} total plaquette controls from lattice. Encountered a plaquette states with {n_total_control_links} total controls.")
         self._expected_plaquette_bit_string_length = \
@@ -414,20 +553,25 @@ class LatticeStateEncoder:
         self._bit_string_to_link_map = {bit_string: link for link, bit_string in link_bitmap.items()}
         # TODO The following conditional is a placeholder to deal with LatticeDef not yet supporting size tuples, remove eventually.
         if lattice.dim == 1.5:
-            self._lattice = LatticeDef(lattice.dim, lattice.shape[0], lattice.periodic_boundary_conds)  # Make a new instance to avoid mutating user data!
-        elif not all([axis_length == lattice.shape[0] for axis_length in lattice.shape]):  
+            self._lattice = LatticeDef(lattice.dim, lattice.shape[0], lattice.periodic_boundary_conds, forder=lattice.forder)
+        elif not all([axis_length == lattice.shape[0] for axis_length in lattice.shape]):
             raise NotImplementedError("Lattices with different lengths along different dimensions not yet supported.")
         else:
-            self._lattice = LatticeDef(lattice.dim, lattice.shape[0], lattice.periodic_boundary_conds)  # Make a new instance to avoid mutating user data!
+            self._lattice = LatticeDef(lattice.dim, lattice.shape[0], lattice.periodic_boundary_conds, forder=lattice.forder)
 
         # Retain plaquettes states used to create for repr method.
         self.__physical_plaquette_states = copy.deepcopy(physical_plaquette_states)
 
+        # Cache for __repr__ string (computed lazily on first access).
+        self._repr_cache: str | None = None
+
         logger.info(f"Created {self}.")
 
     def __repr__(self):
-        class_name = type(self).__name__
-        return f"{class_name}({self.link_bitmap}, {self.__physical_plaquette_states}, {self._lattice.__repr__()})"
+        if self._repr_cache is None:
+            class_name = type(self).__name__
+            self._repr_cache = f"{class_name}({self.link_bitmap}, {self.__physical_plaquette_states}, {self._lattice.__repr__()})"
+        return self._repr_cache
 
     def __str__(self):
         return f"Lattice encoder:\nlink bitmap = {self.link_bitmap}\nvertex bitmap = {self.vertex_bitmap}\nlattice geometry = {self._lattice}"
@@ -456,6 +600,11 @@ class LatticeStateEncoder:
     def expected_vertex_bit_string_length(self) -> int:
         """Return the length of vertex bit strings the encoder expects."""
         return self._expected_vertex_bit_string_length
+
+    @property
+    def forder(self) -> List[int]:
+        """Return the half-link ordering convention (FORDER), inherited from the lattice argument."""
+        return self._lattice.forder
 
     @property
     def lattice_def(self) -> LatticeDef:
@@ -514,13 +663,12 @@ class LatticeStateEncoder:
         this tuple is a length-4 tuple of integers representing multiplicity indices
         associated to each vertex. The second element is a length-4 tuple of
         i-weights which label irreps on the "active" links of the plaquette.
-        The third element is a tuple of i-weights labelling the irreps on "control"
-        links to the plaquettes, where the number of controls depends on the lattice
-        geometry and boundary conditions.
+        The third element is a tuple of 4 per-vertex control tuples, each containing
+        the i-weights for the control links at that vertex sorted by FORDER.
 
         Assumes the ordering convention:
 
-        |v1 v2 v3 v4 l1 l2 l3 l4 c1 c2 c3 c4>
+        |v1 v2 v3 v4 l1 l2 l3 l4 c_v1... c_v2... c_v3... c_v4...>
 
         according to the layout:
 
@@ -532,7 +680,7 @@ class LatticeStateEncoder:
         |            |
         v1 ----l1--- v2
 
-        where cj is shorthand for the list of controls connected to vertex vj.
+        where c_vj is shorthand for the per-vertex control links at vertex vj.
 
         If self.vertex_bitmap is empty, it is assumed that vertex degrees of freedom
         are redundant, and they are treated as the "empty" string.
@@ -559,8 +707,9 @@ class LatticeStateEncoder:
             raise ValueError(f"Encountered {len(vertices)} vertex multiplicities instead of 4.")
         if len(a_links) != 4:
             raise ValueError(f"Encountered {len(a_links)} active links instead of 4.")
-        if len(c_links) != self._lattice.n_control_links_per_plaquette and (override_n_c_links_validation is False):
-            raise ValueError(f"Encountered {len(c_links)} control links instead of {self._lattice.n_control_links_per_plaquette}.")
+        total_c_links = sum(len(vc) for vc in c_links)
+        if total_c_links != self._lattice.n_control_links_per_plaquette and (override_n_c_links_validation is False):
+            raise ValueError(f"Encountered {total_c_links} control links instead of {self._lattice.n_control_links_per_plaquette}.")
 
         bit_string_encoding = ""
 
@@ -575,12 +724,13 @@ class LatticeStateEncoder:
                                  "They should be length-3 tuples of ints. "
                                  f"Encountered:\n{a_link}.")
             bit_string_encoding += self._link_bitmap[a_link]
-        for c_link in c_links:
-            if not (len(c_link) == 3 and all(isinstance(elem, int) for elem in c_link)):
-                raise ValueError("Link data must take the form of an SU(3) i-Weight. "
-                                 "They should be length-3 tuples of ints. "
-                                 f"Encountered:\n{c_link}.")
-            bit_string_encoding += self._link_bitmap[c_link]
+        for vertex_controls in c_links:
+            for c_link in vertex_controls:
+                if not (len(c_link) == 3 and all(isinstance(elem, int) for elem in c_link)):
+                    raise ValueError("Link data must take the form of an SU(3) i-Weight. "
+                                     "They should be length-3 tuples of ints. "
+                                     f"Encountered:\n{c_link}.")
+                bit_string_encoding += self._link_bitmap[c_link]
 
         logging.debug(f"Extracted plaquette data. Proceeding to encode.")
 
@@ -592,7 +742,7 @@ class LatticeStateEncoder:
 
         State ordering convention starts at bottom left vertex and goes
 
-        |v1 v2 v3 v4 l1 l2 l3 l4 controls>
+        |v1 v2 v3 v4 l1 l2 l3 l4 c_v1... c_v2... c_v3... c_v4...>
 
         according to the layout:
 
@@ -604,9 +754,18 @@ class LatticeStateEncoder:
         |            |
         v1 ----l1--- v2
 
-        The controls are ordered according to those attached to v1, v2, etc. If unable to decode
-        to physical state data, returns None for that degree of freedom.
+        The controls are grouped per-vertex, with each vertex's controls sorted
+        by FORDER. If unable to decode to physical state data, returns None for
+        that degree of freedom.
+
+        Raises NotImplementedError if the lattice does not use periodic boundary
+        conditions, since decoding logic for nonperiodic lattices is not yet
+        implemented.
         """
+        if not self._lattice.periodic_boundary_conds:
+            raise NotImplementedError(
+                "Decoding plaquette states for nonperiodic lattices is not yet supported."
+            )
         # Validate input.
         if self._expected_plaquette_bit_string_length != len(bit_string):
             raise ValueError("Vertex and link bitmaps are inconsistent with length of\n"
@@ -619,8 +778,7 @@ class LatticeStateEncoder:
         a_links_substring = bit_string[idx_first_a_link_bit:idx_first_c_link_bit]
         c_links_substring = bit_string[idx_first_c_link_bit:]
 
-        # Decode plaquette.
-        decoded_plaquette = []
+        # Decode vertices and active links.
         decoded_vertices = tuple(
             self.decode_bit_string_to_vertex_state(encoded_vertex) for encoded_vertex in
             LatticeStateEncoder._split_string_evenly(
@@ -631,11 +789,20 @@ class LatticeStateEncoder:
             LatticeStateEncoder._split_string_evenly(
                 a_links_substring, self._expected_link_bit_string_length)
         )
-        decoded_c_links = tuple(
+
+        # Decode control links and group into per-vertex tuples.
+        decoded_c_links_flat = [
             self.decode_bit_string_to_link_state(encoded_link) for encoded_link in
             LatticeStateEncoder._split_string_evenly(
                 c_links_substring, self._expected_link_bit_string_length)
+        ]
+        # Number of controls per vertex for periodic lattices.
+        n_controls_per_vertex = int(2 * (self._lattice.dim - 1))
+        decoded_c_links = tuple(
+            tuple(decoded_c_links_flat[i:i + n_controls_per_vertex])
+            for i in range(0, len(decoded_c_links_flat), n_controls_per_vertex)
         )
+
         decoded_plaquette = (
             decoded_vertices,
             decoded_a_links,

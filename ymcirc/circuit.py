@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import logging
 from pathlib import Path
-from ymcirc.conventions import PlaquetteState, LatticeStateEncoder, ONE, THREE, THREE_BAR
+from ymcirc.conventions import (PlaquetteState, LatticeStateEncoder, ONE, THREE, THREE_BAR, MatrixElementValue, HamiltonianData)
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import (
     givens,
@@ -16,7 +16,7 @@ from ymcirc.givens import (
     compute_p_tilde,
     gray_to_index,
 )
-from ymcirc._abstract.lattice_data import Plaquette, LinkUnitVectorLabel, LinkAddress, LatticeVector
+from ymcirc._abstract.lattice_data import Plaquette, LinkUnitVectorLabel, LinkAddress, LatticeVector, Plane, Signature
 from ymcirc.utilities import _check_circuits_logically_equivalent, _flatten_circuit, eta_update, fmt_td
 from math import ceil
 from qiskit import transpile
@@ -30,10 +30,6 @@ import numpy as np
 
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
-
-
-# A list of tuples: (state bitstring1, state bitstring2, matrix element)
-HamiltonianData = List[Tuple[str, str, float]]
 
 
 class LatticeCircuitManager:
@@ -60,7 +56,7 @@ class LatticeCircuitManager:
         # LatticeCircuitManager instance.
         self._encoder = copy.deepcopy(lattice_encoder)
         self._mag_hamiltonian = copy.deepcopy(mag_hamiltonian)
-        self._cached_mag_evol_circuit = None
+        self._cached_mag_evol_circuits: Dict[Tuple[Plane, Signature], QuantumCircuit] = {}
         self._cached_mag_evol_params = {
             "physical_states_for_control_pruning": None,
             "optimize_circuits": None,
@@ -89,12 +85,19 @@ class LatticeCircuitManager:
                 raise NotImplementedError(f"Dim {lattice_encoder.lattice_def.dim} lattice not yet supported.")
         self._lattice_is_small = True if lattice_size <= lattice_size_threshold_for_smallness else False
 
+        # Cache control link dirs for d=2 small periodic lattices (used by consistency/discard methods).
+        self._cached_ctrl_dirs_d2_small_and_periodic = None
+        if self._lattice_is_small and self._lattice_is_periodic and self._encoder.lattice_def.dim == 2:
+            _temp_lattice = LatticeRegisters.from_lattice_state_encoder(self._encoder)
+            _temp_plaq = _temp_lattice.get_plaquettes((0, 0), 1, 2) # Construct temp plaquette to extract ctrl dirs.
+            self._cached_ctrl_dirs_d2_small_and_periodic = _temp_plaq.control_link_dirs_per_vertex
+
         if self._lattice_is_small is True and self._lattice_is_periodic is True:
             # Filter out magnetic Hamiltonian terms which are inconsistent (repeated control links must have the same value)
-            filtered_and_trimmed_mag_hamiltonian: HamiltonianData = []
-            for matrix_element in self._mag_hamiltonian:
-                final_plaquette_state = lattice_encoder.decode_bit_string_to_plaquette_state(matrix_element[0])
-                initial_plaquette_state = lattice_encoder.decode_bit_string_to_plaquette_state(matrix_element[1])
+            filtered_and_trimmed_mag_hamiltonian: HamiltonianData = {}
+            for (final_bitstring, initial_bitstring), matrix_elem_value in self._mag_hamiltonian.items():
+                final_plaquette_state = lattice_encoder.decode_bit_string_to_plaquette_state(final_bitstring)
+                initial_plaquette_state = lattice_encoder.decode_bit_string_to_plaquette_state(initial_bitstring)
                 final_state_has_inconsistent_controls = self._plaquette_state_has_inconsistent_controls(final_plaquette_state)
                 initial_state_has_inconsistent_controls = self._plaquette_state_has_inconsistent_controls(initial_plaquette_state)
 
@@ -105,12 +108,11 @@ class LatticeCircuitManager:
                     # Matrix element is consistent on shared controls. Trim out duplicate control links, re-encode plaquettes as bitstring, and keep.
                     final_plaquette_state_trimmed_c_links = self._discard_duplicate_controls_from_plaquette_state(final_plaquette_state)
                     initial_plaquette_state_trimmed_c_links = self._discard_duplicate_controls_from_plaquette_state(initial_plaquette_state)
-                    consistent_and_trimmed_matrix_element = (
+                    trimmed_key = (
                         lattice_encoder.encode_plaquette_state_as_bit_string(final_plaquette_state_trimmed_c_links, override_n_c_links_validation=True),
                         lattice_encoder.encode_plaquette_state_as_bit_string(initial_plaquette_state_trimmed_c_links, override_n_c_links_validation=True),
-                        matrix_element[2]
                     )
-                    filtered_and_trimmed_mag_hamiltonian.append(consistent_and_trimmed_matrix_element)
+                    filtered_and_trimmed_mag_hamiltonian[trimmed_key] = matrix_elem_value
 
             # Update the magnetic Hamiltonian data with the trimmed, consistent matrix elements.
             self._mag_hamiltonian = filtered_and_trimmed_mag_hamiltonian
@@ -446,7 +448,10 @@ class LatticeCircuitManager:
         Implementation is performed by iterating over every lattice vertex. At each vertex,
         there's an additional iteration over every "positive" plaquette.
         For each such plaquette, the plaquette-local magnetic Trotter step
-        is appended to the circuit.
+        is appended to the circuit. This local Trotter step circuit is
+        composed of Givens rotations constructed from all Hamiltonian
+        matrix elements which match the current plaquette's plane and
+        F-order signature.
 
         Note that this modifies master_circuit directly rather than returning
         a new circuit!
@@ -471,7 +476,7 @@ class LatticeCircuitManager:
                             to be True, then LP families of givens rotations are first Gray code ordered,
                             then redundant controls are removed.
           - cache_mag_evol_circuit: Optional boolean argument to cache the magnetic Hamiltonian
-                                    evolution circuit once generated, and forevermore use that.
+                                    evolution circuit(s) once generated, and forevermore use the cache.
           - givens_have_independent_params: Optional boolean argument with the default set to False.
                                             If True, then each individual Givens rotation subcircuit
                                             will be controlled by a unique parameter.
@@ -489,10 +494,9 @@ class LatticeCircuitManager:
         dt_mag_current = Parameter(f'dt_mag{step_num_separator}{n_dt_mag_params}')
         coupling_g_mag_current = Parameter(f'coupling_g_mag{step_num_separator}{n_coupling_g_mag_params}')
 
-        # Create or fetch the magnetic Hamiltonian evolution circuit template,
-        # and update with Parameters for the current Trotter step.
+        # Check if cached circuits need to be invalidated due to changed build params.
         mag_evol_recomputation_needed = (
-            (self._cached_mag_evol_circuit is None)
+            (len(self._cached_mag_evol_circuits) == 0)
             or (control_fusion != self._cached_mag_evol_params["control_fusion"])
             or (optimize_circuits != self._cached_mag_evol_params["optimize_circuits"])
             or (
@@ -500,36 +504,25 @@ class LatticeCircuitManager:
                 != self._cached_mag_evol_params["physical_states_for_control_pruning"]
             )
         )
-        if cache_mag_evol_circuit is True and not mag_evol_recomputation_needed:
-            logger.info("Fetching cached magnetic evolution circuit.")
-            plaquette_local_rotation_circuit_template = self._cached_mag_evol_circuit
-        else:
-            logger.info("Building magnetic evolution circuit from scratch.")
-            # Build template circuit with placeholder paramters.
-            plaquette_local_rotation_circuit_template = self._build_mag_evol_circuit(
-                control_fusion,
-                physical_states_for_control_pruning,
-                coupling_g=Parameter('coupling_g_mag_placeholder'),
-                dt=Parameter('dt_mag_placeholder'),
-                optimize_circuits=optimize_circuits,
-                use_independent_params_for_each_givens_rot=givens_have_independent_params
-            )
-            # Save template if caching is turned on.
-            if cache_mag_evol_circuit is True:
-                logger.info("Storing template magnetic evolution circuit in cache.")
-                self._cached_mag_evol_circuit = plaquette_local_rotation_circuit_template
-                self._cached_mag_evol_params = {
-                    "physical_states_for_control_pruning": physical_states_for_control_pruning,
-                    "optimize_circuits": optimize_circuits,
-                    "control_fusion": control_fusion,
-                }
-        if givens_have_independent_params is False:
-            plaquette_local_rotation_circuit = plaquette_local_rotation_circuit_template.assign_parameters({
-                'coupling_g_mag_placeholder': coupling_g_mag_current,
-                'dt_mag_placeholder': dt_mag_current
-            })
-        else:  # No need to update the circuit parameters if we set the mag evolution to use unique ones per rotation.
-            plaquette_local_rotation_circuit = plaquette_local_rotation_circuit_template
+        if mag_evol_recomputation_needed:
+            self._cached_mag_evol_circuits = {}
+            self._cached_mag_evol_params = {
+                "physical_states_for_control_pruning": physical_states_for_control_pruning,
+                "optimize_circuits": optimize_circuits,
+                "control_fusion": control_fusion,
+            }
+
+        # Pre-compute forder-aware skip indices for d=2 on small periodic lattices.
+        _v2_skip_ctrl_idx = None
+        _v3_skip_ctrl_idx = None
+        if self._cached_ctrl_dirs_d2_small_and_periodic is not None:
+            _v2_skip_ctrl_idx = self._cached_ctrl_dirs_d2_small_and_periodic[1].index(1)   # skip the dir +e1 control at v2
+            _v3_skip_ctrl_idx = self._cached_ctrl_dirs_d2_small_and_periodic[2].index(2)   # skip the dir +e2 control at v3
+
+        # Local cache for resolved Hamiltonian data per (plane, signature).
+        # On periodic lattices, all plaquettes share the same key, so this
+        # avoids re-iterating over self._mag_hamiltonian for every plaquette.
+        _resolved_hamiltonian_cache: Dict[Tuple[Plane, Signature], List] = {}
 
         # Stitch magnetic Hamiltonian evolution circuit onto LatticeRegisters.
         # Vertex iteration loop.
@@ -554,9 +547,56 @@ class LatticeCircuitManager:
 
             # For each plaquette, apply the the local Trotter step circuit.
             for plaquette in plaquettes:
-                # Get qubits for the current plaquette.
+                # Resolve the hamiltonian for this plaquette's plane and signature.
+                plaquette_plane: Plane = plaquette.plane
+                plaquette_signature: Signature = plaquette.signature
+                cache_key = (plaquette_plane, plaquette_signature)
+                if cache_key in _resolved_hamiltonian_cache:
+                    resolved_hamiltonian = _resolved_hamiltonian_cache[cache_key]
+                else:
+                    resolved_hamiltonian = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(
+                        self._mag_hamiltonian, plaquette_plane, plaquette_signature
+                    )
+                    _resolved_hamiltonian_cache[cache_key] = resolved_hamiltonian
 
-                # Collect the local qubits for stitching purposes.
+                # Build or fetch the cached template circuit for this (plane, signature).
+                # When givens_have_independent_params is True, the template must
+                # be reused across all plaquettes so that the same theta[m]
+                # Parameter instances are shared (not duplicated). So always
+                # consult the in-memory cache in that case.
+                # NOTE: On nonperiodic lattices, this logic may fail since
+                # in that case, different plaquettes in a lattice may have different
+                # matrix elements and therefore different givens rotations.
+                # Will need to handle that case down the road. The simplest possibility
+                # would be to just forbid this option on such lattices.
+                use_cache = cache_mag_evol_circuit or givens_have_independent_params
+                if use_cache and (cache_key in self._cached_mag_evol_circuits):
+                    logger.info(f"Fetching cached magnetic evolution circuit for cache_key={cache_key}.")
+                    plaquette_local_rotation_circuit_template = self._cached_mag_evol_circuits[cache_key]
+                else:
+                    logger.info(f"Building magnetic evolution circuit for cache_key={cache_key}.")
+                    plaquette_local_rotation_circuit_template = self._build_mag_evol_circuit(
+                        resolved_hamiltonian,
+                        control_fusion,
+                        physical_states_for_control_pruning,
+                        coupling_g=Parameter('coupling_g_mag_placeholder'),
+                        dt=Parameter('dt_mag_placeholder'),
+                        optimize_circuits=optimize_circuits,
+                        use_independent_params_for_each_givens_rot=givens_have_independent_params
+                    )
+                    if use_cache:
+                        self._cached_mag_evol_circuits[cache_key] = plaquette_local_rotation_circuit_template
+
+                # Assign step-specific parameters to the template.
+                if givens_have_independent_params is False:
+                    plaquette_local_rotation_circuit = plaquette_local_rotation_circuit_template.assign_parameters({
+                        'coupling_g_mag_placeholder': coupling_g_mag_current,
+                        'dt_mag_placeholder': dt_mag_current
+                    })
+                else:
+                    plaquette_local_rotation_circuit = plaquette_local_rotation_circuit_template
+
+                # Collect the local qubits for stitching the plaquette rotation circuit.
                 vertex_multiplicity_qubits = []
                 a_link_qubits = []
                 c_link_qubits = []
@@ -566,26 +606,33 @@ class LatticeCircuitManager:
                 for register in plaquette.active_links:
                     for qubit in register:
                         a_link_qubits.append(qubit)
-                for c_link_idx, register in enumerate(plaquette.control_links_ordered):
-                    # If lattice is small and has PBCs, skip redundant c_link registers.
-                    if (self._lattice_is_small is True) and (self._lattice_is_periodic is True):
-                        redundant_c_link_idxes_by_dim_dict = {
-                            1.5 : [1, 3],
-                            2: [3, 5, 6, 7]
-                        }
-                        try:
-                            current_c_link_is_redundant = c_link_idx in redundant_c_link_idxes_by_dim_dict[self._encoder.lattice_def.dim]
-                        except KeyError:
-                            raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
-                        if current_c_link_is_redundant is True:
-                            continue
+                for vertex_idx, vertex_controls in enumerate(plaquette.control_links_per_vertex):
+                    for ctrl_idx, register in enumerate(vertex_controls):
+                        # If lattice is small and has PBCs, skip redundant c_link registers.
+                        if (self._lattice_is_small is True) and (self._lattice_is_periodic is True):
+                            should_skip = False
+                            match self._encoder.lattice_def.dim:
+                                case 1.5:
+                                    # Skip v2 (idx 1) and v4 (idx 3) entirely.
+                                    should_skip = vertex_idx in (1, 3)
+                                case 2:
+                                    # v2: skip dir +e1 control; v3: skip dir +e2 control; v4: skip all.
+                                    # Skip indices are forder-aware, pre-computed before the vertex loop.
+                                    should_skip = (
+                                        (vertex_idx == 1 and ctrl_idx == _v2_skip_ctrl_idx) or
+                                        (vertex_idx == 2 and ctrl_idx == _v3_skip_ctrl_idx) or
+                                        (vertex_idx == 3)
+                                    )
+                                case _:
+                                    raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
+                            if should_skip is True:
+                                continue
 
-                    for qubit in register:
-                        c_link_qubits.append(qubit)
+                        for qubit in register:
+                            c_link_qubits.append(qubit)
 
                 # Now that we have the qubits for the current plaquette,
                 # Stitch the local magnetic evolution circuit into master circuit.
-
                 master_circuit.compose(
                     plaquette_local_rotation_circuit,
                     qubits=[
@@ -694,8 +741,39 @@ class LatticeCircuitManager:
 
         return stripped_physical_states
 
+    @staticmethod
+    def _resolve_hamiltonian_for_plaquette(
+            hamiltonian: HamiltonianData,
+            plane: Plane,
+            signature: Signature,
+    ) -> List[Tuple[str, str, float]]:
+        """Resolve a HamiltonianData dict to a flat list for a specific plaquette.
+
+        For each entry in the hamiltonian dict (whose values are
+        ``Dict[Plane, Dict[Signature, float]]``):
+        - Look up the current plane. If absent, skip this entry.
+        - Within the plane's sub-dict, look up the current signature.
+          If absent, skip. Otherwise include the float value.
+
+        Returns:
+            A flat list of (bitstring1, bitstring2, float) tuples suitable for
+            _build_mag_evol_circuit and _sort_matrix_elements_into_lp_bins.
+        """
+        resolved: List[Tuple[str, str, float]] = []
+        for (bs1, bs2), value in hamiltonian.items():
+            plane_val = value.get(plane)
+            if plane_val is None:
+                continue
+            sig_val = plane_val.get(signature)
+            if sig_val is None:
+                continue
+            resolved.append((bs1, bs2, float(sig_val)))
+
+        return resolved
+
     def _build_mag_evol_circuit(
         self,
+        resolved_hamiltonian: List[Tuple[str, str, float]],
         control_fusion: bool,
         physical_states_for_control_pruning: Union[None | Set[str]],
         coupling_g: Parameter,
@@ -706,19 +784,27 @@ class LatticeCircuitManager:
         """
         Build the magnetic time-evolution circuit for a plaquette.
 
-        If use_independent_params_for_each_givens_rot is True,
-        then coupling_g and dt will be ignored, and a unique
-        parameter for the rotation angle theta[m] will be assigned for each
-        Givens rotation in the plaquette circuit.
+        Arguments:
+            resolved_hamiltonian: A flat list of (bitstring1, bitstring2, float)
+                tuples — the resolved matrix elements for a specific
+                (plane, signature) combination.
+            control_fusion: Whether to fuse controls in Givens rotations.
+            physical_states_for_control_pruning: Physical states for pruning.
+            coupling_g: Coupling constant parameter.
+            dt: Time step parameter.
+            optimize_circuits: Whether to transpile with optimization.
+            use_independent_params_for_each_givens_rot: If True, coupling_g
+                and dt are ignored and a unique theta[m] parameter is assigned
+                per Givens rotation.
         """
-        n_givens_rotations = len(self._mag_hamiltonian)
+        n_givens_rotations = len(resolved_hamiltonian)
         logger.info(f"There are {n_givens_rotations} primitive Givens rotation circuits to be constructed for the plaquette.")
         # Sort the bitstrings corresponding to transitions in the magnetic
         # Hamiltonian into LP bins. This step also computes the angle of Givens
         # rotation for each pair of bitstrings. The resulting Givens rotations
         # are characterized by two parameters: dt and the coupling g.
         lp_bin = LatticeCircuitManager._sort_matrix_elements_into_lp_bins(
-            self._mag_hamiltonian,
+            resolved_hamiltonian,
             coupling_g,
             dt,
         )
@@ -743,9 +829,7 @@ class LatticeCircuitManager:
 
         # Iterate over all LP bins and apply givens rotation.
         # Also logs progress of circuit construction at INFO level.
-        plaquette_circ_n_qubits = len(
-            self._mag_hamiltonian[0][0]
-        )  # TODO this is a disgusting way to get the size of the magnetic evol circuit per plaquette.
+        plaquette_circ_n_qubits = len(resolved_hamiltonian[0][0])
         plaquette_local_rotation_circuit = QuantumCircuit(plaquette_circ_n_qubits)
         loop_time_state = None  # For tracking Givens rotation circuit construction progress.
         if (self.num_ancillas > 0):
@@ -795,9 +879,16 @@ class LatticeCircuitManager:
         """
         True if "shared" control links have different states; False otherwise.
 
-        For d=3/2, this corresponds to c1 == c2 and c3 == c4.
+        For d=3/2 with per-vertex c_links: v1 controls == v2 controls, v3 controls == v4 controls.
 
-        For d=2, this corresponds to c1 == c4, c2 == c7, c3 == c6, and c5 == c8.
+        For d=2 with per-vertex c_links and (for example) default FORDER [1,2,3,-1,-2,-3]:
+        Control dirs per vertex: v1=(-1,-2), v2=(+1,-2), v3=(+1,+2), v4=(+2,-1). Note that
+        this method is FORDER-aware.
+        On size-2 periodic lattice, physical link sharing:
+        - v1[0]=dir(-1) shares with v2[0]=dir(+1)
+        - v1[1]=dir(-2) shares with v4[0]=dir(+2)
+        - v2[1]=dir(-2) shares with v3[1]=dir(+2)
+        - v3[0]=dir(+1) shares with v4[1]=dir(-1)
 
         Note that this only makes sense on a small, periodic lattice, so a ValueError
         is raised if the lattice fails those checks.
@@ -809,15 +900,21 @@ class LatticeCircuitManager:
         match self._encoder.lattice_def.dim:
             case 1.5:
                 plaquette_state_has_inconsistent_controls = (
-                    (c_links[0] != c_links[1]) or
-                    (c_links[2] != c_links[3])
-                    )
+                    c_links[0] != c_links[1] or
+                    c_links[2] != c_links[3]
+                )
             case 2:
+                # Use direction-based lookups so results are correct for any F-order.
+                # For plane (e1=1, e2=2) on a size-2 periodic lattice, the four shared
+                # physical links are: (v1 dir-e1, v2 dir+e1), (v1 dir-e2, v4 dir+e2),
+                # (v2 dir-e2, v3 dir+e2), (v3 dir+e1, v4 dir-e1).
+                ctrl_dirs = self._cached_ctrl_dirs_d2_small_and_periodic
+                e1, e2 = 1, 2
                 plaquette_state_has_inconsistent_controls = (
-                    (c_links[0] != c_links[3]) or
-                    (c_links[1] != c_links[6]) or
-                    (c_links[2] != c_links[5]) or
-                    (c_links[4] != c_links[7])
+                    (c_links[0][ctrl_dirs[0].index(-e1)] != c_links[1][ctrl_dirs[1].index(e1)]) or
+                    (c_links[0][ctrl_dirs[0].index(-e2)] != c_links[3][ctrl_dirs[3].index(e2)]) or
+                    (c_links[1][ctrl_dirs[1].index(-e2)] != c_links[2][ctrl_dirs[2].index(e2)]) or
+                    (c_links[2][ctrl_dirs[2].index(e1)] != c_links[3][ctrl_dirs[3].index(-e1)])
                 )
             case _:
                 raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
@@ -826,12 +923,17 @@ class LatticeCircuitManager:
 
     def _discard_duplicate_controls_from_plaquette_state(self, plaquette: PlaquetteState) -> PlaquetteState:
         """
-        Return a new instances of the plaquette where duplicate control link data has been discarded.
+        Return a new instance of the plaquette where duplicate control link data has been discarded.
 
-        Only the first instance of a duplicate control link is kept. For example, on a 2-plaquette d=3/2
-        lattice with PBCs, only c1 and c3 are kept since c1 == c2 and c3 == c4. On a 4-plaquette d=2
-        lattice with PBCs, only c1, c2, c3, and c5 are kept since c1 == c4, c2 == c7, c3 == c6,
-        and c5 == c8.
+        For d=3/2: keep v1 and v3 controls, drop v2 and v4 (since v1==v2, v3==v4).
+
+        For d=2 with default FORDER: keep first occurrence of each shared physical link:
+        - v1: both controls are first occurrences
+        - v2: only second (dir -2) is unique; first (dir +1) duplicates v1[0]
+        - v3: only first (dir +1) is unique; second (dir +2) duplicates v2[1]
+        - v4: both duplicate earlier entries
+
+        Note that this method is FORDER-aware.
 
         Since this only makes sense on a small, periodic lattice, a ValueError
         is raised if the lattice is not small and periodic.
@@ -842,9 +944,20 @@ class LatticeCircuitManager:
         vertex_multiplicities, a_links, c_links = plaquette
         match self._encoder.lattice_def.dim:
             case 1.5:
-                physical_c_links = (c_links[0], c_links[2])
+                physical_c_links = (c_links[0], (), c_links[2], ())
             case 2:
-                physical_c_links = (c_links[0], c_links[1], c_links[2], c_links[4])
+                # Keep first occurrence of each shared physical link.
+                # For plane (e1=1, e2=2): v1 keeps both; v2 keeps dir -e2 only
+                # (dir +e1 duplicates v1's dir -e1); v3 keeps dir +e1 only
+                # (dir +e2 duplicates v2's dir -e2); v4 drops both.
+                ctrl_dirs = self._cached_ctrl_dirs_d2_small_and_periodic
+                e1, e2 = 1, 2
+                physical_c_links = (
+                    c_links[0],
+                    (c_links[1][ctrl_dirs[1].index(-e2)],),
+                    (c_links[2][ctrl_dirs[2].index(e1)],),
+                    ()
+                )
             case _:
                 raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
 

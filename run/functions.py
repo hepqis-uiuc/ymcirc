@@ -26,7 +26,8 @@ from typing import Any, Set
 from ymcirc._abstract import LatticeDef
 from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.conventions import (
-    IRREP_TRUNCATIONS, LatticeStateEncoder, load_magnetic_hamiltonian, PHYSICAL_PLAQUETTE_STATES)
+    IRREP_TRUNCATIONS, LatticeStateEncoder, load_magnetic_hamiltonian, PHYSICAL_PLAQUETTE_STATES,
+    get_data_metadata)
 from ymcirc.electric_helper import convert_bitstring_to_evalue, electric_hamiltonian
 from ymcirc.lattice_registers import LatticeRegisters
 
@@ -135,6 +136,7 @@ def configure_script_options(
         - warn_unphysical_links:
               Whether to emit a warning on unphysical link
               data when analyzing circuit execution results.
+              If False, unphysical links silently skipped.
         - error_unphysical_links:
               Whether to raise an error on unphysical link
               data when analyzing circuit execution results.
@@ -216,10 +218,16 @@ def configure_script_options(
     # Automatically set some additional options based on user input above.
     options["dimensions"] = 1.5 if (dimensionality_string == "d=3/2" or dimensionality_string == "d=1.5") else int(dimensionality_string[2:])
     options["link_bitmap"] = IRREP_TRUNCATIONS[options["truncation_string"]]
+
+    # Trigger lazy data load, then read f_order from metadata so the LatticeDef
+    # uses the same F-order convention the data was generated with.
+    _ = PHYSICAL_PLAQUETTE_STATES[options["dimensionality_string"]][options["truncation_string"]]
+    _metadata = get_data_metadata(options["dimensionality_string"], options["truncation_string"])
     options["lattice_def"] = LatticeDef(
         dimensions=options["dimensions"],
         size=options["lattice_size"],
-        periodic_boundary_conds=options["use_periodic_boundary_conds"])
+        periodic_boundary_conds=options["use_periodic_boundary_conds"],
+        forder=_metadata.get("f_order", None))
 
     return options
 
@@ -420,10 +428,25 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
     print("Done.")
 
     # Organize job results into dataframe.
+    # Cache ParsedLatticeResult instances to avoid redundant construction
+    # for the same bit string across different simulation time steps.
+    plr_cache: dict[str, ParsedLatticeResult] = {}
     df_job_results = pd.DataFrame(columns=["vacuum_persistence_probability", "electric_energy"], index=script_options["sim_times"])
     for job_result, sim_time in zip(job_results, script_options["sim_times"]):
         # Strip out ancilla bits, and reverse to big-endian convention.
-        counts_dict_big_endian = {little_endian_state[::-1][:n_data_qubits]: count for little_endian_state, count in job_result.items()}
+        # Use PLR cache to avoid re-parsing identical bit strings.
+        counts_dict_big_endian = {}
+        for little_endian_state, count in job_result.items():
+            big_endian_state = little_endian_state[::-1][:n_data_qubits]
+            if big_endian_state not in plr_cache:
+                plr_cache[big_endian_state] = ParsedLatticeResult(
+                    lattice_encoder.lattice_def.dim,
+                    lattice_encoder.lattice_def.shape[0],
+                    big_endian_state,
+                    lattice_encoder,
+                    lattice_encoder.lattice_def.periodic_boundary_conds,
+                )
+            counts_dict_big_endian[plr_cache[big_endian_state]] = count
         mr = MeasurementResults(counts_dict_big_endian, lattice_encoder)
         for big_endian_state, counts in mr.get_counts(str_keys=True).items():
             df_job_results.loc[sim_time, big_endian_state] = counts
@@ -434,7 +457,8 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
 
         # Compute vacuum persistence probability and average electric energy per link.
         df_job_results.loc[sim_time, "vacuum_persistence_probability"] = mr.vacuum_persistence_probability()
-        df_job_results.loc[sim_time, "electric_energy"] = mr.get_lattice_electric_energy(average_result=True, warn_on_unphysical=script_options["warn_unphysical_links"])
+        unphys_mode = 'warn' if script_options["warn_unphysical_links"] else None
+        df_job_results.loc[sim_time, "electric_energy"] = mr.get_lattice_electric_energy(average_result=True, unphys_mode=unphys_mode)
 
     return df_job_results
 

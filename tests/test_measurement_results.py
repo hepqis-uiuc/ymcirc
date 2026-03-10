@@ -7,13 +7,23 @@ from ymcirc.conventions import (
 from ymcirc.parsed_lattice_result import ParsedLatticeResult
 from ymcirc.measurement_results import MeasurementResults
 
+@pytest.fixture
+def encoder_d32_L3_T1():
+    link_bitmap = {ONE: "00", THREE: "10", THREE_BAR: "01"}
+    physical_plaquette_states = [
+        ((0, 0, 0, 0), (ONE, ONE, ONE, ONE), ((ONE,), (ONE,), (ONE,), (ONE,))),
+        ((0, 0, 0, 0), (THREE, THREE, THREE_BAR, THREE_BAR), ((ONE,), (ONE,), (ONE,), (ONE,))),
+    ]
+    lattice = LatticeDef(1.5, 3)
+    return LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
+
 
 @pytest.fixture
 def encoder_d32_L2_T1():
     link_bitmap = {ONE: "00", THREE: "10", THREE_BAR: "01"}
     physical_plaquette_states = [
-        ((0, 0, 0, 0), (ONE, ONE, ONE, ONE), (ONE, ONE, ONE, ONE)),
-        ((0, 0, 0, 0), (THREE, THREE, THREE_BAR, THREE_BAR), (ONE, ONE, ONE, ONE)),
+        ((0, 0, 0, 0), (ONE, ONE, ONE, ONE), ((ONE,), (ONE,), (ONE,), (ONE,))),
+        ((0, 0, 0, 0), (THREE, THREE, THREE_BAR, THREE_BAR), ((ONE,), (ONE,), (ONE,), (ONE,))),
     ]
     lattice = LatticeDef(1.5, 2)
     return LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
@@ -22,8 +32,8 @@ def encoder_d32_L2_T1():
 def encoder_d2_L2_T1():
     link_bitmap = {ONE: "00", THREE: "10", THREE_BAR: "01"}
     physical_plaquette_states = [
-        ((0, 1, 0, 0), (ONE, ONE, ONE, ONE), (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)),
-        ((0, 0, 0, 1), (THREE, THREE, THREE_BAR, THREE_BAR), (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)),
+        ((0, 1, 0, 0), (ONE, ONE, ONE, ONE), ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))),
+        ((0, 0, 0, 1), (THREE, THREE, THREE_BAR, THREE_BAR), ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))),
     ]
     lattice = LatticeDef(2, 2)
     return LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
@@ -277,3 +287,16 @@ def test_measurement_results_empty_counts_raises(encoder_d32_L2_T1):
     """MeasurementResults should raise ValueError for empty counts."""
     with pytest.raises(ValueError):
         MeasurementResults({}, encoder_d32_L2_T1)
+
+
+def test_measurement_results_d_3_2_long_lattice(encoder_d32_L3_T1):
+    """Check MeasurementResults works with 'long' plaquette chains."""
+    encoder = encoder_d32_L3_T1
+    vac_string = "000000" + "000000" + "000000" # 3 plaquettes, vacuum
+    excited_string = "000000" + "000000" + "000001" # 3 plaquettes, last one has one excited link
+    counts = {vac_string: 10, excited_string: 90}
+
+    mr = MeasurementResults(counts, encoder)
+    assert mr.get_counts(str_keys=True) == counts
+    assert mr.get_link_electric_energy(((2, 1), 1)) == pytest.approx(0.1*0 + 0.9*(4/3))
+    assert mr.get_link_electric_energy(((1, 1), 1)) == 0
