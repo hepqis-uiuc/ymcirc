@@ -54,7 +54,18 @@ _PLAQUETTE_STATES_DATA_FILE_PATHS = {
 
 The lazy dicts `PHYSICAL_PLAQUETTE_STATES` and `HAMILTONIAN_BOX_TERMS` are constructed via dict comprehension over the file path dicts, so they will automatically pick up the new entries.
 
-Since B3 uses the same irreps as T1, the existing `IRREP_TRUNCATIONS["T1"]` link bitmap can be reused. No new truncation entry is needed in `IRREP_TRUNCATIONS`. A comment noting that B3 represents a different form of irrep truncation from pyclebsch (see that codebase for details) would be appropriate. [Comment: Let's make a "B3" link bitmap even though it's redundant. There will be more B truncations in the future, and they won't always have exactly the same irrep content as a T truncation.]
+Although B3 currently uses the same irreps as T1, a dedicated `"B3"` entry should be added to `IRREP_TRUNCATIONS` with its own link bitmap. Future B truncations will not always have the same irrep content as a T truncation, so establishing the B-series namespace now keeps things forward-compatible. A comment noting that B represents a distinct form of irrep truncation from pyclebsch (see that codebase for details) would be appropriate.
+
+```python
+IRREP_TRUNCATIONS = {
+    ...,
+    "B3": {
+        ONE: "00",
+        THREE: "10",
+        THREE_BAR: "01"
+    }
+}
+```
 
 **No changes needed to `LatticeStateEncoder`** — it accepts arbitrary link bitmaps and lattice definitions, and the d=3 LatticeDef is already fully supported by the base class.
 
@@ -121,7 +132,27 @@ For d=3 small periodic lattices, restructure the filtering to be **per-plane**:
 3. In `apply_magnetic_trotter_step`, for d=3 small periodic lattices, call this new method instead of `_resolve_hamiltonian_for_plaquette`.
 4. Cache results per `(plane, signature)` key for efficiency.
 
-**Trade-off**: This adds a new code path for d=3, but avoids restructuring the existing d=2 and d=3/2 logic. The alternative — making the existing filtering per-plane for all dimensions — would be cleaner architecturally but riskier since it changes working code paths. [Comment: Include an "alternative proposed solution" which outlines what would be involved with this riskier but cleaner solution.]
+**Trade-off**: This adds a new code path for d=3, but avoids restructuring the existing d=2 and d=3/2 logic.
+
+#### Alternative proposed solution: unified per-plane filtering for all dimensions
+
+A cleaner but higher-risk approach would be to refactor the existing `__init__` filtering to be per-plane for *all* dimensions, eliminating the separate d=3 code path entirely. This would involve:
+
+1. **Replace the current plane-agnostic filtering loop** (lines 95-118) with a per-plane loop. For each `(bs1, bs2) -> MatrixElementValue` entry, iterate over each plane present in the MatrixElementValue. For each plane, decode bs1/bs2, check consistency for that plane, and trim for that plane.
+
+2. **Restructure `self._mag_hamiltonian`** from `Dict[Tuple[str, str], MatrixElementValue]` to a per-plane resolved format, e.g. `Dict[Plane, Dict[Tuple[str, str], float]]`, where the bitstring keys are already trimmed per-plane. This is essentially the "pre-resolved" Hamiltonian.
+
+3. **Update `_resolve_hamiltonian_for_plaquette`** (and its callers in `apply_magnetic_trotter_step`) to read from the new per-plane structure instead of doing plane/signature lookups on the original nested dict.
+
+4. **Unify `_plaquette_state_has_inconsistent_controls` and `_discard_duplicate_controls_from_plaquette_state`** by always passing a plane parameter. For d=3/2 and d=2 (which have only one plane), the plane argument is always (1, 2) and can be supplied automatically. The `case 1.5` and `case 2` branches would be rewritten to use the same direction-based lookup logic as `case 3`, just with the fixed plane (1, 2).
+
+5. **Collapse the d=2 `_cached_ctrl_dirs_d2_small_and_periodic`** and the proposed d=3 `_cached_ctrl_dirs_d3_small_and_periodic` into a single `_cached_ctrl_dirs_small_and_periodic: Dict[Plane, tuple]` that works for all dimensions.
+
+6. **Merge the qubit-stitching skip logic** (Section 2d) into a single dimension-agnostic branch that uses the per-plane ctrl dir cache, instead of having separate `case 1.5`, `case 2`, `case 3` blocks.
+
+**Benefits**: Eliminates dimension-specific branching in multiple methods, makes adding future dimensions (d=4, etc.) trivial, and reduces overall code complexity.
+
+**Risks**: Touches every small-periodic code path that currently works for d=3/2 and d=2. Requires thorough regression testing. The per-plane Hamiltonian restructure changes the data contract between `__init__` and `apply_magnetic_trotter_step`, so any downstream code that reads `self._mag_hamiltonian` directly would need updating.
 
 #### Detailed sharing analysis for d=3, size-2 PBC
 
@@ -165,12 +196,9 @@ Unlike d=2 (where skip indices are pre-computed once since there's only one plan
 
 Add `case 3:` that checks the 4 in-plane sharing pairs for a given plane.
 
-**Interface change needed**: This method currently takes only a `PlaquetteState` and uses `self._encoder.lattice_def.dim` to decide what to check. For d=3, it also needs to know the **plane**. Options:
+**Interface change needed**: This method currently takes only a `PlaquetteState` and uses `self._encoder.lattice_def.dim` to decide what to check. For d=3, it also needs to know the **plane**:
 
-1. **Add a `plane` parameter** (default None for backward compat). For d=3, raise if plane is None. [Comment: Let's go with option 1.]
-2. **Create a separate method** `_plaquette_state_has_inconsistent_controls_d3(plaquette, plane)`.
-
-Option 1 is cleaner. The d=2 code can ignore the parameter since there's only one plane.
+- **Add a `plane` parameter** (default None for backward compat). For d=3, raise if plane is None.
 
 The consistency check uses the per-plane cached ctrl dirs to look up FORDER indices:
 ```python
@@ -255,17 +283,26 @@ Recommended order of implementation:
 3. **`test_conventions.py`** — validate data loading works.
 4. **`circuit.py` per-plane ctrl dirs cache** (2b) — prerequisite for small-lattice logic.
 5. **`circuit.py` consistency/discard methods** (2e, 2f) — extend with plane parameter.
-6. **`circuit.py` small-periodic filtering** (2c) — main architectural work.
-7. **`circuit.py` qubit stitching skip logic** (2d) — depends on per-plane caching.
-8. **Integration tests** — end-to-end circuit construction for d=3 lattices.
+6. **`circuit.py` `_strip_redundant_controls_if_small_and_periodic_lattice`** (2g) — extend with plane awareness.
+7. **`circuit.py` small-periodic filtering** (2c) — main architectural work.
+8. **`circuit.py` qubit stitching skip logic** (2d) — depends on per-plane caching.
+9. **Integration tests** — end-to-end circuit construction for d=3 lattices.
 
 ---
 
 ## 6. Outstanding considerations
 
-### Interaction with `_strip_redundant_controls_if_small_and_periodic_lattice` (line 711-742)
+### 2g. `_strip_redundant_controls_if_small_and_periodic_lattice` (lines 711-742)
 
-This helper in `circuit.py` strips redundant controls from `physical_states_for_control_pruning`. For d=3 small periodic lattices, it would also need plane awareness if control pruning is used. The same approach applies: defer to per-plane processing or parameterize by plane. [Comment: Make sure that updating this helper method is included as an implementation item.]
+**Difficulty**: Medium.
+
+This helper strips redundant controls from `physical_states_for_control_pruning`. It calls `_plaquette_state_has_inconsistent_controls` and `_discard_duplicate_controls_from_plaquette_state` internally, so it inherits their plane-awareness requirements for d=3.
+
+For d=3 small periodic lattices, this method needs to either:
+- Accept a `plane` parameter and pass it through to the consistency/discard methods, or
+- Perform the stripping per-plane internally and return a per-plane result (e.g. `Dict[Plane, Set[str]]`).
+
+Since `physical_states_for_control_pruning` is consumed downstream by `_build_mag_evol_circuit` (which operates on already-resolved, plane-specific data), the per-plane approach is more natural: each plane's rotation circuit would use its own stripped physical state set.
 
 ### Performance
 
