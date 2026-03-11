@@ -1,0 +1,12 @@
+# Feature request for d=3, periodic boundary conditions (PBC)
+
+## Overview
+This document is a feature request for ymcirc to be able to construct circuits simulating three-dimensional, periodic, cubic lattices. Non-periodic, and lattices with different lengths along each axis are out of scope.
+
+## Likely implementation details
+Classes in ymcirc have been designed with this functionality as an eventual goal; interfaces defined in `lattice_data.py` and subclasses down through the module dependency flow already offer public support for three-dimensional lattices. Hopefully, all that is missing is the internal logic to support this functionality. Ideally, implementation shouldn't be significantly more complicated than identifying all the relevant lines of `raise NotImplementedError` throughout the codebase, and replacing them with the right logic to support three-dimensional, periodic, cubic lattices. I anticipate that the most complicated piece of new business logic will be to extend the "small and periodic lattice" logic in `LatticeCircuitManager` to the case of size 2, three-dimensional periodic lattices. Patterns set up in the d=2 case should ideally serve as a guide for implementation (the d=3/2 cases is probably too specific to be relevant).
+
+Importantly, new data files `B3_dim(3)_cube_PBC_plaquette_states.json.gz` and `B3_dim(3)_cube_PBC_magnetic_hamiltonian.json.gz` have been created to support d=3, PBC functionality, and placed in relevant subdirectories of `ymcirc/_ymcirc_data`. These new data files will need to be imported in `conventions.py` following the same patterns already established for other plaquette state and Hamiltonian data files. I do not anticipate any real difficulty with this step. Note that the "B" in the filenames represents a distinct form of irrep truncation used to create these files from the "T" appearing in other files. This shouldn't matter for ymcirc code logic, but should be mentioned in passing in relevant code comments and docstrings.
+
+## Next steps
+Before proceeding with implementing d=3, PBC functionality, we need to review the codebase to ensure complete understanding of what changes are required to support this functionality. The results of this research should be compiled into a `d3-feature-planning.md` document which contains a summary of necessary changes, outstanding problems (if any) which need to be resolved, and solutions/implementation details with information about any relevant trade-offs.
