@@ -311,3 +311,17 @@ The d=3 B3 data has 54,035 plaquette states and 707 Hamiltonian entries. A size-
 ### Data stored as strings
 
 The B3 data files store plaquette states and Hamiltonian keys as strings, consistent with existing data files. The `json_loader` utility already applies `ast.literal_eval` during loading, so no special handling is needed.
+
+### Which approach to 2c best supports future non-periodic / rectangular lattices?
+
+The unified per-plane approach (alternative solution) is the better long-term choice. On a non-periodic or rectangular lattice with tuple-valued sizes, the number of control links at each plaquette vertex depends on both plane and signature — a boundary vertex has fewer half-links than an interior vertex, and which directions are missing varies by where the plaquette sits on the lattice. The proposed solution (d=3-specific code path) hardcodes the assumption that the sharing pattern follows the "4 in-plane pairs" structure, which only holds for periodic cubic lattices. Its dimension-specific `case` branches would proliferate unmanageably for mixed boundary conditions.
+
+The alternative solution's key architectural move — restructuring `self._mag_hamiltonian` to be keyed per-plane and making consistency/discard logic plane- and signature-aware — naturally extends to non-periodic and rectangular cases. The per-plane resolved format `Dict[Plane, Dict[Tuple[str, str], float]]` is exactly the structure needed when different plaquettes in the same lattice have different control counts and different sharing patterns.
+
+### Whether to restructure the Hamiltonian data file key hierarchy
+
+The compressed matrix element JSON files currently store data as `(Pf, Pi) -> {plane -> {signature -> float}}`. `LatticeCircuitManager` always resolves down to a specific (plane, signature) before doing anything useful — the intermediate `Dict[Tuple[str, str], MatrixElementValue]` representation is only ever iterated over to filter by plane/signature, never consumed directly.
+
+Inverting the in-memory hierarchy to `plane -> signature -> {(Pf, Pi) -> float}` would match the consumption pattern exactly and could eliminate the `_resolve_hamiltonian_for_plaquette` method entirely. However, the current hierarchy has a virtue at the *file storage* level: it's compact (each state pair appears once, not duplicated across planes), and the `_load_hamiltonian` / `compute_all_rotations_from_just_box_terms` pipeline operates on state pairs before plane resolution.
+
+**Recommendation**: Keep the on-disk format as-is. Restructure at the in-memory level — during `__init__`, after loading and computing box + box-dagger, pivot the working Hamiltonian into the per-plane-first structure. This gives the best of both worlds: compact files, and an in-memory layout that matches how the data is actually consumed.
