@@ -54,7 +54,7 @@ _PLAQUETTE_STATES_DATA_FILE_PATHS = {
 
 The lazy dicts `PHYSICAL_PLAQUETTE_STATES` and `HAMILTONIAN_BOX_TERMS` are constructed via dict comprehension over the file path dicts, so they will automatically pick up the new entries.
 
-Since B3 uses the same irreps as T1, the existing `IRREP_TRUNCATIONS["T1"]` link bitmap can be reused. No new truncation entry is needed in `IRREP_TRUNCATIONS`. A comment noting that B3 represents a different form of irrep truncation from pyclebsch (see that codebase for details) would be appropriate.
+Since B3 uses the same irreps as T1, the existing `IRREP_TRUNCATIONS["T1"]` link bitmap can be reused. No new truncation entry is needed in `IRREP_TRUNCATIONS`. A comment noting that B3 represents a different form of irrep truncation from pyclebsch (see that codebase for details) would be appropriate. [Comment: Let's make a "B3" link bitmap even though it's redundant. There will be more B truncations in the future, and they won't always have exactly the same irrep content as a T truncation.]
 
 **No changes needed to `LatticeStateEncoder`** — it accepts arbitrary link bitmaps and lattice definitions, and the d=3 LatticeDef is already fully supported by the base class.
 
@@ -121,7 +121,7 @@ For d=3 small periodic lattices, restructure the filtering to be **per-plane**:
 3. In `apply_magnetic_trotter_step`, for d=3 small periodic lattices, call this new method instead of `_resolve_hamiltonian_for_plaquette`.
 4. Cache results per `(plane, signature)` key for efficiency.
 
-**Trade-off**: This adds a new code path for d=3, but avoids restructuring the existing d=2 and d=3/2 logic. The alternative — making the existing filtering per-plane for all dimensions — would be cleaner architecturally but riskier since it changes working code paths.
+**Trade-off**: This adds a new code path for d=3, but avoids restructuring the existing d=2 and d=3/2 logic. The alternative — making the existing filtering per-plane for all dimensions — would be cleaner architecturally but riskier since it changes working code paths. [Comment: Include an "alternative proposed solution" which outlines what would be involved with this riskier but cleaner solution.]
 
 #### Detailed sharing analysis for d=3, size-2 PBC
 
@@ -167,7 +167,7 @@ Add `case 3:` that checks the 4 in-plane sharing pairs for a given plane.
 
 **Interface change needed**: This method currently takes only a `PlaquetteState` and uses `self._encoder.lattice_def.dim` to decide what to check. For d=3, it also needs to know the **plane**. Options:
 
-1. **Add a `plane` parameter** (default None for backward compat). For d=3, raise if plane is None.
+1. **Add a `plane` parameter** (default None for backward compat). For d=3, raise if plane is None. [Comment: Let's go with option 1.]
 2. **Create a separate method** `_plaquette_state_has_inconsistent_controls_d3(plaquette, plane)`.
 
 Option 1 is cleaner. The d=2 code can ignore the parameter since there's only one plane.
@@ -265,7 +265,7 @@ Recommended order of implementation:
 
 ### Interaction with `_strip_redundant_controls_if_small_and_periodic_lattice` (line 711-742)
 
-This helper in `circuit.py` strips redundant controls from `physical_states_for_control_pruning`. For d=3 small periodic lattices, it would also need plane awareness if control pruning is used. The same approach applies: defer to per-plane processing or parameterize by plane.
+This helper in `circuit.py` strips redundant controls from `physical_states_for_control_pruning`. For d=3 small periodic lattices, it would also need plane awareness if control pruning is used. The same approach applies: defer to per-plane processing or parameterize by plane. [Comment: Make sure that updating this helper method is included as an implementation item.]
 
 ### Performance
 
