@@ -518,7 +518,8 @@ class LatticeCircuitManager:
         Returns:
           None (master_circuit has the magnetic Trotter step appended)
         """
-        physical_states_for_control_pruning = self._strip_redundant_controls_if_small_and_periodic_lattice(physical_states_for_control_pruning)
+        per_plane_pruning_states = self._strip_redundant_controls_if_small_and_periodic_lattice(
+            physical_states_for_control_pruning)
 
         # Construct the dt and coupling parameters for the current magnetic Trotter step,
         name_prefixes = ['dt_mag', 'coupling_g_mag']
@@ -547,14 +548,22 @@ class LatticeCircuitManager:
                 "control_fusion": control_fusion,
             }
 
-        # Pre-compute forder-aware skip indices for d=2 on small periodic lattices.
-        # Phase 7 of the d=3 implementation plan will generalize this to all dimensions.
-        _v2_skip_ctrl_idx = None
-        _v3_skip_ctrl_idx = None
-        if (1, 2) in self._cached_ctrl_dirs_small_and_periodic and self._encoder.lattice_def.dim == 2:
-            _ctrl_dirs_12 = self._cached_ctrl_dirs_small_and_periodic[(1, 2)]
-            _v2_skip_ctrl_idx = _ctrl_dirs_12[1].index(1)   # skip the dir +e1 control at v2
-            _v3_skip_ctrl_idx = _ctrl_dirs_12[2].index(2)   # skip the dir +e2 control at v3
+        # Pre-compute per-plane skip indices for small periodic lattices.
+        # Maps (plane, vertex_idx) -> set of ctrl_idx values to skip.
+        _skip_indices: Dict[Tuple[Plane, int], set[int]] = {}
+        if self._lattice_is_small and self._lattice_is_periodic:
+            dim = self._encoder.lattice_def.dim
+            if dim == 1.5:
+                for plane in self._cached_ctrl_dirs_small_and_periodic:
+                    n_ctrls = len(self._cached_ctrl_dirs_small_and_periodic[plane][0])
+                    _skip_indices[(plane, 1)] = set(range(n_ctrls))
+                    _skip_indices[(plane, 3)] = set(range(n_ctrls))
+            else:
+                for plane, ctrl_dirs in self._cached_ctrl_dirs_small_and_periodic.items():
+                    e1, e2 = plane
+                    _skip_indices[(plane, 1)] = {ctrl_dirs[1].index(e1)}
+                    _skip_indices[(plane, 2)] = {ctrl_dirs[2].index(e2)}
+                    _skip_indices[(plane, 3)] = {ctrl_dirs[3].index(e2), ctrl_dirs[3].index(-e1)}
 
         # Local cache for resolved Hamiltonian data per (plane, signature).
         # On periodic lattices, all plaquettes share the same key, so this
@@ -612,10 +621,15 @@ class LatticeCircuitManager:
                     plaquette_local_rotation_circuit_template = self._cached_mag_evol_circuits[cache_key]
                 else:
                     logger.info(f"Building magnetic evolution circuit for cache_key={cache_key}.")
+                    effective_pruning_states = (
+                        per_plane_pruning_states.get(plaquette_plane)
+                        if per_plane_pruning_states is not None
+                        else physical_states_for_control_pruning
+                    )
                     plaquette_local_rotation_circuit_template = self._build_mag_evol_circuit(
                         resolved_hamiltonian,
                         control_fusion,
-                        physical_states_for_control_pruning,
+                        effective_pruning_states,
                         coupling_g=Parameter('coupling_g_mag_placeholder'),
                         dt=Parameter('dt_mag_placeholder'),
                         optimize_circuits=optimize_circuits,
@@ -646,23 +660,9 @@ class LatticeCircuitManager:
                 for vertex_idx, vertex_controls in enumerate(plaquette.control_links_per_vertex):
                     for ctrl_idx, register in enumerate(vertex_controls):
                         # If lattice is small and has PBCs, skip redundant c_link registers.
-                        if (self._lattice_is_small is True) and (self._lattice_is_periodic is True):
-                            should_skip = False
-                            match self._encoder.lattice_def.dim:
-                                case 1.5:
-                                    # Skip v2 (idx 1) and v4 (idx 3) entirely.
-                                    should_skip = vertex_idx in (1, 3)
-                                case 2:
-                                    # v2: skip dir +e1 control; v3: skip dir +e2 control; v4: skip all.
-                                    # Skip indices are forder-aware, pre-computed before the vertex loop.
-                                    should_skip = (
-                                        (vertex_idx == 1 and ctrl_idx == _v2_skip_ctrl_idx) or
-                                        (vertex_idx == 2 and ctrl_idx == _v3_skip_ctrl_idx) or
-                                        (vertex_idx == 3)
-                                    )
-                                case _:
-                                    raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
-                            if should_skip is True:
+                        if self._lattice_is_small and self._lattice_is_periodic:
+                            skip_set = _skip_indices.get((plaquette_plane, vertex_idx), set())
+                            if ctrl_idx in skip_set:
                                 continue
 
                         for qubit in register:
@@ -745,42 +745,36 @@ class LatticeCircuitManager:
             case _:
                 raise ValueError(f"Unsupported file type: {filename.suffix}")
 
-    def _strip_redundant_controls_if_small_and_periodic_lattice(self, physical_states_for_control_pruning: set[str]) -> set[str] | None:
+    def _strip_redundant_controls_if_small_and_periodic_lattice(
+        self, physical_states_for_control_pruning: set[str] | None
+    ) -> Dict[Plane, set[str] | None] | None:
         """
-        For lattices that are small and periodic, it's possible that the same link might act
-        as a control for more than one vertex in a single plaquette. This helper (1)
-        discards plaquette states that are inconsistent with this possibility and
-        (2) discards repeated control links from the description of plaquette states.
+        For lattices that are small and periodic, strip redundant controls per plane.
 
-        If the small and periodic test fails, just returns the input idempotently.
+        Returns a dict mapping each plane to its stripped physical state set,
+        or None if the lattice is not small-and-periodic or if the input is None
+        (in which case callers should use the original input set unchanged).
         """
-        plaquettes_may_have_redundant_controls = (physical_states_for_control_pruning is not None) and (self._lattice_is_periodic is True) and (self._lattice_is_small is True)
-        if not plaquettes_may_have_redundant_controls:
-            return physical_states_for_control_pruning
+        if (physical_states_for_control_pruning is None
+                or not self._lattice_is_periodic
+                or not self._lattice_is_small):
+            return None
 
-        stripped_physical_states = []
-        for plaquette_string in physical_states_for_control_pruning:
-            plaquette_state = self._encoder.decode_bit_string_to_plaquette_state(plaquette_string)
-            # For d=3/2 and d=2, there is only one plane: (1, 2).
-            # Phase 6 of the d=3 implementation plan will restructure this
-            # method to return per-plane results for all dimensions.
-            _strip_plane: Plane = (1, 2)
-            if self._plaquette_state_has_inconsistent_controls(plaquette_state, _strip_plane) is True:
-                continue
-            plaquette_state_c_links_stripped = self._discard_duplicate_controls_from_plaquette_state(plaquette_state, _strip_plane)
-            plaquette_state_c_links_stripped_bit_string = self._encoder.encode_plaquette_state_as_bit_string(
-                plaquette_state_c_links_stripped,
-                override_n_c_links_validation=True
-            )
-            stripped_physical_states.append(plaquette_state_c_links_stripped_bit_string)
-        stripped_physical_states = set(stripped_physical_states)
-        logger.info(f"There are {len(stripped_physical_states)} plaquette states.")
-        if len(stripped_physical_states) == 0:
-            physical_states_for_control_pruning = None
-        else:
-            physical_states_for_control_pruning = stripped_physical_states
+        result: Dict[Plane, set[str] | None] = {}
+        for plane in self._cached_ctrl_dirs_small_and_periodic:
+            stripped = []
+            for plaquette_string in physical_states_for_control_pruning:
+                plaquette_state = self._encoder.decode_bit_string_to_plaquette_state(plaquette_string)
+                if self._plaquette_state_has_inconsistent_controls(plaquette_state, plane):
+                    continue
+                trimmed = self._discard_duplicate_controls_from_plaquette_state(plaquette_state, plane)
+                trimmed_bs = self._encoder.encode_plaquette_state_as_bit_string(
+                    trimmed, override_n_c_links_validation=True)
+                stripped.append(trimmed_bs)
+            result[plane] = set(stripped) if stripped else None
+            logger.info(f"Plane {plane}: {len(stripped)} stripped plaquette states.")
 
-        return stripped_physical_states
+        return result
 
     @staticmethod
     def _resolve_hamiltonian_for_plaquette(

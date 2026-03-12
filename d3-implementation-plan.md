@@ -570,13 +570,13 @@ The on-disk data format is unchanged. The restructuring happens in-memory during
 
 ## Status
 
-Phases 1-5 are complete. The in-memory Hamiltonian (`self._mag_hamiltonian`) is now stored in per-plane-first format (`ResolvedHamiltonianData`): `plane -> (bs1, bs2) -> signature -> float`. The `__init__` filtering loop iterates per-plane, discarding entries that are inconsistent for a given plane without affecting other planes (addressing audit item 2c.5). Non-small/non-periodic lattices are pivoted to the same format without filtering. `_resolve_hamiltonian_for_plaquette` has been simplified to look up the plane first, then filter by signature. `__repr__` now prints entry/plane counts instead of dumping the full dict. The `_strip_redundant_controls_if_small_and_periodic_lattice` method still uses a hardcoded `(1, 2)` plane (Phase 6 will restructure it), and the qubit-stitching skip logic still has a d=2 guard (Phase 7 will generalize it).
+Phases 1-7 are complete. All dimension-specific `case`/`match` branches for small-periodic logic have been eliminated from `circuit.py`. `_strip_redundant_controls_if_small_and_periodic_lattice` now returns `Dict[Plane, set[str] | None] | None`, producing per-plane stripped state sets. Its caller in `apply_magnetic_trotter_step` resolves the correct per-plane set before passing to `_build_mag_evol_circuit`. Cache invalidation compares against the original `physical_states_for_control_pruning` input. The qubit-stitching skip logic uses a pre-computed `_skip_indices: Dict[(Plane, vertex_idx), set[int]]` dict for O(1) lookups, replacing the old dimension-specific `match` block. Phase 8 (tests) remains.
 
 - [x] Phase 1: Data registration in `conventions.py`
 - [x] Phase 2: `__init__` dimension gate (`case 3:`)
 - [x] Phase 3: Unified per-plane control dir cache
 - [x] Phase 4: Per-plane consistency/discard methods
 - [x] Phase 5: Per-plane `__init__` Hamiltonian filtering
-- [ ] Phase 6: Per-plane `_strip_redundant_controls`
-- [ ] Phase 7: Unified qubit-stitching skip logic
+- [x] Phase 6: Per-plane `_strip_redundant_controls`
+- [x] Phase 7: Unified qubit-stitching skip logic
 - [ ] Phase 8: Tests
