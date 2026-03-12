@@ -570,13 +570,13 @@ The on-disk data format is unchanged. The restructuring happens in-memory during
 
 ## Status
 
-Phases 1-4 are complete. The unified per-plane control dir cache (`_cached_ctrl_dirs_small_and_periodic`) replaces the old d=2-specific cache and populates entries for all planes on any small periodic lattice (d=3/2, d=2, or d=3). Both `_plaquette_state_has_inconsistent_controls` and `_discard_duplicate_controls_from_plaquette_state` now take a required `plane` parameter and use dimension-agnostic direction-based logic for d=2 and d=3 (d=3/2 retains its structural special case). Existing callers in `__init__` filtering and `_strip_redundant_controls_if_small_and_periodic_lattice` pass `(1, 2)` as a temporary bridge until Phases 5 and 6 restructure them. The qubit-stitching skip logic similarly uses the new cache with a d=2 guard until Phase 7 generalizes it.
+Phases 1-5 are complete. The in-memory Hamiltonian (`self._mag_hamiltonian`) is now stored in per-plane-first format (`ResolvedHamiltonianData`): `plane -> (bs1, bs2) -> signature -> float`. The `__init__` filtering loop iterates per-plane, discarding entries that are inconsistent for a given plane without affecting other planes (addressing audit item 2c.5). Non-small/non-periodic lattices are pivoted to the same format without filtering. `_resolve_hamiltonian_for_plaquette` has been simplified to look up the plane first, then filter by signature. `__repr__` now prints entry/plane counts instead of dumping the full dict. The `_strip_redundant_controls_if_small_and_periodic_lattice` method still uses a hardcoded `(1, 2)` plane (Phase 6 will restructure it), and the qubit-stitching skip logic still has a d=2 guard (Phase 7 will generalize it).
 
 - [x] Phase 1: Data registration in `conventions.py`
 - [x] Phase 2: `__init__` dimension gate (`case 3:`)
 - [x] Phase 3: Unified per-plane control dir cache
 - [x] Phase 4: Per-plane consistency/discard methods
-- [ ] Phase 5: Per-plane `__init__` Hamiltonian filtering
+- [x] Phase 5: Per-plane `__init__` Hamiltonian filtering
 - [ ] Phase 6: Per-plane `_strip_redundant_controls`
 - [ ] Phase 7: Unified qubit-stitching skip logic
 - [ ] Phase 8: Tests

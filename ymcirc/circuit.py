@@ -31,6 +31,10 @@ import numpy as np
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
 
+# Per-plane-first resolved Hamiltonian: plane -> (bs1, bs2) -> signature -> float.
+# Bitstring keys are already trimmed on small periodic lattices.
+ResolvedHamiltonianData = Dict[Plane, Dict[Tuple[str, str], Dict[Signature, float]]]
+
 
 class LatticeCircuitManager:
     """Class for creating quantum simulation circuits from LatticeRegister instances."""
@@ -55,7 +59,7 @@ class LatticeCircuitManager:
         # Copies to avoid inadvertently changing the behavior of the
         # LatticeCircuitManager instance.
         self._encoder = copy.deepcopy(lattice_encoder)
-        self._mag_hamiltonian = copy.deepcopy(mag_hamiltonian)
+        _input_hamiltonian: HamiltonianData = copy.deepcopy(mag_hamiltonian)
         self._cached_mag_evol_circuits: Dict[Tuple[Plane, Signature], QuantumCircuit] = {}
         self._cached_mag_evol_params = {
             "physical_states_for_control_pruning": None,
@@ -106,38 +110,51 @@ class LatticeCircuitManager:
                 _temp_plaq = _temp_lattice.get_plaquettes(origin, e1, e2)
                 self._cached_ctrl_dirs_small_and_periodic[(e1, e2)] = _temp_plaq.control_link_dirs_per_vertex
 
+        # Pivot self._mag_hamiltonian from entry-first to per-plane-first format.
+        # On small periodic lattices, also filter inconsistent entries and trim
+        # duplicate control links per-plane. A given (bs1, bs2) entry may be
+        # consistent for one plane but not another, so filtering is per-plane.
+        resolved: ResolvedHamiltonianData = {}
         if self._lattice_is_small is True and self._lattice_is_periodic is True:
-            # Filter out magnetic Hamiltonian terms which are inconsistent (repeated control links must have the same value)
-            filtered_and_trimmed_mag_hamiltonian: HamiltonianData = {}
-            for (final_bitstring, initial_bitstring), matrix_elem_value in self._mag_hamiltonian.items():
-                final_plaquette_state = lattice_encoder.decode_bit_string_to_plaquette_state(final_bitstring)
-                initial_plaquette_state = lattice_encoder.decode_bit_string_to_plaquette_state(initial_bitstring)
-                # For d=3/2 and d=2, there is only one plane: (1, 2).
-                # Phase 5 of the d=3 implementation plan will restructure this
-                # loop to be fully per-plane for all dimensions.
-                _filtering_plane: Plane = (1, 2)
-                final_state_has_inconsistent_controls = self._plaquette_state_has_inconsistent_controls(final_plaquette_state, _filtering_plane)
-                initial_state_has_inconsistent_controls = self._plaquette_state_has_inconsistent_controls(initial_plaquette_state, _filtering_plane)
+            for (final_bs, initial_bs), matrix_elem_value in _input_hamiltonian.items():
+                final_ps = lattice_encoder.decode_bit_string_to_plaquette_state(final_bs)
+                initial_ps = lattice_encoder.decode_bit_string_to_plaquette_state(initial_bs)
 
-                if (final_state_has_inconsistent_controls is True) or (initial_state_has_inconsistent_controls is True):
-                    # Matrix element includes plaquette states that are nonsensical on a small, periodic lattice. Skip it.
-                    continue
-                else:
-                    # Matrix element is consistent on shared controls. Trim out duplicate control links, re-encode plaquettes as bitstring, and keep.
-                    final_plaquette_state_trimmed_c_links = self._discard_duplicate_controls_from_plaquette_state(final_plaquette_state, _filtering_plane)
-                    initial_plaquette_state_trimmed_c_links = self._discard_duplicate_controls_from_plaquette_state(initial_plaquette_state, _filtering_plane)
+                for plane, sig_dict in matrix_elem_value.items():
+                    if (self._plaquette_state_has_inconsistent_controls(final_ps, plane)
+                            or self._plaquette_state_has_inconsistent_controls(initial_ps, plane)):
+                        continue
+
+                    final_trimmed = self._discard_duplicate_controls_from_plaquette_state(final_ps, plane)
+                    initial_trimmed = self._discard_duplicate_controls_from_plaquette_state(initial_ps, plane)
                     trimmed_key = (
-                        lattice_encoder.encode_plaquette_state_as_bit_string(final_plaquette_state_trimmed_c_links, override_n_c_links_validation=True),
-                        lattice_encoder.encode_plaquette_state_as_bit_string(initial_plaquette_state_trimmed_c_links, override_n_c_links_validation=True),
+                        lattice_encoder.encode_plaquette_state_as_bit_string(
+                            final_trimmed, override_n_c_links_validation=True),
+                        lattice_encoder.encode_plaquette_state_as_bit_string(
+                            initial_trimmed, override_n_c_links_validation=True),
                     )
-                    filtered_and_trimmed_mag_hamiltonian[trimmed_key] = matrix_elem_value
 
-            # Update the magnetic Hamiltonian data with the trimmed, consistent matrix elements.
-            self._mag_hamiltonian = filtered_and_trimmed_mag_hamiltonian
+                    if plane not in resolved:
+                        resolved[plane] = {}
+                    if trimmed_key in resolved[plane]:
+                        resolved[plane][trimmed_key].update(sig_dict)
+                    else:
+                        resolved[plane][trimmed_key] = dict(sig_dict)
+        else:
+            # Large or non-periodic: pivot to per-plane-first without filtering/trimming.
+            for (bs1, bs2), matrix_elem_value in _input_hamiltonian.items():
+                for plane, sig_dict in matrix_elem_value.items():
+                    if plane not in resolved:
+                        resolved[plane] = {}
+                    resolved[plane][(bs1, bs2)] = dict(sig_dict)
+        self._mag_hamiltonian = resolved
 
     def __repr__(self):
         class_name = type(self).__name__
-        return f"{class_name}({self._encoder.__repr__()}, {self._mag_hamiltonian})"
+        n_planes = len(self._mag_hamiltonian)
+        n_entries = sum(len(v) for v in self._mag_hamiltonian.values())
+        return (f"{class_name}({self._encoder.__repr__()}, "
+                f"<{n_entries} Hamiltonian entries across {n_planes} plane(s)>)")
 
     def __str__(self):
         class_name = type(self).__name__
@@ -767,31 +784,26 @@ class LatticeCircuitManager:
 
     @staticmethod
     def _resolve_hamiltonian_for_plaquette(
-            hamiltonian: HamiltonianData,
+            hamiltonian: ResolvedHamiltonianData,
             plane: Plane,
             signature: Signature,
     ) -> List[Tuple[str, str, float]]:
-        """Resolve a HamiltonianData dict to a flat list for a specific plaquette.
+        """Resolve a ResolvedHamiltonianData dict to a flat list for a specific plaquette.
 
-        For each entry in the hamiltonian dict (whose values are
-        ``Dict[Plane, Dict[Signature, float]]``):
-        - Look up the current plane. If absent, skip this entry.
-        - Within the plane's sub-dict, look up the current signature.
-          If absent, skip. Otherwise include the float value.
+        The hamiltonian is keyed per-plane-first:
+        ``plane -> (bs1, bs2) -> signature -> float``.
+        This method looks up the given plane, then filters entries by signature.
 
         Returns:
             A flat list of (bitstring1, bitstring2, float) tuples suitable for
             _build_mag_evol_circuit and _sort_matrix_elements_into_lp_bins.
         """
+        plane_data = hamiltonian.get(plane, {})
         resolved: List[Tuple[str, str, float]] = []
-        for (bs1, bs2), value in hamiltonian.items():
-            plane_val = value.get(plane)
-            if plane_val is None:
-                continue
-            sig_val = plane_val.get(signature)
-            if sig_val is None:
-                continue
-            resolved.append((bs1, bs2, float(sig_val)))
+        for (bs1, bs2), sig_dict in plane_data.items():
+            sig_val = sig_dict.get(signature)
+            if sig_val is not None:
+                resolved.append((bs1, bs2, float(sig_val)))
 
         return resolved
 
