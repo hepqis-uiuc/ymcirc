@@ -565,3 +565,18 @@ Phases 4 and 5 must be implemented and tested together — they share the same i
 The d=3 B3 data has 54,035 plaquette states and 707 Hamiltonian entries. A size-2 d=3 periodic lattice has 24 plaquettes (8 vertices x 3 planes). There is only 1 unique signature for B3, so the resolved Hamiltonian cache has at most 3 entries (one per plane). The per-plane filtering in `__init__` iterates 707 entries x 3 planes = ~2,100 decode/check/trim operations — negligible.
 
 The on-disk data format is unchanged. The restructuring happens in-memory during `__init__`, keeping compact file storage while matching the consumption pattern.
+
+---
+
+## Status
+
+Phases 1 and 2 are complete. The B3 d=3 data file paths and irrep truncation entry have been added to `conventions.py`, and the `case 3:` dimension gate has been added to `LatticeCircuitManager.__init__` in `circuit.py`. `LatticeCircuitManager` can now be constructed for d=3 cubic periodic lattices with size >= 3 (no small-lattice logic). The remaining phases (3-8) — the unified per-plane refactor and tests — are not yet started.
+
+- [x] Phase 1: Data registration in `conventions.py`
+- [x] Phase 2: `__init__` dimension gate (`case 3:`)
+- [ ] Phase 3: Unified per-plane control dir cache
+- [ ] Phase 4: Per-plane consistency/discard methods
+- [ ] Phase 5: Per-plane `__init__` Hamiltonian filtering
+- [ ] Phase 6: Per-plane `_strip_redundant_controls`
+- [ ] Phase 7: Unified qubit-stitching skip logic
+- [ ] Phase 8: Tests

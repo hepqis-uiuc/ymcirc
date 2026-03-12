@@ -81,6 +81,11 @@ class LatticeCircuitManager:
                 lattice_size = lattice_encoder.lattice_def.shape[0]
                 if lattice_size != lattice_encoder.lattice_def.shape[1]:
                     raise NotImplementedError("Non-square dim 2 lattices not yet supported.")
+            case 3:
+                lattice_size = lattice_encoder.lattice_def.shape[0]
+                if lattice_size != lattice_encoder.lattice_def.shape[1] \
+                        or lattice_size != lattice_encoder.lattice_def.shape[2]:
+                    raise NotImplementedError("Non-cubic dim 3 lattices not yet supported.")
             case _:
                 raise NotImplementedError(f"Dim {lattice_encoder.lattice_def.dim} lattice not yet supported.")
         self._lattice_is_small = True if lattice_size <= lattice_size_threshold_for_smallness else False
