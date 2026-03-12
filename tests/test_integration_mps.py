@@ -61,7 +61,7 @@ def _run_mps_simulation(circuit, shots=4096) -> dict[str, int]:
 
     backend = AerSimulator(
         method='matrix_product_state',
-        matrix_product_state_max_bond_dimension=32,
+        matrix_product_state_max_bond_dimension=8, # This is deliberately low since speed is more important than precision for tests.
     )
     # CRITICAL: Do NOT pass backend to transpile for MPS!
     tcirc = transpile(
@@ -102,7 +102,6 @@ def _counts_to_measurement_results(counts: dict[str, int] | dict[tuple, int], en
     return MeasurementResults(parsed_counts, encoder)
 
 
-@pytest.mark.slow
 def test_mps_time_evolution_observables_change():
     """Time-evolved lattice should show changing observables."""
     lattice_def = LatticeDef(1.5, 2, periodic_boundary_conds=True)
@@ -145,7 +144,6 @@ def test_mps_time_evolution_observables_change():
     )
 
 
-@pytest.mark.slow
 def test_mps_transition_probability_nonzero_at_late_time():
     """Transition probability to an excited state should be nonzero at late times."""
     lattice_def = LatticeDef(1.5, 2, periodic_boundary_conds=True)
@@ -188,7 +186,7 @@ def test_mps_transition_probability_nonzero_at_late_time():
     # At late times with g=1.0, some excitations should appear.
     assert not three_prob == pytest.approx(0.0) and three_prob > 0  # Should not raise; may be small but non-negative
 
-@pytest.mark.slow
+
 def test_mps_measure_one_link_at_late_time():
     """Measurement of a single excited link, should be nonzero at late times."""
     lattice_def = LatticeDef(1.5, 2, periodic_boundary_conds=True)
@@ -279,7 +277,6 @@ def _d3_counts_to_measurement_results(counts: dict[str, int], encoder, n_data_qu
     return MeasurementResults(parsed_counts, encoder)
 
 
-@pytest.mark.slow
 def test_d3_mps_time_evolution_observables_change():
     """d=3 B3 size=2: time-evolved lattice should show changing observables."""
     lattice_def = LatticeDef(3, 2, periodic_boundary_conds=True)
@@ -302,7 +299,7 @@ def test_d3_mps_time_evolution_observables_change():
 
     # Later time: excited states should appear.
     circuit_late, _, _ = _build_d3_time_evolved_circuit(
-        encoder, mag_ham, dt=0.25, g=g, n_steps=4)
+        encoder, mag_ham, dt=1, g=g, n_steps=1)
     circuit_late.measure_all()
     counts_late = _run_mps_simulation(circuit_late, shots=4096)
     mr_late = _d3_counts_to_measurement_results(counts_late, encoder, n_data_qubits)

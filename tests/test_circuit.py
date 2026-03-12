@@ -1910,27 +1910,18 @@ def test_d3_B3_size3_magnetic_trotter_step():
     circ_mgr = LatticeCircuitManager(encoder, mag_ham)
     circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
 
-    n_anc = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(circuit, lattice)
-    circ_mgr.num_ancillas = n_anc
-    circ_mgr.add_ancilla_register_to_quantum_circuit(circuit)
-
     circ_mgr.apply_magnetic_trotter_step(circuit, lattice)
 
     assert circuit.num_qubits > 0
     assert len(circuit.parameters) > 0, "Circuit should have unbound parameters (dt, coupling_g)."
 
 
-@pytest.mark.slow
 def test_d3_B3_size2_magnetic_trotter_step():
     """d=3 B3 size=2: triggers small-periodic filtering; verify circuit constructs and has correct c_link counts."""
     encoder, mag_ham = _make_d3_encoder_and_hamiltonian(size=2)
     lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
     circ_mgr = LatticeCircuitManager(encoder, mag_ham)
     circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
-
-    n_anc = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(circuit, lattice)
-    circ_mgr.num_ancillas = n_anc
-    circ_mgr.add_ancilla_register_to_quantum_circuit(circuit)
 
     circ_mgr.apply_magnetic_trotter_step(circuit, lattice)
 
