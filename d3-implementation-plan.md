@@ -84,6 +84,8 @@ case 3:
 
 This unblocks `LatticeCircuitManager` construction for d=3 with `lattice_size >= 3` (no small-lattice logic triggered).
 
+Ensure that there's still a default `case _` which raises a `NotImplementedError`.
+
 ---
 
 ## Phase 3: Unified Per-Plane Control Dir Cache (`circuit.py`, lines 88-93)
@@ -228,7 +230,7 @@ Dict[Tuple[str, str], MatrixElementValue]
 to a **per-plane-first** resolved format:
 
 ```python
-# New type alias (add to conventions.py or keep local to circuit.py):
+# New type alias (keep local to circuit.py):
 ResolvedHamiltonianData = Dict[Plane, Dict[Tuple[str, str], Dict[Signature, float]]]
 ```
 
