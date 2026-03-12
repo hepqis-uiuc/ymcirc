@@ -212,18 +212,22 @@ def test_mps_measure_one_link_at_late_time():
     # Unmeasured links should give zero for link energy, and the measured link should have positive energy.
     for link_address in lattice_def.link_addresses:
         if not link_address == horiz_link_from_origin:
-            assert mr.get_link_electric_energy(link_address) == 0
+            with pytest.raises(KeyError, match="unmeasured link"):
+                mr.get_link_electric_energy(link_address)
         else:
             assert (not (mr.get_link_electric_energy(link_address) == pytest.approx(0.0))) and mr.get_link_electric_energy(link_address) > 0
 
-    # For each measurement, the underlying energies should be either None or 4/3.
+    # For each measurement, the underlying energies should be either 4/3, or raise a KeyError.
     # Also confirm that we encounter the right number of link states.
     n_excited = 0               # should equal 2: 2 types of excited links on the partial lattice state
     n_zero = 0                  # should equal 3: 1 type of vacuum link on the partial lattice state
     n_none = 0                  # should equal 15: 5 unmeasured links times 3 (partial) lattice states
     for plr, counts in mr.get_counts().items():
         for link_address in lattice_def.link_addresses:
-            link_eng = plr.get_link_electric_energy(link_address)
+            try:
+                link_eng = plr.get_link_electric_energy(link_address)
+            except KeyError:
+                link_eng = 0
             if link_address == horiz_link_from_origin:
                 assert plr.get_link_electric_energy(link_address) == pytest.approx(4/3) or plr.get_link_electric_energy(link_address) == 0.0, f"Link {link_address} has (wrong) energy {plr.get_link_electric_energy(link_address)}."
                 if link_eng > 0:
@@ -231,7 +235,8 @@ def test_mps_measure_one_link_at_late_time():
                 elif link_eng == 0:
                     n_zero += 1
             else:
-                assert plr.get_link_electric_energy(link_address) is None
+                with pytest.raises(KeyError, match="unmeasured link"):
+                    plr.get_link_electric_energy(link_address)
                 n_none += 1
     assert (n_excited, n_zero, n_none) == (2, 1, 15)
 
