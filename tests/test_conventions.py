@@ -47,6 +47,8 @@ def test_physical_plaquette_state_data_are_valid():
                     expected_num_c_links = 4
                 case "d=2":
                     expected_num_c_links = 8
+                case "d=3":
+                    expected_num_c_links = 16  # 4 controls/vertex * 4 vertices
                 case _:
                     raise NotImplementedError(f"Test not implemented for dimension {dim}.")
             for state in PHYSICAL_PLAQUETTE_STATES[dim][trunc]:
@@ -82,7 +84,8 @@ def test_physical_plaquette_state_data_are_valid():
 def test_hamiltonian_box_terms_no_unexpected_cases():
     expected_box_term_dim_trunc_cases = {
         "d=3/2": set(["T1", "T2"]),
-        "d=2": set(["T1"])
+        "d=2": set(["T1"]),
+        "d=3": set(["B3"])
     }
     print(
         "Checking that the following dimension/truncation cases have matrix element data, and that no unexpected cases come up:\n"

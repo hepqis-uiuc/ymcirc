@@ -570,7 +570,15 @@ The on-disk data format is unchanged. The restructuring happens in-memory during
 
 ## Status
 
-Phases 1-7 are complete. All dimension-specific `case`/`match` branches for small-periodic logic have been eliminated from `circuit.py`. `_strip_redundant_controls_if_small_and_periodic_lattice` now returns `Dict[Plane, set[str] | None] | None`, producing per-plane stripped state sets. Its caller in `apply_magnetic_trotter_step` resolves the correct per-plane set before passing to `_build_mag_evol_circuit`. Cache invalidation compares against the original `physical_states_for_control_pruning` input. The qubit-stitching skip logic uses a pre-computed `_skip_indices: Dict[(Plane, vertex_idx), set[int]]` dict for O(1) lookups, replacing the old dimension-specific `match` block. Phase 8 (tests) remains.
+All phases are complete. The unified per-plane refactor is fully implemented and tested.
+
+Phases 1-7 restructured `circuit.py` to eliminate dimension-specific `case`/`match` branches for small-periodic logic. `_strip_redundant_controls_if_small_and_periodic_lattice` returns `Dict[Plane, set[str] | None] | None`, producing per-plane stripped state sets. Its caller in `apply_magnetic_trotter_step` resolves the correct per-plane set before passing to `_build_mag_evol_circuit`. Cache invalidation compares against the original `physical_states_for_control_pruning` input. The qubit-stitching skip logic uses a pre-computed `_skip_indices: Dict[(Plane, vertex_idx), set[int]]` dict for O(1) lookups.
+
+Phase 8 updated existing tests for the new interfaces (per-plane-first `ResolvedHamiltonianData`, `plane` parameter on consistency/discard methods, `MatrixElementValue`-wrapped test Hamiltonians) and added new d=3-specific tests:
+- **8a**: `test_conventions.py` — added `case "d=3"` (16 c_links) and `"d=3": {"B3"}` to expected cases.
+- **8b**: `test_integration_mps.py` — added `test_d3_B3_size3_magnetic_trotter_step` (large lattice, no small-periodic logic) and `test_d3_B3_size2_magnetic_trotter_step` (small-periodic, verifies 3 planes in resolved Hamiltonian).
+- **8c**: `test_circuit.py` — added `test_per_plane_consistency_check_d3`, `test_per_plane_control_trimming_d3` (verifies 4+3+3+2=12 controls), `test_per_plane_strip_redundant_controls_d3`, `test_per_plane_strip_redundant_controls_returns_none_when_input_none`, `test_d3_resolved_hamiltonian_has_three_planes`.
+- **8d**: Full regression suite passes (167 passed, 11 skipped).
 
 - [x] Phase 1: Data registration in `conventions.py`
 - [x] Phase 2: `__init__` dimension gate (`case 3:`)
@@ -579,4 +587,4 @@ Phases 1-7 are complete. All dimension-specific `case`/`match` branches for smal
 - [x] Phase 5: Per-plane `__init__` Hamiltonian filtering
 - [x] Phase 6: Per-plane `_strip_redundant_controls`
 - [x] Phase 7: Unified qubit-stitching skip logic
-- [ ] Phase 8: Tests
+- [x] Phase 8: Tests

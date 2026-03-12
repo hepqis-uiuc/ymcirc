@@ -402,6 +402,8 @@ def load_magnetic_hamiltonian(
         mag_hamiltonian[(state_1_bitstring, state_2_bitstring)] = matrix_elem
 
     logger.info(f"Loaded pre-computed magnetic Hamiltonian data from disk for {dim_string}, {trunc_string}. There are {len(mag_hamiltonian)} encoded state-pair entries (not yet resolved per plaquette via plane+signature filtering).")
+    n_matrix_elems = len([val for plane_dict in mag_hamiltonian.values() for sig_dict in plane_dict.values() for val in sig_dict.values()])
+    logger.info(f"Loaded {n_matrix_elems} floats.")
 
     return mag_hamiltonian
 
