@@ -1031,8 +1031,19 @@ def test_encoding_good_plaquette():
 
 
 # TODO decide whether this test is slow enough to merit skipping by default.
-#@pytest.mark.slow
-def test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding():
+# dim_string, trunc_string, expected_plaquette_bit_length, LatticeDef
+# Each expected_bitlength = 4 * (2 * (dim - 1) + 1) * n_link_qubits + 4 * n_vertex_qubits for the corresponding case. This is just (n_control_links + n_active_links) * n_link_qubits + n_vertices * n_vertex_qubits.
+@pytest.mark.parametrize(
+    "current_dim_string,current_trunc_string,current_expected_bitlength,current_lattice",
+    [
+        ("d=3/2", "T1", (4 * (2 * (3/2 - 1) + 1) * 2) + 4*0, LatticeDef(1.5, 3)),
+        ("d=3/2", "T2", (4 * (2 * (3/2 - 1) + 1) * 3) + 4*1, LatticeDef(1.5, 3)),
+        ("d=2", "T1", (4 * (2 * (2 - 1) + 1) * 2) + 4*1, LatticeDef(2, 3)),
+        ("d=3", "B3", (4 * (2 * (3 - 1) + 1) * 2) + 4*0, LatticeDef(3, 3))
+    ]
+)
+def test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding(
+        current_dim_string, current_trunc_string, current_expected_bitlength, current_lattice):
     """
     Check that all plaquette states have unique bitstring encodings.
 
@@ -1040,50 +1051,38 @@ def test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding():
     - d=3/2, T1
     - d=3/2, T2
     - d=2, T1
+    - d=3, B3
     """
-    # dim_string, trunc_string, expected_plaquette_bit_length, LatticeDef
-    # Each expected_bitlength = 4 * (2 * (dim - 1) + 1) * n_link_qubits + 4 * n_vertex_qubits for the corresponding case. This is just (n_control_links + n_active_links) * n_link_qubits + n_vertices * n_vertex_qubits.
-    cases = [
-        ("d=3/2", "T1", (4 * (2 * (3/2 - 1) + 1) * 2) + 4*0, LatticeDef(1.5, 3)),
-        ("d=3/2", "T2", (4 * (2 * (3/2 - 1) + 1) * 3) + 4*1, LatticeDef(1.5, 3)),
-        ("d=2", "T1", (4 * (2 * (2 - 1) + 1) * 2) + 4*1, LatticeDef(2, 3))
-    ]
-    print(
-        "Checking that there is a unique bit string encoding available for all "
-        "the plaquette states appearing in all the matrix elements for the "
-        f"following cases:\n{cases}."
-    )
-    for current_dim_string, current_trunc_string, current_expected_bitlength, current_lattice in cases:
-        # Make encoder instance.
-        link_bitmap = IRREP_TRUNCATIONS[current_trunc_string]
-        lattice_encoder = LatticeStateEncoder(
-            link_bitmap, PHYSICAL_PLAQUETTE_STATES[current_dim_string][current_trunc_string], lattice=current_lattice)
+    # Make encoder instance.
+    link_bitmap = IRREP_TRUNCATIONS[current_trunc_string]
+    lattice_encoder = LatticeStateEncoder(
+        link_bitmap, PHYSICAL_PLAQUETTE_STATES[current_dim_string][current_trunc_string], lattice=current_lattice)
 
-        print(f"Case {current_dim_string}, {current_trunc_string}.\nConfirming all initial and final states "
-              "appearing in the physical plaquette states list can be succesfully encoded. Using the bitmaps:\n"
-              f"Link bitmap =  {lattice_encoder.link_bitmap}\n"
-              f"Vertex bitmap = {lattice_encoder.vertex_bitmap}")
+    print(f"Case {current_dim_string}, {current_trunc_string}.\nConfirming all initial and final states "
+          "appearing in the physical plaquette states list can be succesfully encoded. Using the bitmaps:\n"
+          f"Link bitmap =  {lattice_encoder.link_bitmap}\n"
+          f"Vertex bitmap = {lattice_encoder.vertex_bitmap}")
 
-        # Get the set of unique plaquette states.
-        all_plaquette_states = set([
-            final_and_initial_state_tuple[0] for final_and_initial_state_tuple in HAMILTONIAN_BOX_TERMS[current_dim_string][current_trunc_string].keys()] + [
-                final_and_initial_state_tuple[1] for final_and_initial_state_tuple in HAMILTONIAN_BOX_TERMS[current_dim_string][current_trunc_string].keys()
-            ])
+    # Get the set of unique plaquette states.
+    all_plaquette_states = set([
+        final_and_initial_state_tuple[0] for final_and_initial_state_tuple in HAMILTONIAN_BOX_TERMS[current_dim_string][current_trunc_string].keys()] + [
+            final_and_initial_state_tuple[1] for final_and_initial_state_tuple in HAMILTONIAN_BOX_TERMS[current_dim_string][current_trunc_string].keys()
+        ])
 
-        # Attempt encodings and check for uniqueness.
-        all_encoded_plaquette_bit_strings = []
-        current_iter = 0
-        for plaquette_state in all_plaquette_states:
-            # Log test progress
-            current_iter += 1
-            percent_done = current_iter/len(all_plaquette_states)
-            print(f"Current status: {percent_done:.4%}", end='\r')
+    # Attempt encodings and check for uniqueness.
+    all_encoded_plaquette_bit_strings = []
+    current_iter = 0
+    for plaquette_state in all_plaquette_states:
+        # Log test progress
+        current_iter += 1
+        percent_done = current_iter/len(all_plaquette_states)
+        print(f"Current status: {percent_done:.4%}", end='\r')
 
-            plaquette_state_bit_string = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state)
-            assert len(plaquette_state_bit_string) == current_expected_bitlength, f"len(plaquette_state_bit_string) == {len(plaquette_state_bit_string)}; expected len == {current_expected_bitlength}."
-            all_encoded_plaquette_bit_strings.append(plaquette_state_bit_string)
-        n_unique_plaquette_encodings = len(set(all_encoded_plaquette_bit_strings))
-        assert n_unique_plaquette_encodings == len(all_plaquette_states), f"Encountered {n_unique_plaquette_encodings} unique bit strings encoding {len(all_plaquette_states)} unique plaquette states."
+        plaquette_state_bit_string = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state)
+        assert len(plaquette_state_bit_string) == current_expected_bitlength, f"len(plaquette_state_bit_string) == {len(plaquette_state_bit_string)}; expected len == {current_expected_bitlength}."
+        all_encoded_plaquette_bit_strings.append(plaquette_state_bit_string)
+    n_unique_plaquette_encodings = len(set(all_encoded_plaquette_bit_strings))
+    assert n_unique_plaquette_encodings == len(all_plaquette_states), f"Encountered {n_unique_plaquette_encodings} unique bit strings encoding {len(all_plaquette_states)} unique plaquette states."
 
 
 def test_bit_string_decoding_to_plaquette():
