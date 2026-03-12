@@ -570,12 +570,12 @@ The on-disk data format is unchanged. The restructuring happens in-memory during
 
 ## Status
 
-Phases 1 and 2 are complete. The B3 d=3 data file paths and irrep truncation entry have been added to `conventions.py`, and the `case 3:` dimension gate has been added to `LatticeCircuitManager.__init__` in `circuit.py`. `LatticeCircuitManager` can now be constructed for d=3 cubic periodic lattices with size >= 3 (no small-lattice logic). The remaining phases (3-8) — the unified per-plane refactor and tests — are not yet started.
+Phases 1-4 are complete. The unified per-plane control dir cache (`_cached_ctrl_dirs_small_and_periodic`) replaces the old d=2-specific cache and populates entries for all planes on any small periodic lattice (d=3/2, d=2, or d=3). Both `_plaquette_state_has_inconsistent_controls` and `_discard_duplicate_controls_from_plaquette_state` now take a required `plane` parameter and use dimension-agnostic direction-based logic for d=2 and d=3 (d=3/2 retains its structural special case). Existing callers in `__init__` filtering and `_strip_redundant_controls_if_small_and_periodic_lattice` pass `(1, 2)` as a temporary bridge until Phases 5 and 6 restructure them. The qubit-stitching skip logic similarly uses the new cache with a d=2 guard until Phase 7 generalizes it.
 
 - [x] Phase 1: Data registration in `conventions.py`
 - [x] Phase 2: `__init__` dimension gate (`case 3:`)
-- [ ] Phase 3: Unified per-plane control dir cache
-- [ ] Phase 4: Per-plane consistency/discard methods
+- [x] Phase 3: Unified per-plane control dir cache
+- [x] Phase 4: Per-plane consistency/discard methods
 - [ ] Phase 5: Per-plane `__init__` Hamiltonian filtering
 - [ ] Phase 6: Per-plane `_strip_redundant_controls`
 - [ ] Phase 7: Unified qubit-stitching skip logic

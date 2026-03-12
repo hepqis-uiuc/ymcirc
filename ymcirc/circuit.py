@@ -90,12 +90,21 @@ class LatticeCircuitManager:
                 raise NotImplementedError(f"Dim {lattice_encoder.lattice_def.dim} lattice not yet supported.")
         self._lattice_is_small = True if lattice_size <= lattice_size_threshold_for_smallness else False
 
-        # Cache control link dirs for d=2 small periodic lattices (used by consistency/discard methods).
-        self._cached_ctrl_dirs_d2_small_and_periodic = None
-        if self._lattice_is_small and self._lattice_is_periodic and self._encoder.lattice_def.dim == 2:
+        # Cache control link dirs per plane for small periodic lattices (used by consistency/discard methods).
+        self._cached_ctrl_dirs_small_and_periodic: Dict[Plane, tuple] = {}
+        if self._lattice_is_small and self._lattice_is_periodic:
             _temp_lattice = LatticeRegisters.from_lattice_state_encoder(self._encoder)
-            _temp_plaq = _temp_lattice.get_plaquettes((0, 0), 1, 2) # Construct temp plaquette to extract ctrl dirs.
-            self._cached_ctrl_dirs_d2_small_and_periodic = _temp_plaq.control_link_dirs_per_vertex
+            dim = self._encoder.lattice_def.dim
+            if dim == 1.5 or dim == 2:
+                planes = [(1, 2)]
+            elif dim == 3:
+                planes = [(1, 2), (1, 3), (2, 3)]
+            else:
+                raise NotImplementedError(f"Dim {dim} lattice not yet supported.")
+            origin = tuple(0 for _ in range(len(self._encoder.lattice_def.shape)))
+            for e1, e2 in planes:
+                _temp_plaq = _temp_lattice.get_plaquettes(origin, e1, e2)
+                self._cached_ctrl_dirs_small_and_periodic[(e1, e2)] = _temp_plaq.control_link_dirs_per_vertex
 
         if self._lattice_is_small is True and self._lattice_is_periodic is True:
             # Filter out magnetic Hamiltonian terms which are inconsistent (repeated control links must have the same value)
@@ -103,16 +112,20 @@ class LatticeCircuitManager:
             for (final_bitstring, initial_bitstring), matrix_elem_value in self._mag_hamiltonian.items():
                 final_plaquette_state = lattice_encoder.decode_bit_string_to_plaquette_state(final_bitstring)
                 initial_plaquette_state = lattice_encoder.decode_bit_string_to_plaquette_state(initial_bitstring)
-                final_state_has_inconsistent_controls = self._plaquette_state_has_inconsistent_controls(final_plaquette_state)
-                initial_state_has_inconsistent_controls = self._plaquette_state_has_inconsistent_controls(initial_plaquette_state)
+                # For d=3/2 and d=2, there is only one plane: (1, 2).
+                # Phase 5 of the d=3 implementation plan will restructure this
+                # loop to be fully per-plane for all dimensions.
+                _filtering_plane: Plane = (1, 2)
+                final_state_has_inconsistent_controls = self._plaquette_state_has_inconsistent_controls(final_plaquette_state, _filtering_plane)
+                initial_state_has_inconsistent_controls = self._plaquette_state_has_inconsistent_controls(initial_plaquette_state, _filtering_plane)
 
                 if (final_state_has_inconsistent_controls is True) or (initial_state_has_inconsistent_controls is True):
                     # Matrix element includes plaquette states that are nonsensical on a small, periodic lattice. Skip it.
                     continue
                 else:
                     # Matrix element is consistent on shared controls. Trim out duplicate control links, re-encode plaquettes as bitstring, and keep.
-                    final_plaquette_state_trimmed_c_links = self._discard_duplicate_controls_from_plaquette_state(final_plaquette_state)
-                    initial_plaquette_state_trimmed_c_links = self._discard_duplicate_controls_from_plaquette_state(initial_plaquette_state)
+                    final_plaquette_state_trimmed_c_links = self._discard_duplicate_controls_from_plaquette_state(final_plaquette_state, _filtering_plane)
+                    initial_plaquette_state_trimmed_c_links = self._discard_duplicate_controls_from_plaquette_state(initial_plaquette_state, _filtering_plane)
                     trimmed_key = (
                         lattice_encoder.encode_plaquette_state_as_bit_string(final_plaquette_state_trimmed_c_links, override_n_c_links_validation=True),
                         lattice_encoder.encode_plaquette_state_as_bit_string(initial_plaquette_state_trimmed_c_links, override_n_c_links_validation=True),
@@ -518,11 +531,13 @@ class LatticeCircuitManager:
             }
 
         # Pre-compute forder-aware skip indices for d=2 on small periodic lattices.
+        # Phase 7 of the d=3 implementation plan will generalize this to all dimensions.
         _v2_skip_ctrl_idx = None
         _v3_skip_ctrl_idx = None
-        if self._cached_ctrl_dirs_d2_small_and_periodic is not None:
-            _v2_skip_ctrl_idx = self._cached_ctrl_dirs_d2_small_and_periodic[1].index(1)   # skip the dir +e1 control at v2
-            _v3_skip_ctrl_idx = self._cached_ctrl_dirs_d2_small_and_periodic[2].index(2)   # skip the dir +e2 control at v3
+        if (1, 2) in self._cached_ctrl_dirs_small_and_periodic and self._encoder.lattice_def.dim == 2:
+            _ctrl_dirs_12 = self._cached_ctrl_dirs_small_and_periodic[(1, 2)]
+            _v2_skip_ctrl_idx = _ctrl_dirs_12[1].index(1)   # skip the dir +e1 control at v2
+            _v3_skip_ctrl_idx = _ctrl_dirs_12[2].index(2)   # skip the dir +e2 control at v3
 
         # Local cache for resolved Hamiltonian data per (plane, signature).
         # On periodic lattices, all plaquettes share the same key, so this
@@ -729,9 +744,13 @@ class LatticeCircuitManager:
         stripped_physical_states = []
         for plaquette_string in physical_states_for_control_pruning:
             plaquette_state = self._encoder.decode_bit_string_to_plaquette_state(plaquette_string)
-            if self._plaquette_state_has_inconsistent_controls(plaquette_state) is True:
+            # For d=3/2 and d=2, there is only one plane: (1, 2).
+            # Phase 6 of the d=3 implementation plan will restructure this
+            # method to return per-plane results for all dimensions.
+            _strip_plane: Plane = (1, 2)
+            if self._plaquette_state_has_inconsistent_controls(plaquette_state, _strip_plane) is True:
                 continue
-            plaquette_state_c_links_stripped = self._discard_duplicate_controls_from_plaquette_state(plaquette_state)
+            plaquette_state_c_links_stripped = self._discard_duplicate_controls_from_plaquette_state(plaquette_state, _strip_plane)
             plaquette_state_c_links_stripped_bit_string = self._encoder.encode_plaquette_state_as_bit_string(
                 plaquette_state_c_links_stripped,
                 override_n_c_links_validation=True
@@ -880,20 +899,19 @@ class LatticeCircuitManager:
 
         return plaquette_local_rotation_circuit
 
-    def _plaquette_state_has_inconsistent_controls(self, plaquette: PlaquetteState) -> bool:
+    def _plaquette_state_has_inconsistent_controls(self, plaquette: PlaquetteState, plane: Plane) -> bool:
         """
         True if "shared" control links have different states; False otherwise.
 
-        For d=3/2 with per-vertex c_links: v1 controls == v2 controls, v3 controls == v4 controls.
+        For d=3/2: v1 controls == v2 controls, v3 controls == v4 controls (no plane dependence).
 
-        For d=2 with per-vertex c_links and (for example) default FORDER [1,2,3,-1,-2,-3]:
-        Control dirs per vertex: v1=(-1,-2), v2=(+1,-2), v3=(+1,+2), v4=(+2,-1). Note that
-        this method is FORDER-aware.
-        On size-2 periodic lattice, physical link sharing:
-        - v1[0]=dir(-1) shares with v2[0]=dir(+1)
-        - v1[1]=dir(-2) shares with v4[0]=dir(+2)
-        - v2[1]=dir(-2) shares with v3[1]=dir(+2)
-        - v3[0]=dir(+1) shares with v4[1]=dir(-1)
+        For d=2 and d=3: uses direction-based lookups via the per-plane cached ctrl dirs,
+        so results are correct for any F-order and any plane. On a size-2 periodic lattice,
+        the four in-plane sharing pairs are:
+        - v1[dir -e1] shares with v2[dir +e1]
+        - v1[dir -e2] shares with v4[dir +e2]
+        - v2[dir -e2] shares with v3[dir +e2]
+        - v3[dir +e1] shares with v4[dir -e1]
 
         Note that this only makes sense on a small, periodic lattice, so a ValueError
         is raised if the lattice fails those checks.
@@ -902,43 +920,34 @@ class LatticeCircuitManager:
             raise ValueError("Plaquette state consistency check only makes sense on a small, periodic lattice.")
 
         c_links = plaquette[2]
-        match self._encoder.lattice_def.dim:
-            case 1.5:
-                plaquette_state_has_inconsistent_controls = (
-                    c_links[0] != c_links[1] or
-                    c_links[2] != c_links[3]
-                )
-            case 2:
-                # Use direction-based lookups so results are correct for any F-order.
-                # For plane (e1=1, e2=2) on a size-2 periodic lattice, the four shared
-                # physical links are: (v1 dir-e1, v2 dir+e1), (v1 dir-e2, v4 dir+e2),
-                # (v2 dir-e2, v3 dir+e2), (v3 dir+e1, v4 dir-e1).
-                ctrl_dirs = self._cached_ctrl_dirs_d2_small_and_periodic
-                e1, e2 = 1, 2
-                plaquette_state_has_inconsistent_controls = (
-                    (c_links[0][ctrl_dirs[0].index(-e1)] != c_links[1][ctrl_dirs[1].index(e1)]) or
-                    (c_links[0][ctrl_dirs[0].index(-e2)] != c_links[3][ctrl_dirs[3].index(e2)]) or
-                    (c_links[1][ctrl_dirs[1].index(-e2)] != c_links[2][ctrl_dirs[2].index(e2)]) or
-                    (c_links[2][ctrl_dirs[2].index(e1)] != c_links[3][ctrl_dirs[3].index(-e1)])
-                )
-            case _:
-                raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
+        dim = self._encoder.lattice_def.dim
 
-        return plaquette_state_has_inconsistent_controls
+        if dim == 1.5:
+            # d=3/2: wholesale vertex equality, no plane dependence.
+            return c_links[0] != c_links[1] or c_links[2] != c_links[3]
 
-    def _discard_duplicate_controls_from_plaquette_state(self, plaquette: PlaquetteState) -> PlaquetteState:
+        # d=2 and d=3: direction-based lookup using the per-plane cache.
+        ctrl_dirs = self._cached_ctrl_dirs_small_and_periodic[plane]
+        e1, e2 = plane
+        return (
+            (c_links[0][ctrl_dirs[0].index(-e1)] != c_links[1][ctrl_dirs[1].index(e1)]) or
+            (c_links[0][ctrl_dirs[0].index(-e2)] != c_links[3][ctrl_dirs[3].index(e2)]) or
+            (c_links[1][ctrl_dirs[1].index(-e2)] != c_links[2][ctrl_dirs[2].index(e2)]) or
+            (c_links[2][ctrl_dirs[2].index(e1)] != c_links[3][ctrl_dirs[3].index(-e1)])
+        )
+
+    def _discard_duplicate_controls_from_plaquette_state(self, plaquette: PlaquetteState, plane: Plane) -> PlaquetteState:
         """
         Return a new instance of the plaquette where duplicate control link data has been discarded.
 
         For d=3/2: keep v1 and v3 controls, drop v2 and v4 (since v1==v2, v3==v4).
 
-        For d=2 with default FORDER: keep first occurrence of each shared physical link:
-        - v1: both controls are first occurrences
-        - v2: only second (dir -2) is unique; first (dir +1) duplicates v1[0]
-        - v3: only first (dir +1) is unique; second (dir +2) duplicates v2[1]
-        - v4: both duplicate earlier entries
-
-        Note that this method is FORDER-aware.
+        For d=2 and d=3: uses direction-based trimming via the per-plane cached ctrl dirs.
+        Keeps first occurrence of each shared physical link. This method is FORDER-aware.
+        - v1: keep all controls
+        - v2: drop dir +e1 (duplicates v1's dir -e1)
+        - v3: drop dir +e2 (duplicates v2's dir -e2)
+        - v4: drop dir +e2 (duplicates v1's dir -e2) and dir -e1 (duplicates v3's dir +e1)
 
         Since this only makes sense on a small, periodic lattice, a ValueError
         is raised if the lattice is not small and periodic.
@@ -947,24 +956,23 @@ class LatticeCircuitManager:
             raise ValueError("Plaquette state consistency check only makes sense on a small, periodic lattice.")
 
         vertex_multiplicities, a_links, c_links = plaquette
-        match self._encoder.lattice_def.dim:
-            case 1.5:
-                physical_c_links = (c_links[0], (), c_links[2], ())
-            case 2:
-                # Keep first occurrence of each shared physical link.
-                # For plane (e1=1, e2=2): v1 keeps both; v2 keeps dir -e2 only
-                # (dir +e1 duplicates v1's dir -e1); v3 keeps dir +e1 only
-                # (dir +e2 duplicates v2's dir -e2); v4 drops both.
-                ctrl_dirs = self._cached_ctrl_dirs_d2_small_and_periodic
-                e1, e2 = 1, 2
-                physical_c_links = (
-                    c_links[0],
-                    (c_links[1][ctrl_dirs[1].index(-e2)],),
-                    (c_links[2][ctrl_dirs[2].index(e1)],),
-                    ()
-                )
-            case _:
-                raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
+        dim = self._encoder.lattice_def.dim
+
+        if dim == 1.5:
+            physical_c_links = (c_links[0], (), c_links[2], ())
+        else:
+            # d=2 and d=3: direction-based trimming.
+            ctrl_dirs = self._cached_ctrl_dirs_small_and_periodic[plane]
+            e1, e2 = plane
+            physical_c_links = (
+                c_links[0],
+                tuple(c for i, c in enumerate(c_links[1])
+                      if i != ctrl_dirs[1].index(e1)),
+                tuple(c for i, c in enumerate(c_links[2])
+                      if i != ctrl_dirs[2].index(e2)),
+                tuple(c for i, c in enumerate(c_links[3])
+                      if i != ctrl_dirs[3].index(e2) and i != ctrl_dirs[3].index(-e1)),
+            )
 
         plaquette_with_filtered_c_links = (vertex_multiplicities, a_links, physical_c_links)
         return plaquette_with_filtered_c_links
