@@ -9,7 +9,7 @@ Verifies that:
 
 Includes:
 - d=3/2 L=2 T1: MPS time evolution with measurements and observables.
-- d=3 B3: Circuit construction for both large (size=3) and small-periodic (size=2) lattices.
+- d=3 B3 L=2: MPS time evolution with observables (no ancilla).
 """
 from qiskit.circuit.quantumcircuit import QuantumCircuit
 import pytest
@@ -240,57 +240,83 @@ def test_mps_measure_one_link_at_late_time():
 
 # --- d=3 integration tests ---
 
-def _make_d3_encoder_and_hamiltonian(size, threshold=0.3):
-    """Helper: create encoder and Hamiltonian for d=3 B3 lattice of given size."""
-    lattice_def = LatticeDef(3, size, periodic_boundary_conds=True)
+def _build_d3_time_evolved_circuit(encoder, mag_ham, dt, g, n_steps=1) -> tuple[QuantumCircuit, LatticeCircuitManager, LatticeRegisters]:
+    """Helper: build a d=3 time-evolution circuit with n_steps Trotter steps (no ancilla)."""
+    lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
+    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
+
+    ee_ham = electric_hamiltonian(encoder.link_bitmap)
+
+    for _ in range(n_steps):
+        circ_mgr.apply_electric_trotter_step(circuit, lattice, ee_ham)
+        circ_mgr.apply_magnetic_trotter_step(circuit, lattice)
+
+    # Bind parameters: all dt and g to the same values.
+    param_dict = {}
+    for param in circuit.parameters:
+        if "dt" in param.name:
+            param_dict[param] = dt
+        elif "coupling_g" in param.name:
+            param_dict[param] = g
+    circuit = circuit.assign_parameters(param_dict)
+
+    return circuit, circ_mgr, lattice
+
+
+def _d3_counts_to_measurement_results(counts: dict[str, int], encoder, n_data_qubits) -> MeasurementResults:
+    """Convert Qiskit counts dict to MeasurementResults for a d=3 lattice (no ancilla)."""
+    parsed_counts = {}
+    for qiskit_bitstring, count in counts.items():
+        # Qiskit measurement string is little-endian (rightmost = qubit 0).
+        ymcirc_bitstring = qiskit_bitstring[::-1]
+        data_bitstring = ymcirc_bitstring[:n_data_qubits]
+        parsed = ParsedLatticeResult(3, 2, data_bitstring, encoder)
+        if parsed in parsed_counts:
+            parsed_counts[parsed] += count
+        else:
+            parsed_counts[parsed] = count
+    return MeasurementResults(parsed_counts, encoder)
+
+
+@pytest.mark.slow
+def test_d3_mps_time_evolution_observables_change():
+    """d=3 B3 size=2: time-evolved lattice should show changing observables."""
+    lattice_def = LatticeDef(3, 2, periodic_boundary_conds=True)
     trunc = "B3"
     link_bitmap = IRREP_TRUNCATIONS[trunc]
     physical_states = PHYSICAL_PLAQUETTE_STATES["d=3"][trunc]
     encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_def)
-    mag_ham = load_magnetic_hamiltonian("d=3", trunc, encoder,
-                                       mag_hamiltonian_matrix_element_threshold=threshold)
-    return encoder, mag_ham
 
+    mag_ham = load_magnetic_hamiltonian("d=3", trunc, encoder, mag_hamiltonian_matrix_element_threshold=0.6)
 
-@pytest.mark.slow
-def test_d3_B3_size3_magnetic_trotter_step():
-    """d=3 B3 size=3: construct circuit and apply one magnetic Trotter step (no small-lattice logic)."""
-    encoder, mag_ham = _make_d3_encoder_and_hamiltonian(size=3)
-    lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
-    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
-    circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
+    g = 1.0
+    n_data_qubits = encoder.lattice_def.n_links * encoder.expected_link_bit_string_length
 
-    n_anc = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(circuit, lattice)
-    circ_mgr.num_ancillas = n_anc
-    circ_mgr.add_ancilla_register_to_quantum_circuit(circuit)
+    # Early time: vacuum should dominate.
+    circuit_early, _, _ = _build_d3_time_evolved_circuit(
+        encoder, mag_ham, dt=0.1, g=g, n_steps=1)
+    circuit_early.measure_all()
+    counts_early = _run_mps_simulation(circuit_early, shots=4096)
+    mr_early = _d3_counts_to_measurement_results(counts_early, encoder, n_data_qubits)
 
-    circ_mgr.apply_magnetic_trotter_step(circuit, lattice)
+    # Later time: excited states should appear.
+    circuit_late, _, _ = _build_d3_time_evolved_circuit(
+        encoder, mag_ham, dt=0.25, g=g, n_steps=4)
+    circuit_late.measure_all()
+    counts_late = _run_mps_simulation(circuit_late, shots=4096)
+    mr_late = _d3_counts_to_measurement_results(counts_late, encoder, n_data_qubits)
 
-    assert circuit.num_qubits > 0
-    assert len(circuit.parameters) > 0, "Circuit should have unbound parameters (dt, coupling_g)."
-
-
-@pytest.mark.slow
-def test_d3_B3_size2_magnetic_trotter_step():
-    """d=3 B3 size=2: triggers small-periodic filtering; verify circuit constructs and has correct c_link counts."""
-    encoder, mag_ham = _make_d3_encoder_and_hamiltonian(size=2)
-    lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
-    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
-    circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
-
-    n_anc = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(circuit, lattice)
-    circ_mgr.num_ancillas = n_anc
-    circ_mgr.add_ancilla_register_to_quantum_circuit(circuit)
-
-    circ_mgr.apply_magnetic_trotter_step(circuit, lattice)
-
-    assert circuit.num_qubits > 0
-    assert len(circuit.parameters) > 0, "Circuit should have unbound parameters (dt, coupling_g)."
-
-    # The resolved Hamiltonian should have 3 planes for d=3.
-    assert len(circ_mgr._mag_hamiltonian) == 3, (
-        f"Expected 3 planes in resolved Hamiltonian, got {len(circ_mgr._mag_hamiltonian)}"
+    # Vacuum persistence should decrease with time.
+    vpp_early = mr_early.vacuum_persistence_probability()
+    vpp_late = mr_late.vacuum_persistence_probability()
+    assert vpp_early > vpp_late, (
+        f"Vacuum persistence should decrease: early={vpp_early}, late={vpp_late}"
     )
-    # Verify expected planes are present.
-    expected_planes = {(1, 2), (1, 3), (2, 3)}
-    assert set(circ_mgr._mag_hamiltonian.keys()) == expected_planes
+
+    # Electric energy should increase with time (excitations carry C_2 > 0).
+    ee_early = mr_early.get_lattice_electric_energy(average_result=False)
+    ee_late = mr_late.get_lattice_electric_energy(average_result=False)
+    assert ee_late > ee_early, (
+        f"Electric energy should increase: early={ee_early}, late={ee_late}"
+    )

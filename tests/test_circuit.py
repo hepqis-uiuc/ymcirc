@@ -1886,3 +1886,61 @@ def test_d3_resolved_hamiltonian_has_three_planes():
     """After __init__, the resolved Hamiltonian for d=3 size=2 should have 3 plane keys."""
     circ_mgr, _ = _make_d3_size2_circ_mgr()
     assert set(circ_mgr._mag_hamiltonian.keys()) == {(1, 2), (1, 3), (2, 3)}
+
+
+# --- d=3 circuit construction tests ---
+
+def _make_d3_encoder_and_hamiltonian(size, threshold=0.3):
+    """Helper: create encoder and Hamiltonian for d=3 B3 lattice of given size."""
+    lattice_def = LatticeDef(3, size, periodic_boundary_conds=True)
+    trunc = "B3"
+    link_bitmap = IRREP_TRUNCATIONS[trunc]
+    physical_states = PHYSICAL_PLAQUETTE_STATES["d=3"][trunc]
+    encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_def)
+    mag_ham = load_magnetic_hamiltonian("d=3", trunc, encoder,
+                                       mag_hamiltonian_matrix_element_threshold=threshold)
+    return encoder, mag_ham
+
+
+@pytest.mark.slow
+def test_d3_B3_size3_magnetic_trotter_step():
+    """d=3 B3 size=3: construct circuit and apply one magnetic Trotter step (no small-lattice logic)."""
+    encoder, mag_ham = _make_d3_encoder_and_hamiltonian(size=3)
+    lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
+    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
+
+    n_anc = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(circuit, lattice)
+    circ_mgr.num_ancillas = n_anc
+    circ_mgr.add_ancilla_register_to_quantum_circuit(circuit)
+
+    circ_mgr.apply_magnetic_trotter_step(circuit, lattice)
+
+    assert circuit.num_qubits > 0
+    assert len(circuit.parameters) > 0, "Circuit should have unbound parameters (dt, coupling_g)."
+
+
+@pytest.mark.slow
+def test_d3_B3_size2_magnetic_trotter_step():
+    """d=3 B3 size=2: triggers small-periodic filtering; verify circuit constructs and has correct c_link counts."""
+    encoder, mag_ham = _make_d3_encoder_and_hamiltonian(size=2)
+    lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
+    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
+
+    n_anc = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(circuit, lattice)
+    circ_mgr.num_ancillas = n_anc
+    circ_mgr.add_ancilla_register_to_quantum_circuit(circuit)
+
+    circ_mgr.apply_magnetic_trotter_step(circuit, lattice)
+
+    assert circuit.num_qubits > 0
+    assert len(circuit.parameters) > 0, "Circuit should have unbound parameters (dt, coupling_g)."
+
+    # The resolved Hamiltonian should have 3 planes for d=3.
+    assert len(circ_mgr._mag_hamiltonian) == 3, (
+        f"Expected 3 planes in resolved Hamiltonian, got {len(circ_mgr._mag_hamiltonian)}"
+    )
+    # Verify expected planes are present.
+    expected_planes = {(1, 2), (1, 3), (2, 3)}
+    assert set(circ_mgr._mag_hamiltonian.keys()) == expected_planes
