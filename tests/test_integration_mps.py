@@ -1,11 +1,15 @@
 """
-Integration test: MPS time evolution on d=3/2 L=2 T1 lattice.
+Integration tests for time evolution circuits.
 
 Verifies that:
 1. Measurements on specific links/vertices/plaquettes work with real circuits.
 2. Observable values change over time evolution.
 3. MeasurementResults.get_transition_probability gives nonzero results for
    excited states at later times.
+
+Includes:
+- d=3/2 L=2 T1: MPS time evolution with measurements and observables.
+- d=3 B3 L=2: MPS time evolution with observables (no ancilla).
 """
 from qiskit.circuit.quantumcircuit import QuantumCircuit
 import pytest
@@ -57,7 +61,7 @@ def _run_mps_simulation(circuit, shots=4096) -> dict[str, int]:
 
     backend = AerSimulator(
         method='matrix_product_state',
-        matrix_product_state_max_bond_dimension=32,
+        matrix_product_state_max_bond_dimension=8, # This is deliberately low since speed is more important than precision for tests.
     )
     # CRITICAL: Do NOT pass backend to transpile for MPS!
     tcirc = transpile(
@@ -98,7 +102,6 @@ def _counts_to_measurement_results(counts: dict[str, int] | dict[tuple, int], en
     return MeasurementResults(parsed_counts, encoder)
 
 
-@pytest.mark.slow
 def test_mps_time_evolution_observables_change():
     """Time-evolved lattice should show changing observables."""
     lattice_def = LatticeDef(1.5, 2, periodic_boundary_conds=True)
@@ -141,7 +144,6 @@ def test_mps_time_evolution_observables_change():
     )
 
 
-@pytest.mark.slow
 def test_mps_transition_probability_nonzero_at_late_time():
     """Transition probability to an excited state should be nonzero at late times."""
     lattice_def = LatticeDef(1.5, 2, periodic_boundary_conds=True)
@@ -184,7 +186,7 @@ def test_mps_transition_probability_nonzero_at_late_time():
     # At late times with g=1.0, some excitations should appear.
     assert not three_prob == pytest.approx(0.0) and three_prob > 0  # Should not raise; may be small but non-negative
 
-@pytest.mark.slow
+
 def test_mps_measure_one_link_at_late_time():
     """Measurement of a single excited link, should be nonzero at late times."""
     lattice_def = LatticeDef(1.5, 2, periodic_boundary_conds=True)
@@ -206,21 +208,26 @@ def test_mps_measure_one_link_at_late_time():
     counts = {(horiz_link_from_origin, meas_bit_string): n_obs for meas_bit_string, n_obs in _run_mps_simulation(circuit, shots=8192).items()} # Include address info since partial measurement.
     mr = _counts_to_measurement_results(counts, encoder, n_data_qubits)
 
+    # TODO: Behavior changed and now trying to get energy for unmeasured links should raise KeyError. Fix test.
     # Unmeasured links should give zero for link energy, and the measured link should have positive energy.
     for link_address in lattice_def.link_addresses:
         if not link_address == horiz_link_from_origin:
-            assert mr.get_link_electric_energy(link_address) == 0
+            with pytest.raises(KeyError, match="unmeasured link"):
+                mr.get_link_electric_energy(link_address)
         else:
             assert (not (mr.get_link_electric_energy(link_address) == pytest.approx(0.0))) and mr.get_link_electric_energy(link_address) > 0
 
-    # For each measurement, the underlying energies should be either None or 4/3.
+    # For each measurement, the underlying energies should be either 4/3, or raise a KeyError.
     # Also confirm that we encounter the right number of link states.
     n_excited = 0               # should equal 2: 2 types of excited links on the partial lattice state
     n_zero = 0                  # should equal 3: 1 type of vacuum link on the partial lattice state
     n_none = 0                  # should equal 15: 5 unmeasured links times 3 (partial) lattice states
     for plr, counts in mr.get_counts().items():
         for link_address in lattice_def.link_addresses:
-            link_eng = plr.get_link_electric_energy(link_address)
+            try:
+                link_eng = plr.get_link_electric_energy(link_address)
+            except KeyError:
+                link_eng = 0
             if link_address == horiz_link_from_origin:
                 assert plr.get_link_electric_energy(link_address) == pytest.approx(4/3) or plr.get_link_electric_energy(link_address) == 0.0, f"Link {link_address} has (wrong) energy {plr.get_link_electric_energy(link_address)}."
                 if link_eng > 0:
@@ -228,6 +235,90 @@ def test_mps_measure_one_link_at_late_time():
                 elif link_eng == 0:
                     n_zero += 1
             else:
-                assert plr.get_link_electric_energy(link_address) is None
+                with pytest.raises(KeyError, match="unmeasured link"):
+                    plr.get_link_electric_energy(link_address)
                 n_none += 1
     assert (n_excited, n_zero, n_none) == (2, 1, 15)
+
+
+# --- d=3 integration tests ---
+
+def _build_d3_time_evolved_circuit(encoder, mag_ham, dt, g, n_steps=1) -> tuple[QuantumCircuit, LatticeCircuitManager, LatticeRegisters]:
+    """Helper: build a d=3 time-evolution circuit with n_steps Trotter steps (no ancilla)."""
+    lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
+    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
+
+    ee_ham = electric_hamiltonian(encoder.link_bitmap)
+
+    for _ in range(n_steps):
+        circ_mgr.apply_electric_trotter_step(circuit, lattice, ee_ham)
+        circ_mgr.apply_magnetic_trotter_step(circuit, lattice)
+
+    # Bind parameters: all dt and g to the same values.
+    param_dict = {}
+    for param in circuit.parameters:
+        if "dt" in param.name:
+            param_dict[param] = dt
+        elif "coupling_g" in param.name:
+            param_dict[param] = g
+    circuit = circuit.assign_parameters(param_dict)
+
+    return circuit, circ_mgr, lattice
+
+
+def _d3_counts_to_measurement_results(counts: dict[str, int], encoder, n_data_qubits) -> MeasurementResults:
+    """Convert Qiskit counts dict to MeasurementResults for a d=3 lattice (no ancilla)."""
+    parsed_counts = {}
+    for qiskit_bitstring, count in counts.items():
+        # Qiskit measurement string is little-endian (rightmost = qubit 0).
+        ymcirc_bitstring = qiskit_bitstring[::-1]
+        data_bitstring = ymcirc_bitstring[:n_data_qubits]
+        parsed = ParsedLatticeResult(3, 2, data_bitstring, encoder)
+        if parsed in parsed_counts:
+            parsed_counts[parsed] += count
+        else:
+            parsed_counts[parsed] = count
+    return MeasurementResults(parsed_counts, encoder)
+
+
+def test_d3_mps_time_evolution_observables_change():
+    """d=3 B3 size=2: time-evolved lattice should show changing observables."""
+    lattice_def = LatticeDef(3, 2, periodic_boundary_conds=True)
+    trunc = "B3"
+    link_bitmap = IRREP_TRUNCATIONS[trunc]
+    physical_states = PHYSICAL_PLAQUETTE_STATES["d=3"][trunc]
+    encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_def)
+
+    mag_ham = load_magnetic_hamiltonian("d=3", trunc, encoder, mag_hamiltonian_matrix_element_threshold=0.6)
+
+    g = 1.0
+    n_data_qubits = encoder.lattice_def.n_links * encoder.expected_link_bit_string_length
+
+    # Early time: vacuum should dominate.
+    circuit_early, _, _ = _build_d3_time_evolved_circuit(
+        encoder, mag_ham, dt=0.1, g=g, n_steps=1)
+    circuit_early.measure_all()
+    counts_early = _run_mps_simulation(circuit_early, shots=4096)
+    mr_early = _d3_counts_to_measurement_results(counts_early, encoder, n_data_qubits)
+
+    # Later time: excited states should appear.
+    circuit_late, _, _ = _build_d3_time_evolved_circuit(
+        encoder, mag_ham, dt=1, g=g, n_steps=1)
+    circuit_late.measure_all()
+    counts_late = _run_mps_simulation(circuit_late, shots=4096)
+    mr_late = _d3_counts_to_measurement_results(counts_late, encoder, n_data_qubits)
+
+    # Vacuum persistence should decrease with time.
+    vpp_early = mr_early.vacuum_persistence_probability()
+    vpp_late = mr_late.vacuum_persistence_probability()
+    assert vpp_early > vpp_late, (
+        f"Vacuum persistence should decrease: early={vpp_early}, late={vpp_late}"
+    )
+
+    # Electric energy should increase with time (excitations carry C_2 > 0).
+    ee_early = mr_early.get_lattice_electric_energy(average_result=False)
+    ee_late = mr_late.get_lattice_electric_energy(average_result=False)
+    assert ee_late > ee_early, (
+        f"Electric energy should increase: early={ee_early}, late={ee_late}"
+    )

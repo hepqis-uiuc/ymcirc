@@ -31,6 +31,14 @@ import numpy as np
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
 
+# Circuit construction needs to generically iterate over planes.
+# Since it's more efficient to store matrix element data on-disk
+# in a formate where the top level key is a pair of plaquette states,
+# we re-index when doing circuit construction.
+# A dict with key hierarchy: plane -> (bs1, bs2) -> signature -> float.
+# Bitstring keys are already trimmed on small periodic lattices.
+PlaneKeyedHamiltonianData = Dict[Plane, Dict[Tuple[str, str], Dict[Signature, float]]]
+
 
 class LatticeCircuitManager:
     """Class for creating quantum simulation circuits from LatticeRegister instances."""
@@ -55,7 +63,7 @@ class LatticeCircuitManager:
         # Copies to avoid inadvertently changing the behavior of the
         # LatticeCircuitManager instance.
         self._encoder = copy.deepcopy(lattice_encoder)
-        self._mag_hamiltonian = copy.deepcopy(mag_hamiltonian)
+        _input_hamiltonian: HamiltonianData = copy.deepcopy(mag_hamiltonian)
         self._cached_mag_evol_circuits: Dict[Tuple[Plane, Signature], QuantumCircuit] = {}
         self._cached_mag_evol_params = {
             "physical_states_for_control_pruning": None,
@@ -81,45 +89,76 @@ class LatticeCircuitManager:
                 lattice_size = lattice_encoder.lattice_def.shape[0]
                 if lattice_size != lattice_encoder.lattice_def.shape[1]:
                     raise NotImplementedError("Non-square dim 2 lattices not yet supported.")
+            case 3:
+                lattice_size = lattice_encoder.lattice_def.shape[0]
+                if lattice_size != lattice_encoder.lattice_def.shape[1] \
+                        or lattice_size != lattice_encoder.lattice_def.shape[2]:
+                    raise NotImplementedError("Non-cubic dim 3 lattices not yet supported.")
             case _:
                 raise NotImplementedError(f"Dim {lattice_encoder.lattice_def.dim} lattice not yet supported.")
         self._lattice_is_small = True if lattice_size <= lattice_size_threshold_for_smallness else False
 
-        # Cache control link dirs for d=2 small periodic lattices (used by consistency/discard methods).
-        self._cached_ctrl_dirs_d2_small_and_periodic = None
-        if self._lattice_is_small and self._lattice_is_periodic and self._encoder.lattice_def.dim == 2:
+        # Cache control link dirs per plane for small periodic lattices (used by consistency/discard methods).
+        self._cached_ctrl_dirs_small_and_periodic: Dict[Plane, tuple] = {}
+        if self._lattice_is_small and self._lattice_is_periodic:
             _temp_lattice = LatticeRegisters.from_lattice_state_encoder(self._encoder)
-            _temp_plaq = _temp_lattice.get_plaquettes((0, 0), 1, 2) # Construct temp plaquette to extract ctrl dirs.
-            self._cached_ctrl_dirs_d2_small_and_periodic = _temp_plaq.control_link_dirs_per_vertex
+            dim = self._encoder.lattice_def.dim
+            if dim == 1.5 or dim == 2:
+                planes = [(1, 2)]
+            elif dim == 3:
+                planes = [(1, 2), (1, 3), (2, 3)]
+            else:
+                raise NotImplementedError(f"Dim {dim} lattice not yet supported.")
+            origin = tuple(0 for _ in range(len(self._encoder.lattice_def.shape)))
+            for e1, e2 in planes:
+                _temp_plaq = _temp_lattice.get_plaquettes(origin, e1, e2)
+                self._cached_ctrl_dirs_small_and_periodic[(e1, e2)] = _temp_plaq.control_link_dirs_per_vertex
 
+        # Pivot self._mag_hamiltonian from entry-first to per-plane-first format.
+        # On small periodic lattices, also filter inconsistent entries and trim
+        # duplicate control links per-plane. A given (bs1, bs2) entry may be
+        # consistent for one plane but not another, so filtering is per-plane.
+        plane_keyed_hamiltonian_data: PlaneKeyedHamiltonianData = {}
         if self._lattice_is_small is True and self._lattice_is_periodic is True:
-            # Filter out magnetic Hamiltonian terms which are inconsistent (repeated control links must have the same value)
-            filtered_and_trimmed_mag_hamiltonian: HamiltonianData = {}
-            for (final_bitstring, initial_bitstring), matrix_elem_value in self._mag_hamiltonian.items():
-                final_plaquette_state = lattice_encoder.decode_bit_string_to_plaquette_state(final_bitstring)
-                initial_plaquette_state = lattice_encoder.decode_bit_string_to_plaquette_state(initial_bitstring)
-                final_state_has_inconsistent_controls = self._plaquette_state_has_inconsistent_controls(final_plaquette_state)
-                initial_state_has_inconsistent_controls = self._plaquette_state_has_inconsistent_controls(initial_plaquette_state)
+            for (final_bs, initial_bs), matrix_elem_value in _input_hamiltonian.items():
+                final_ps = lattice_encoder.decode_bit_string_to_plaquette_state(final_bs)
+                initial_ps = lattice_encoder.decode_bit_string_to_plaquette_state(initial_bs)
 
-                if (final_state_has_inconsistent_controls is True) or (initial_state_has_inconsistent_controls is True):
-                    # Matrix element includes plaquette states that are nonsensical on a small, periodic lattice. Skip it.
-                    continue
-                else:
-                    # Matrix element is consistent on shared controls. Trim out duplicate control links, re-encode plaquettes as bitstring, and keep.
-                    final_plaquette_state_trimmed_c_links = self._discard_duplicate_controls_from_plaquette_state(final_plaquette_state)
-                    initial_plaquette_state_trimmed_c_links = self._discard_duplicate_controls_from_plaquette_state(initial_plaquette_state)
+                for plane, sig_dict in matrix_elem_value.items():
+                    if (self._plaquette_state_has_inconsistent_controls(final_ps, plane)
+                            or self._plaquette_state_has_inconsistent_controls(initial_ps, plane)):
+                        continue
+
+                    final_trimmed = self._discard_duplicate_controls_from_plaquette_state(final_ps, plane)
+                    initial_trimmed = self._discard_duplicate_controls_from_plaquette_state(initial_ps, plane)
                     trimmed_key = (
-                        lattice_encoder.encode_plaquette_state_as_bit_string(final_plaquette_state_trimmed_c_links, override_n_c_links_validation=True),
-                        lattice_encoder.encode_plaquette_state_as_bit_string(initial_plaquette_state_trimmed_c_links, override_n_c_links_validation=True),
+                        lattice_encoder.encode_plaquette_state_as_bit_string(
+                            final_trimmed, override_n_c_links_validation=True),
+                        lattice_encoder.encode_plaquette_state_as_bit_string(
+                            initial_trimmed, override_n_c_links_validation=True),
                     )
-                    filtered_and_trimmed_mag_hamiltonian[trimmed_key] = matrix_elem_value
 
-            # Update the magnetic Hamiltonian data with the trimmed, consistent matrix elements.
-            self._mag_hamiltonian = filtered_and_trimmed_mag_hamiltonian
+                    if plane not in plane_keyed_hamiltonian_data:
+                        plane_keyed_hamiltonian_data[plane] = {}
+                    if trimmed_key in plane_keyed_hamiltonian_data[plane]:
+                        plane_keyed_hamiltonian_data[plane][trimmed_key].update(sig_dict)
+                    else:
+                        plane_keyed_hamiltonian_data[plane][trimmed_key] = dict(sig_dict)
+        else:
+            # Large or non-periodic: pivot to per-plane-first without filtering/trimming.
+            for (bs1, bs2), matrix_elem_value in _input_hamiltonian.items():
+                for plane, sig_dict in matrix_elem_value.items():
+                    if plane not in plane_keyed_hamiltonian_data:
+                        plane_keyed_hamiltonian_data[plane] = {}
+                    plane_keyed_hamiltonian_data[plane][(bs1, bs2)] = dict(sig_dict)
+        self._mag_hamiltonian = plane_keyed_hamiltonian_data
 
     def __repr__(self):
         class_name = type(self).__name__
-        return f"{class_name}({self._encoder.__repr__()}, {self._mag_hamiltonian})"
+        n_planes = len(self._mag_hamiltonian)
+        n_entries = sum(len(v) for v in self._mag_hamiltonian.values())
+        return (f"{class_name}({self._encoder.__repr__()}, "
+                f"<{n_entries} Hamiltonian entries across {n_planes} plane(s)>)")
 
     def __str__(self):
         class_name = type(self).__name__
@@ -483,7 +522,8 @@ class LatticeCircuitManager:
         Returns:
           None (master_circuit has the magnetic Trotter step appended)
         """
-        physical_states_for_control_pruning = self._strip_redundant_controls_if_small_and_periodic_lattice(physical_states_for_control_pruning)
+        per_plane_pruning_states = self._strip_redundant_controls_if_small_and_periodic_lattice(
+            physical_states_for_control_pruning)
 
         # Construct the dt and coupling parameters for the current magnetic Trotter step,
         name_prefixes = ['dt_mag', 'coupling_g_mag']
@@ -512,17 +552,27 @@ class LatticeCircuitManager:
                 "control_fusion": control_fusion,
             }
 
-        # Pre-compute forder-aware skip indices for d=2 on small periodic lattices.
-        _v2_skip_ctrl_idx = None
-        _v3_skip_ctrl_idx = None
-        if self._cached_ctrl_dirs_d2_small_and_periodic is not None:
-            _v2_skip_ctrl_idx = self._cached_ctrl_dirs_d2_small_and_periodic[1].index(1)   # skip the dir +e1 control at v2
-            _v3_skip_ctrl_idx = self._cached_ctrl_dirs_d2_small_and_periodic[2].index(2)   # skip the dir +e2 control at v3
+        # Pre-compute per-plane skip indices for small periodic lattices.
+        # Maps (plane, vertex_idx) -> set of ctrl_idx values to skip.
+        _skip_indices: Dict[Tuple[Plane, int], set[int]] = {}
+        if self._lattice_is_small and self._lattice_is_periodic:
+            dim = self._encoder.lattice_def.dim
+            if dim == 1.5:
+                for plane in self._cached_ctrl_dirs_small_and_periodic:
+                    n_ctrls = len(self._cached_ctrl_dirs_small_and_periodic[plane][0])
+                    _skip_indices[(plane, 1)] = set(range(n_ctrls))
+                    _skip_indices[(plane, 3)] = set(range(n_ctrls))
+            else:
+                for plane, ctrl_dirs in self._cached_ctrl_dirs_small_and_periodic.items():
+                    e1, e2 = plane
+                    _skip_indices[(plane, 1)] = {ctrl_dirs[1].index(e1)}
+                    _skip_indices[(plane, 2)] = {ctrl_dirs[2].index(e2)}
+                    _skip_indices[(plane, 3)] = {ctrl_dirs[3].index(e2), ctrl_dirs[3].index(-e1)}
 
-        # Local cache for resolved Hamiltonian data per (plane, signature).
+        # Local cache for Hamiltonian data per (plane, signature).
         # On periodic lattices, all plaquettes share the same key, so this
         # avoids re-iterating over self._mag_hamiltonian for every plaquette.
-        _resolved_hamiltonian_cache: Dict[Tuple[Plane, Signature], List] = {}
+        _per_plane_and_signature_hamiltonian_cache: Dict[Tuple[Plane, Signature], List] = {}
 
         # Stitch magnetic Hamiltonian evolution circuit onto LatticeRegisters.
         # Vertex iteration loop.
@@ -535,7 +585,7 @@ class LatticeCircuitManager:
                 continue
 
             # Get the plaquettes for the current vertex.
-            logger.debug(f"Fetching all positive plaquettes at vertex {vertex_address}.")
+            logger.info(f"Fetching all positive plaquettes at vertex {vertex_address}.")
             has_only_one_positive_plaquette = lattice.dim == 1.5 or lattice.dim == 2
             if has_only_one_positive_plaquette:
                 plaquettes: List[Plaquette] = [
@@ -547,17 +597,17 @@ class LatticeCircuitManager:
 
             # For each plaquette, apply the the local Trotter step circuit.
             for plaquette in plaquettes:
-                # Resolve the hamiltonian for this plaquette's plane and signature.
+                # Resolve the Hamiltonian for this plaquette's plane and signature.
                 plaquette_plane: Plane = plaquette.plane
                 plaquette_signature: Signature = plaquette.signature
                 cache_key = (plaquette_plane, plaquette_signature)
-                if cache_key in _resolved_hamiltonian_cache:
-                    resolved_hamiltonian = _resolved_hamiltonian_cache[cache_key]
+                if cache_key in _per_plane_and_signature_hamiltonian_cache:
+                    hamiltonian_current_plane_and_signature = _per_plane_and_signature_hamiltonian_cache[cache_key]
                 else:
-                    resolved_hamiltonian = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(
+                    hamiltonian_current_plane_and_signature = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(
                         self._mag_hamiltonian, plaquette_plane, plaquette_signature
                     )
-                    _resolved_hamiltonian_cache[cache_key] = resolved_hamiltonian
+                    _per_plane_and_signature_hamiltonian_cache[cache_key] = hamiltonian_current_plane_and_signature
 
                 # Build or fetch the cached template circuit for this (plane, signature).
                 # When givens_have_independent_params is True, the template must
@@ -575,10 +625,15 @@ class LatticeCircuitManager:
                     plaquette_local_rotation_circuit_template = self._cached_mag_evol_circuits[cache_key]
                 else:
                     logger.info(f"Building magnetic evolution circuit for cache_key={cache_key}.")
+                    effective_pruning_states = (
+                        per_plane_pruning_states.get(plaquette_plane)
+                        if per_plane_pruning_states is not None
+                        else physical_states_for_control_pruning
+                    )
                     plaquette_local_rotation_circuit_template = self._build_mag_evol_circuit(
-                        resolved_hamiltonian,
+                        hamiltonian_current_plane_and_signature,
                         control_fusion,
-                        physical_states_for_control_pruning,
+                        effective_pruning_states,
                         coupling_g=Parameter('coupling_g_mag_placeholder'),
                         dt=Parameter('dt_mag_placeholder'),
                         optimize_circuits=optimize_circuits,
@@ -609,23 +664,9 @@ class LatticeCircuitManager:
                 for vertex_idx, vertex_controls in enumerate(plaquette.control_links_per_vertex):
                     for ctrl_idx, register in enumerate(vertex_controls):
                         # If lattice is small and has PBCs, skip redundant c_link registers.
-                        if (self._lattice_is_small is True) and (self._lattice_is_periodic is True):
-                            should_skip = False
-                            match self._encoder.lattice_def.dim:
-                                case 1.5:
-                                    # Skip v2 (idx 1) and v4 (idx 3) entirely.
-                                    should_skip = vertex_idx in (1, 3)
-                                case 2:
-                                    # v2: skip dir +e1 control; v3: skip dir +e2 control; v4: skip all.
-                                    # Skip indices are forder-aware, pre-computed before the vertex loop.
-                                    should_skip = (
-                                        (vertex_idx == 1 and ctrl_idx == _v2_skip_ctrl_idx) or
-                                        (vertex_idx == 2 and ctrl_idx == _v3_skip_ctrl_idx) or
-                                        (vertex_idx == 3)
-                                    )
-                                case _:
-                                    raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
-                            if should_skip is True:
+                        if self._lattice_is_small and self._lattice_is_periodic:
+                            skip_set = _skip_indices.get((plaquette_plane, vertex_idx), set())
+                            if ctrl_idx in skip_set:
                                 continue
 
                         for qubit in register:
@@ -708,72 +749,66 @@ class LatticeCircuitManager:
             case _:
                 raise ValueError(f"Unsupported file type: {filename.suffix}")
 
-    def _strip_redundant_controls_if_small_and_periodic_lattice(self, physical_states_for_control_pruning: set[str]) -> set[str] | None:
+    def _strip_redundant_controls_if_small_and_periodic_lattice(
+        self, physical_states_for_control_pruning: set[str] | None
+    ) -> Dict[Plane, set[str] | None] | None:
         """
-        For lattices that are small and periodic, it's possible that the same link might act
-        as a control for more than one vertex in a single plaquette. This helper (1)
-        discards plaquette states that are inconsistent with this possibility and
-        (2) discards repeated control links from the description of plaquette states.
+        For lattices that are small and periodic, strip redundant controls per plane.
 
-        If the small and periodic test fails, just returns the input idempotently.
+        Returns a dict mapping each plane to its stripped physical state set,
+        or None if the lattice is not small-and-periodic or if the input is None
+        (in which case callers should use the original input set unchanged).
         """
-        plaquettes_may_have_redundant_controls = (physical_states_for_control_pruning is not None) and (self._lattice_is_periodic is True) and (self._lattice_is_small is True)
-        if not plaquettes_may_have_redundant_controls:
-            return physical_states_for_control_pruning
+        if (physical_states_for_control_pruning is None
+                or not self._lattice_is_periodic
+                or not self._lattice_is_small):
+            return None
 
-        stripped_physical_states = []
-        for plaquette_string in physical_states_for_control_pruning:
-            plaquette_state = self._encoder.decode_bit_string_to_plaquette_state(plaquette_string)
-            if self._plaquette_state_has_inconsistent_controls(plaquette_state) is True:
-                continue
-            plaquette_state_c_links_stripped = self._discard_duplicate_controls_from_plaquette_state(plaquette_state)
-            plaquette_state_c_links_stripped_bit_string = self._encoder.encode_plaquette_state_as_bit_string(
-                plaquette_state_c_links_stripped,
-                override_n_c_links_validation=True
-            )
-            stripped_physical_states.append(plaquette_state_c_links_stripped_bit_string)
-        stripped_physical_states = set(stripped_physical_states)
-        logger.info(f"There are {len(stripped_physical_states)} plaquette states.")
-        if len(stripped_physical_states) == 0:
-            physical_states_for_control_pruning = None
-        else:
-            physical_states_for_control_pruning = stripped_physical_states
+        result: Dict[Plane, set[str] | None] = {}
+        for plane in self._cached_ctrl_dirs_small_and_periodic:
+            stripped = []
+            for plaquette_string in physical_states_for_control_pruning:
+                plaquette_state = self._encoder.decode_bit_string_to_plaquette_state(plaquette_string)
+                if self._plaquette_state_has_inconsistent_controls(plaquette_state, plane):
+                    continue
+                trimmed = self._discard_duplicate_controls_from_plaquette_state(plaquette_state, plane)
+                trimmed_bs = self._encoder.encode_plaquette_state_as_bit_string(
+                    trimmed, override_n_c_links_validation=True)
+                stripped.append(trimmed_bs)
+            result[plane] = set(stripped) if stripped else None
+            logger.info(f"Plane {plane}: {len(stripped)} stripped plaquette states.")
 
-        return stripped_physical_states
+        return result
 
     @staticmethod
     def _resolve_hamiltonian_for_plaquette(
-            hamiltonian: HamiltonianData,
+            hamiltonian: PlaneKeyedHamiltonianData,
             plane: Plane,
             signature: Signature,
     ) -> List[Tuple[str, str, float]]:
-        """Resolve a HamiltonianData dict to a flat list for a specific plaquette.
+        """
+        'Resolve' a PlaneKeyedHamiltonianData dict to a flat list for a specific plaquette's plane and signature.
 
-        For each entry in the hamiltonian dict (whose values are
-        ``Dict[Plane, Dict[Signature, float]]``):
-        - Look up the current plane. If absent, skip this entry.
-        - Within the plane's sub-dict, look up the current signature.
-          If absent, skip. Otherwise include the float value.
+        The hamiltonian is keyed per-plane-first:
+        ``plane -> (bs1, bs2) -> signature -> float``.
+        This method looks up the given plane, then filters entries by signature.
 
         Returns:
             A flat list of (bitstring1, bitstring2, float) tuples suitable for
             _build_mag_evol_circuit and _sort_matrix_elements_into_lp_bins.
         """
+        plane_data = hamiltonian.get(plane, {})
         resolved: List[Tuple[str, str, float]] = []
-        for (bs1, bs2), value in hamiltonian.items():
-            plane_val = value.get(plane)
-            if plane_val is None:
-                continue
-            sig_val = plane_val.get(signature)
-            if sig_val is None:
-                continue
-            resolved.append((bs1, bs2, float(sig_val)))
+        for (bs1, bs2), sig_dict in plane_data.items():
+            sig_val = sig_dict.get(signature)
+            if sig_val is not None:
+                resolved.append((bs1, bs2, float(sig_val)))
 
         return resolved
 
     def _build_mag_evol_circuit(
         self,
-        resolved_hamiltonian: List[Tuple[str, str, float]],
+        hamiltonian_for_specific_plane_and_signature: List[Tuple[str, str, float]],
         control_fusion: bool,
         physical_states_for_control_pruning: Union[None | Set[str]],
         coupling_g: Parameter,
@@ -785,7 +820,7 @@ class LatticeCircuitManager:
         Build the magnetic time-evolution circuit for a plaquette.
 
         Arguments:
-            resolved_hamiltonian: A flat list of (bitstring1, bitstring2, float)
+            hamiltonian_for_specific_plane_and_signature: A flat list of (bitstring1, bitstring2, float)
                 tuples — the resolved matrix elements for a specific
                 (plane, signature) combination.
             control_fusion: Whether to fuse controls in Givens rotations.
@@ -797,14 +832,14 @@ class LatticeCircuitManager:
                 and dt are ignored and a unique theta[m] parameter is assigned
                 per Givens rotation.
         """
-        n_givens_rotations = len(resolved_hamiltonian)
+        n_givens_rotations = len(hamiltonian_for_specific_plane_and_signature)
         logger.info(f"There are {n_givens_rotations} primitive Givens rotation circuits to be constructed for the plaquette.")
         # Sort the bitstrings corresponding to transitions in the magnetic
         # Hamiltonian into LP bins. This step also computes the angle of Givens
         # rotation for each pair of bitstrings. The resulting Givens rotations
         # are characterized by two parameters: dt and the coupling g.
         lp_bin = LatticeCircuitManager._sort_matrix_elements_into_lp_bins(
-            resolved_hamiltonian,
+            hamiltonian_for_specific_plane_and_signature,
             coupling_g,
             dt,
         )
@@ -829,7 +864,7 @@ class LatticeCircuitManager:
 
         # Iterate over all LP bins and apply givens rotation.
         # Also logs progress of circuit construction at INFO level.
-        plaquette_circ_n_qubits = len(resolved_hamiltonian[0][0])
+        plaquette_circ_n_qubits = len(hamiltonian_for_specific_plane_and_signature[0][0])
         plaquette_local_rotation_circuit = QuantumCircuit(plaquette_circ_n_qubits)
         loop_time_state = None  # For tracking Givens rotation circuit construction progress.
         if (self.num_ancillas > 0):
@@ -875,20 +910,19 @@ class LatticeCircuitManager:
 
         return plaquette_local_rotation_circuit
 
-    def _plaquette_state_has_inconsistent_controls(self, plaquette: PlaquetteState) -> bool:
+    def _plaquette_state_has_inconsistent_controls(self, plaquette: PlaquetteState, plane: Plane) -> bool:
         """
         True if "shared" control links have different states; False otherwise.
 
-        For d=3/2 with per-vertex c_links: v1 controls == v2 controls, v3 controls == v4 controls.
+        For d=3/2: v1 controls == v2 controls, v3 controls == v4 controls (no plane dependence).
 
-        For d=2 with per-vertex c_links and (for example) default FORDER [1,2,3,-1,-2,-3]:
-        Control dirs per vertex: v1=(-1,-2), v2=(+1,-2), v3=(+1,+2), v4=(+2,-1). Note that
-        this method is FORDER-aware.
-        On size-2 periodic lattice, physical link sharing:
-        - v1[0]=dir(-1) shares with v2[0]=dir(+1)
-        - v1[1]=dir(-2) shares with v4[0]=dir(+2)
-        - v2[1]=dir(-2) shares with v3[1]=dir(+2)
-        - v3[0]=dir(+1) shares with v4[1]=dir(-1)
+        For d=2 and d=3: uses direction-based lookups via the per-plane cached ctrl dirs,
+        so results are correct for any F-order and any plane. On a size-2 periodic lattice,
+        the four in-plane sharing pairs are:
+        - v1[dir -e1] shares with v2[dir +e1]
+        - v1[dir -e2] shares with v4[dir +e2]
+        - v2[dir -e2] shares with v3[dir +e2]
+        - v3[dir +e1] shares with v4[dir -e1]
 
         Note that this only makes sense on a small, periodic lattice, so a ValueError
         is raised if the lattice fails those checks.
@@ -897,43 +931,34 @@ class LatticeCircuitManager:
             raise ValueError("Plaquette state consistency check only makes sense on a small, periodic lattice.")
 
         c_links = plaquette[2]
-        match self._encoder.lattice_def.dim:
-            case 1.5:
-                plaquette_state_has_inconsistent_controls = (
-                    c_links[0] != c_links[1] or
-                    c_links[2] != c_links[3]
-                )
-            case 2:
-                # Use direction-based lookups so results are correct for any F-order.
-                # For plane (e1=1, e2=2) on a size-2 periodic lattice, the four shared
-                # physical links are: (v1 dir-e1, v2 dir+e1), (v1 dir-e2, v4 dir+e2),
-                # (v2 dir-e2, v3 dir+e2), (v3 dir+e1, v4 dir-e1).
-                ctrl_dirs = self._cached_ctrl_dirs_d2_small_and_periodic
-                e1, e2 = 1, 2
-                plaquette_state_has_inconsistent_controls = (
-                    (c_links[0][ctrl_dirs[0].index(-e1)] != c_links[1][ctrl_dirs[1].index(e1)]) or
-                    (c_links[0][ctrl_dirs[0].index(-e2)] != c_links[3][ctrl_dirs[3].index(e2)]) or
-                    (c_links[1][ctrl_dirs[1].index(-e2)] != c_links[2][ctrl_dirs[2].index(e2)]) or
-                    (c_links[2][ctrl_dirs[2].index(e1)] != c_links[3][ctrl_dirs[3].index(-e1)])
-                )
-            case _:
-                raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
+        dim = self._encoder.lattice_def.dim
 
-        return plaquette_state_has_inconsistent_controls
+        if dim == 1.5:
+            # d=3/2: wholesale vertex equality, no plane dependence.
+            return c_links[0] != c_links[1] or c_links[2] != c_links[3]
 
-    def _discard_duplicate_controls_from_plaquette_state(self, plaquette: PlaquetteState) -> PlaquetteState:
+        # d=2 and d=3: direction-based lookup using the per-plane cache.
+        ctrl_dirs = self._cached_ctrl_dirs_small_and_periodic[plane]
+        e1, e2 = plane
+        return (
+            (c_links[0][ctrl_dirs[0].index(-e1)] != c_links[1][ctrl_dirs[1].index(e1)]) or
+            (c_links[0][ctrl_dirs[0].index(-e2)] != c_links[3][ctrl_dirs[3].index(e2)]) or
+            (c_links[1][ctrl_dirs[1].index(-e2)] != c_links[2][ctrl_dirs[2].index(e2)]) or
+            (c_links[2][ctrl_dirs[2].index(e1)] != c_links[3][ctrl_dirs[3].index(-e1)])
+        )
+
+    def _discard_duplicate_controls_from_plaquette_state(self, plaquette: PlaquetteState, plane: Plane) -> PlaquetteState:
         """
         Return a new instance of the plaquette where duplicate control link data has been discarded.
 
         For d=3/2: keep v1 and v3 controls, drop v2 and v4 (since v1==v2, v3==v4).
 
-        For d=2 with default FORDER: keep first occurrence of each shared physical link:
-        - v1: both controls are first occurrences
-        - v2: only second (dir -2) is unique; first (dir +1) duplicates v1[0]
-        - v3: only first (dir +1) is unique; second (dir +2) duplicates v2[1]
-        - v4: both duplicate earlier entries
-
-        Note that this method is FORDER-aware.
+        For d=2 and d=3: uses direction-based trimming via the per-plane cached ctrl dirs.
+        Keeps first occurrence of each shared physical link. This method is FORDER-aware.
+        - v1: keep all controls
+        - v2: drop dir +e1 (duplicates v1's dir -e1)
+        - v3: drop dir +e2 (duplicates v2's dir -e2)
+        - v4: drop dir +e2 (duplicates v1's dir -e2) and dir -e1 (duplicates v3's dir +e1)
 
         Since this only makes sense on a small, periodic lattice, a ValueError
         is raised if the lattice is not small and periodic.
@@ -942,24 +967,23 @@ class LatticeCircuitManager:
             raise ValueError("Plaquette state consistency check only makes sense on a small, periodic lattice.")
 
         vertex_multiplicities, a_links, c_links = plaquette
-        match self._encoder.lattice_def.dim:
-            case 1.5:
-                physical_c_links = (c_links[0], (), c_links[2], ())
-            case 2:
-                # Keep first occurrence of each shared physical link.
-                # For plane (e1=1, e2=2): v1 keeps both; v2 keeps dir -e2 only
-                # (dir +e1 duplicates v1's dir -e1); v3 keeps dir +e1 only
-                # (dir +e2 duplicates v2's dir -e2); v4 drops both.
-                ctrl_dirs = self._cached_ctrl_dirs_d2_small_and_periodic
-                e1, e2 = 1, 2
-                physical_c_links = (
-                    c_links[0],
-                    (c_links[1][ctrl_dirs[1].index(-e2)],),
-                    (c_links[2][ctrl_dirs[2].index(e1)],),
-                    ()
-                )
-            case _:
-                raise NotImplementedError(f"Dim {self._encoder.lattice_def.dim} lattice not yet supported.")
+        dim = self._encoder.lattice_def.dim
+
+        if dim == 1.5:
+            physical_c_links = (c_links[0], (), c_links[2], ())
+        else:
+            # d=2 and d=3: direction-based trimming.
+            ctrl_dirs = self._cached_ctrl_dirs_small_and_periodic[plane]
+            e1, e2 = plane
+            physical_c_links = (
+                c_links[0],
+                tuple(c for i, c in enumerate(c_links[1])
+                      if i != ctrl_dirs[1].index(e1)),
+                tuple(c for i, c in enumerate(c_links[2])
+                      if i != ctrl_dirs[2].index(e2)),
+                tuple(c for i, c in enumerate(c_links[3])
+                      if i != ctrl_dirs[3].index(e2) and i != ctrl_dirs[3].index(-e1)),
+            )
 
         plaquette_with_filtered_c_links = (vertex_multiplicities, a_links, physical_c_links)
         return plaquette_with_filtered_c_links

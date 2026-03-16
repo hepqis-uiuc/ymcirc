@@ -50,6 +50,7 @@ def configure_script_options(
         mag_hamiltonian_matrix_element_threshold: float | int = 0,
         optimize_circuits: bool = False,
         method: str = 'statevector',
+        matrix_product_state_max_bond_dimension: int | None = None,
         mag_hamiltonian_use_electric_vacuum_transitions_only: bool = False,
         warn_unphysical_links: bool = True,
         error_unphysical_links: bool = False,
@@ -128,6 +129,10 @@ def configure_script_options(
         - method:
               String specification of the simulation method to use to transpile/execute circuits.
               See Qiskit Aer documentation for current list of valid options.
+        - matrix_product_state_max_bond_dimension:
+              The maximium bond dimension to be used if method specifies use of MPS simulation.
+              If None, no limit. If method does not specify MPS simulation, this setting is ignored.
+              See Qiskit Aer documentation for current information about this option.
         - mag_hamiltonian_use_electric_vacuum_transitions_only:
               If True, all
               magnetic Hamiltonian matrix elements which don't induce transitions
@@ -194,6 +199,7 @@ def configure_script_options(
     options["mag_hamiltonian_matrix_element_threshold"] = mag_hamiltonian_matrix_element_threshold
     options["optimize_circuits"] = optimize_circuits
     options["method"] = method
+    options["matrix_product_state_max_bond_dimension"] = matrix_product_state_max_bond_dimension
     options["n_trotter_steps"] = n_trotter_steps
     options["sim_times"] = sim_times
     options["mag_hamiltonian_use_electric_vacuum_transitions_only"] = mag_hamiltonian_use_electric_vacuum_transitions_only
@@ -388,7 +394,13 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
     Returns the results as a DataFrame.
     """
     # Set up objects needed for executing circuits and processing results.
-    simulator = AerSimulator(method=script_options['method'])
+    if script_options['method'] == 'matrix_product_state':
+        simulator = AerSimulator(
+            method=script_options['method'],
+            matrix_product_state_max_bond_dimension=script_options['matrix_product_state_max_bond_dimension'])
+        print(f"MPS simulation with max bond dimension: {script_options['matrix_product_state_max_bond_dimension']}")
+    else:
+        simulator = AerSimulator(method=script_options['method'])
     n_ancilla_qubits = len(circuit.ancillas)
     n_total_qubits = len(circuit.qubits)
     n_data_qubits = n_total_qubits - n_ancilla_qubits
