@@ -19,6 +19,7 @@ Currently supported truncations:
 
 - T1: contains 1, 3, 3bar
 - T2: contains T1 along with 6, 6bar, and 8
+- B3: Limits total E^2 Casimir value at a vertex to 3.
 
 Each truncation is a dictionary which map length-3 tuples to unique bit strings.
 The tuples represent "i-Weights", which are a way of uniquely labeling
@@ -54,10 +55,12 @@ contains data for the following cases
 - d=3/2, T1
 - d=3/2, T2
 - d=2, T1
+- d=3, B3
 
 T1 refers to the ONE, THREE, THREE_BAR truncation, while T2 includes the
-additional states SIX, SIX_BAR, and EIGHT. To get the physical states for a particular
-case, use the following syntax:
+additional states SIX, SIX_BAR, and EIGHT. B-truncations instead limit
+the maximum sum of electric Casimirs meeting at a given vertex.
+To get the physical states for a particular case, use the following syntax:
 
 PHYSICAL_PLAQUETTE_STATES["d=2"]["T2"]
 
@@ -126,15 +129,23 @@ that of PHYSICAL_PLAQUETTE_STATES, and contains the same cases.
 Once a particular case of dimension and truncation has been chosen,
 the actual matrix element data takes the form of a
 dictionary whose keys are tuples (final_plaquette_state, initial_plaquette_state)
-and whose values are floats. The plaquette state data consists of nested tuples conveying
-vertex bag states and link states. As an example,
+and whose values are themselves dicts (see the type alias MatrixElementValue, defined in this module).
+As an example of the data shape for d=3:
 
-HAMILTONIAN_BOX_TERMS["d=3/2"]["T1"] = {
-    (plaq_1, plaq_2): 0.9999999999999994,
-    (plaq_3, plaq_4): 0.33333333333333304,
+HAMILTONIAN_BOX_TERMS["d=3"][trunc_string] = {
+    (plaq_1, plaq_2): {
+        (1, 2): {sig_1: 0.9, ...},
+        (1, 3): {sig_2: 0.3, ...},
+        (2, 3): {sig_3: 0.5, ...},
+    },
     ...
 }
-with plaq_1 through plaq_4 taking the form described above for plaquette states.
+
+plaq_1 and plaq_2 taking the form described above for plaquette states.
+The lower dict level of nested plane tuples is present even for d=3/2 and d=2,
+and the lowest level of dictionary has keys which are Signature-valued (see the
+relevant type alias in this module).
+
 See the definition of HAMILTONIAN_BOX_TERMS below for a complete listing of all available
 combinations of dimension and truncation data. NOTE AGAIN: "d=3/2" works but
 "d=1.5" will cause a KeyError.
