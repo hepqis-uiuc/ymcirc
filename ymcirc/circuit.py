@@ -31,9 +31,13 @@ import numpy as np
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
 
-# Per-plane-first resolved Hamiltonian: plane -> (bs1, bs2) -> signature -> float.
+# Circuit construction needs to generically iterate over planes.
+# Since it's more efficient to store matrix element data on-disk
+# in a formate where the top level key is a pair of plaquette states,
+# we re-index when doing circuit construction.
+# A dict with key hierarchy: plane -> (bs1, bs2) -> signature -> float.
 # Bitstring keys are already trimmed on small periodic lattices.
-ResolvedHamiltonianData = Dict[Plane, Dict[Tuple[str, str], Dict[Signature, float]]]
+PlaneKeyedHamiltonianData = Dict[Plane, Dict[Tuple[str, str], Dict[Signature, float]]]
 
 
 class LatticeCircuitManager:
@@ -114,7 +118,7 @@ class LatticeCircuitManager:
         # On small periodic lattices, also filter inconsistent entries and trim
         # duplicate control links per-plane. A given (bs1, bs2) entry may be
         # consistent for one plane but not another, so filtering is per-plane.
-        resolved: ResolvedHamiltonianData = {}
+        plane_keyed_hamiltonian_data: PlaneKeyedHamiltonianData = {}
         if self._lattice_is_small is True and self._lattice_is_periodic is True:
             for (final_bs, initial_bs), matrix_elem_value in _input_hamiltonian.items():
                 final_ps = lattice_encoder.decode_bit_string_to_plaquette_state(final_bs)
@@ -134,20 +138,20 @@ class LatticeCircuitManager:
                             initial_trimmed, override_n_c_links_validation=True),
                     )
 
-                    if plane not in resolved:
-                        resolved[plane] = {}
-                    if trimmed_key in resolved[plane]:
-                        resolved[plane][trimmed_key].update(sig_dict)
+                    if plane not in plane_keyed_hamiltonian_data:
+                        plane_keyed_hamiltonian_data[plane] = {}
+                    if trimmed_key in plane_keyed_hamiltonian_data[plane]:
+                        plane_keyed_hamiltonian_data[plane][trimmed_key].update(sig_dict)
                     else:
-                        resolved[plane][trimmed_key] = dict(sig_dict)
+                        plane_keyed_hamiltonian_data[plane][trimmed_key] = dict(sig_dict)
         else:
             # Large or non-periodic: pivot to per-plane-first without filtering/trimming.
             for (bs1, bs2), matrix_elem_value in _input_hamiltonian.items():
                 for plane, sig_dict in matrix_elem_value.items():
-                    if plane not in resolved:
-                        resolved[plane] = {}
-                    resolved[plane][(bs1, bs2)] = dict(sig_dict)
-        self._mag_hamiltonian = resolved
+                    if plane not in plane_keyed_hamiltonian_data:
+                        plane_keyed_hamiltonian_data[plane] = {}
+                    plane_keyed_hamiltonian_data[plane][(bs1, bs2)] = dict(sig_dict)
+        self._mag_hamiltonian = plane_keyed_hamiltonian_data
 
     def __repr__(self):
         class_name = type(self).__name__
@@ -565,10 +569,10 @@ class LatticeCircuitManager:
                     _skip_indices[(plane, 2)] = {ctrl_dirs[2].index(e2)}
                     _skip_indices[(plane, 3)] = {ctrl_dirs[3].index(e2), ctrl_dirs[3].index(-e1)}
 
-        # Local cache for resolved Hamiltonian data per (plane, signature).
+        # Local cache for Hamiltonian data per (plane, signature).
         # On periodic lattices, all plaquettes share the same key, so this
         # avoids re-iterating over self._mag_hamiltonian for every plaquette.
-        _resolved_hamiltonian_cache: Dict[Tuple[Plane, Signature], List] = {}
+        _per_plane_and_signature_hamiltonian_cache: Dict[Tuple[Plane, Signature], List] = {}
 
         # Stitch magnetic Hamiltonian evolution circuit onto LatticeRegisters.
         # Vertex iteration loop.
@@ -593,17 +597,17 @@ class LatticeCircuitManager:
 
             # For each plaquette, apply the the local Trotter step circuit.
             for plaquette in plaquettes:
-                # Resolve the hamiltonian for this plaquette's plane and signature.
+                # Resolve the Hamiltonian for this plaquette's plane and signature.
                 plaquette_plane: Plane = plaquette.plane
                 plaquette_signature: Signature = plaquette.signature
                 cache_key = (plaquette_plane, plaquette_signature)
-                if cache_key in _resolved_hamiltonian_cache:
-                    resolved_hamiltonian = _resolved_hamiltonian_cache[cache_key]
+                if cache_key in _per_plane_and_signature_hamiltonian_cache:
+                    hamiltonian_current_plane_and_signature = _per_plane_and_signature_hamiltonian_cache[cache_key]
                 else:
-                    resolved_hamiltonian = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(
+                    hamiltonian_current_plane_and_signature = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(
                         self._mag_hamiltonian, plaquette_plane, plaquette_signature
                     )
-                    _resolved_hamiltonian_cache[cache_key] = resolved_hamiltonian
+                    _per_plane_and_signature_hamiltonian_cache[cache_key] = hamiltonian_current_plane_and_signature
 
                 # Build or fetch the cached template circuit for this (plane, signature).
                 # When givens_have_independent_params is True, the template must
@@ -627,7 +631,7 @@ class LatticeCircuitManager:
                         else physical_states_for_control_pruning
                     )
                     plaquette_local_rotation_circuit_template = self._build_mag_evol_circuit(
-                        resolved_hamiltonian,
+                        hamiltonian_current_plane_and_signature,
                         control_fusion,
                         effective_pruning_states,
                         coupling_g=Parameter('coupling_g_mag_placeholder'),
@@ -778,11 +782,12 @@ class LatticeCircuitManager:
 
     @staticmethod
     def _resolve_hamiltonian_for_plaquette(
-            hamiltonian: ResolvedHamiltonianData,
+            hamiltonian: PlaneKeyedHamiltonianData,
             plane: Plane,
             signature: Signature,
     ) -> List[Tuple[str, str, float]]:
-        """Resolve a ResolvedHamiltonianData dict to a flat list for a specific plaquette.
+        """
+        'Resolve' a PlaneKeyedHamiltonianData dict to a flat list for a specific plaquette's plane and signature.
 
         The hamiltonian is keyed per-plane-first:
         ``plane -> (bs1, bs2) -> signature -> float``.
@@ -803,7 +808,7 @@ class LatticeCircuitManager:
 
     def _build_mag_evol_circuit(
         self,
-        resolved_hamiltonian: List[Tuple[str, str, float]],
+        hamiltonian_for_specific_plane_and_signature: List[Tuple[str, str, float]],
         control_fusion: bool,
         physical_states_for_control_pruning: Union[None | Set[str]],
         coupling_g: Parameter,
@@ -815,7 +820,7 @@ class LatticeCircuitManager:
         Build the magnetic time-evolution circuit for a plaquette.
 
         Arguments:
-            resolved_hamiltonian: A flat list of (bitstring1, bitstring2, float)
+            hamiltonian_for_specific_plane_and_signature: A flat list of (bitstring1, bitstring2, float)
                 tuples — the resolved matrix elements for a specific
                 (plane, signature) combination.
             control_fusion: Whether to fuse controls in Givens rotations.
@@ -827,14 +832,14 @@ class LatticeCircuitManager:
                 and dt are ignored and a unique theta[m] parameter is assigned
                 per Givens rotation.
         """
-        n_givens_rotations = len(resolved_hamiltonian)
+        n_givens_rotations = len(hamiltonian_for_specific_plane_and_signature)
         logger.info(f"There are {n_givens_rotations} primitive Givens rotation circuits to be constructed for the plaquette.")
         # Sort the bitstrings corresponding to transitions in the magnetic
         # Hamiltonian into LP bins. This step also computes the angle of Givens
         # rotation for each pair of bitstrings. The resulting Givens rotations
         # are characterized by two parameters: dt and the coupling g.
         lp_bin = LatticeCircuitManager._sort_matrix_elements_into_lp_bins(
-            resolved_hamiltonian,
+            hamiltonian_for_specific_plane_and_signature,
             coupling_g,
             dt,
         )
@@ -859,7 +864,7 @@ class LatticeCircuitManager:
 
         # Iterate over all LP bins and apply givens rotation.
         # Also logs progress of circuit construction at INFO level.
-        plaquette_circ_n_qubits = len(resolved_hamiltonian[0][0])
+        plaquette_circ_n_qubits = len(hamiltonian_for_specific_plane_and_signature[0][0])
         plaquette_local_rotation_circuit = QuantumCircuit(plaquette_circ_n_qubits)
         loop_time_state = None  # For tracking Givens rotation circuit construction progress.
         if (self.num_ancillas > 0):
