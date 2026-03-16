@@ -581,7 +581,7 @@ class LatticeCircuitManager:
                 continue
 
             # Get the plaquettes for the current vertex.
-            logger.debug(f"Fetching all positive plaquettes at vertex {vertex_address}.")
+            logger.info(f"Fetching all positive plaquettes at vertex {vertex_address}.")
             has_only_one_positive_plaquette = lattice.dim == 1.5 or lattice.dim == 2
             if has_only_one_positive_plaquette:
                 plaquettes: List[Plaquette] = [

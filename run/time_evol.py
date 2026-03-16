@@ -39,12 +39,13 @@ if __name__ == "__main__":
         lattice_size=2,
         sim_times=np.linspace(0.0, 2.5, num=20),
         n_trotter_steps=2,
-        n_shots=10000,
+        n_shots=10000,  # Set to None to skip circuit execution.
         use_ancillas=True,
         control_fusion=True,
         prune_controls=True,
         warn_unphysical_links=True,
         method='matrix_product_state',  # matrix_product_state, statevector, etc. See Qiskit Aer docs.
+        matrix_product_state_max_bond_dimension=None, # Set to None if no limit desired. Ignored for non-MPS methods.
         cache_mag_evol_circuit=True,
         load_circuit_from_file=None,  # Replace with file path if desired.
         save_circuit_to_qasm=False,
