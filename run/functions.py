@@ -434,7 +434,7 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
     # for each electric or magnetic Trotter step individually,
     # but in this case, we use the same dt for both at each total sim duration,
     # and use one value of the coupling g for all simulations.
-    # (2026/03/17): For MPS simulations, AerSimulator.configuration().n_qubits is a conservative
+    # For MPS simulations (Aer version 0.17.2), AerSimulator.configuration().n_qubits is a conservative
     # metadata estimate (hardcoded to 63) that the Qiskit transpiler enforces as a hard qubit-count
     # cap. For large circuits we temporarily raise it to the actual circuit size so transpilation
     # succeeds; the MPS simulator itself imposes no such limit.
