@@ -45,7 +45,7 @@ if __name__ == "__main__":
         prune_controls=True,
         warn_unphysical_links=True,
         method='matrix_product_state',  # matrix_product_state, statevector, etc. See Qiskit Aer docs. For Aer version 0.17.2, AerSimulator has a hard cap of 63 qubits for MPS simulations. functions.py includes workaround hack for MPS simulations.
-        matrix_product_state_max_bond_dimension=8, # Set to None if no limit desired. Set to a small integer value if MPS simulations take a long time. Ignored for non-MPS methods.
+        matrix_product_state_max_bond_dimension=16, # Set to None if no limit desired. Set to a small integer value if MPS simulations take a long time, but note that if too small circuit execution can fail with BLAS errors. Ignored for non-MPS methods.
         cache_mag_evol_circuit=True,
         load_circuit_from_file=None,  # Replace with file path if desired.
         save_circuit_to_qasm=False,
