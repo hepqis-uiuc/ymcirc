@@ -308,19 +308,13 @@ IRREP_TRUNCATIONS: Dict[str, IrrepBitmap] = {
         SIX_BAR: "011",
         EIGHT: "111"
     },
-    "B7_d=3/2": {
+    "B7_d=3/2,d=2": {
         ONE: "000",
         THREE: "100",
         THREE_BAR: "001",
         SIX: "110",
         SIX_BAR: "011",
         EIGHT: "111"
-    },
-    "B7_d=2": {
-        ONE: "00",
-        THREE: "10",
-        THREE_BAR: "01",
-        EIGHT: "11"
     },
     "B8_d=3/2": {
         ONE: "000",
