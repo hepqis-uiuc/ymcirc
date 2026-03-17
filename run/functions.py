@@ -222,8 +222,26 @@ def configure_script_options(
     options["load_circuit_from_file"] = load_circuit_from_file
 
     # Automatically set some additional options based on user input above.
+    # TODO refactor to avoid the wonky indexing necessary for B truncations.
     options["dimensions"] = 1.5 if (dimensionality_string == "d=3/2" or dimensionality_string == "d=1.5") else int(dimensionality_string[2:])
-    options["link_bitmap"] = IRREP_TRUNCATIONS[options["truncation_string"]]
+    if options["truncation_string"] in IRREP_TRUNCATIONS.keys():
+        options["link_bitmap"] = IRREP_TRUNCATIONS[options["truncation_string"]]
+    else:
+        SEPARATOR_TRUNC_DIM = "_"
+        SEPARATOR_DIMS = ","
+        for current_trunc in IRREP_TRUNCATIONS.keys():
+            if SEPARATOR_TRUNC_DIM not in current_trunc:
+                continue
+            trunc_prefix, dim_suffix = current_trunc.split(SEPARATOR_TRUNC_DIM)
+            dims_available_for_trunc = dim_suffix.split(SEPARATOR_DIMS)
+            if trunc_prefix == options["truncation_string"] and options["dimensionality_string"] in dims_available_for_trunc:
+                options["link_bitmap"] = IRREP_TRUNCATIONS[current_trunc]
+        if not "link_bitmap" in options:
+            raise ValueError(
+                f"Failed to fetch link bitmap for specified case {options['dimensionality_string']}, {options['truncation_string']}. "
+                f"Available irrep data:\n{IRREP_TRUNCATIONS.keys()}.\n"
+                "Truncations where only specific dimensions are available are denoted with a dimensionality substring. This substring is automatically checked."
+            )
 
     # Trigger lazy data load, then read f_order from metadata so the LatticeDef
     # uses the same F-order convention the data was generated with.
