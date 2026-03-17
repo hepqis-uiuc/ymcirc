@@ -434,6 +434,19 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
     # for each electric or magnetic Trotter step individually,
     # but in this case, we use the same dt for both at each total sim duration,
     # and use one value of the coupling g for all simulations.
+    # (2026/03/17): For MPS simulations, AerSimulator.configuration().n_qubits is a conservative
+    # metadata estimate (hardcoded to 63) that the Qiskit transpiler enforces as a hard qubit-count
+    # cap. For large circuits we temporarily raise it to the actual circuit size so transpilation
+    # succeeds; the MPS simulator itself imposes no such limit.
+    n_circuit_qubits = len(circuit.qubits)
+    original_simulator_n_qubits = simulator.configuration().n_qubits
+    _mps_n_qubits_overridden = (
+        script_options['method'] == 'matrix_product_state'
+        and n_circuit_qubits > original_simulator_n_qubits
+    )
+    if _mps_n_qubits_overridden:
+        simulator._set_configuration_option("n_qubits", n_circuit_qubits)
+
     transpiled_circuits_with_assigned_params = []
     for idx, sim_time in enumerate(script_options["sim_times"]):
         print(f"Setting parameters for circuit {idx+1}/{len(script_options['sim_times'])} (sim_time = {sim_time})")
@@ -449,6 +462,9 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
         transpiled_circuit_with_final_measurement.measure_all()
         transpiled_circuit_with_final_measurement = transpile(transpiled_circuit_with_final_measurement, simulator, optimization_level=3)
         transpiled_circuits_with_assigned_params.append(transpiled_circuit_with_final_measurement)
+
+    if _mps_n_qubits_overridden:
+        simulator._set_configuration_option("n_qubits", original_simulator_n_qubits)
     print(f"Gate counts for circuit(s) after transpiling with set params for '{script_options['method']}' simulation method:\n{transpiled_circuits_with_assigned_params[0].count_ops()}")
 
     # Execute circuits.
