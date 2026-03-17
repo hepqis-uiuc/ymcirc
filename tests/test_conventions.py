@@ -81,11 +81,11 @@ def test_physical_plaquette_state_data_are_valid():
                             f"Non-int element in control link: {c_link}."
 
 
-def test_hamiltonian_box_terms_no_unexpected_cases():
+def test_hamiltonian_box_terms_no_unexpected_cases(expected_dim_string, expected_trunc_cases):
     expected_box_term_dim_trunc_cases = {
-        "d=3/2": set(["T1", "T2"]),
-        "d=2": set(["T1"]),
-        "d=3": set(["B3"])
+        "d=3/2": set(["T1", "T2", "B3", "B5", "B6", "B7", "B8", "B9", "B10"]),
+        "d=2": set(["T1", "B3", "B4", "B7"]),
+        "d=3": set(["B3", "B4"])
     }
     print(
         "Checking that the following dimension/truncation cases have matrix element data, and that no unexpected cases come up:\n"
@@ -105,9 +105,9 @@ def test_hamiltonian_box_terms_no_unexpected_cases():
             assert actual_trunc in expected_box_term_dim_trunc_cases[actual_dim], f"{actual_dim}, {actual_trunc} was unexpected."
 
 
-def test_load_magnetic_hamiltonian_constructs_correct_num_rotations():
+def test_compute_all_rotations_from_just_box_terms_constructs_correct_num_rotations():
     print(
-        "Checking that loading magnetic Hamiltonian data yields the right number of Givens rotations. "
+        "Checking that the helper function called during loading mag Hamiltonian data constructs the right number of Givens rotations. "
         "Since H = box + box^dagger with vanishing diagonals, there should be (1/2)n(n-1) rotations "
         "for an nxn matrix."
     )
@@ -200,10 +200,26 @@ def test_compute_all_rotations_handles_dict_valued_matrix_elements():
         plane_b: {sig_a: 0.3},
     }
 
-
-def test_matrix_element_data_are_valid_d_3_2_T1():
-    dim_string = "d=3/2"
-    trunc_string = "T1"
+# TODO mark slow?
+@pytest.mark.parametrize("dim_string,trunc_string", [
+    ("d=3/2", "T1"),
+    ("d=3/2", "T2"),
+    ("d=3/2", "B3"),
+    ("d=3/2", "B3"),
+    ("d=3/2", "B5"),
+    ("d=3/2", "B6"),
+    ("d=3/2", "B7"),
+    ("d=3/2", "B8"),
+    ("d=3/2", "B9"),
+    ("d=3/2", "B10"),
+    ("d=2", "T1"),
+    ("d=2", "B3"),
+    ("d=2", "B4"),
+    ("d=2", "B7"),
+    ("d=3", "B3"),
+    ("d=3", "B4"),
+])
+def test_matrix_element_data_are_valid(dim_string, trunc_string):
     print(f"Checking that matrix element data are valid for {dim_string}, {trunc_string}.")
     current_iter = 0
     for (state_f, state_i), mat_elem_val in HAMILTONIAN_BOX_TERMS[dim_string][trunc_string].items():
