@@ -1278,7 +1278,8 @@ def test_decoding_fails_when_len_bit_string_doesnt_match_bitmaps():
 
 
 def test_non_default_forder_plaquette_encode_decode_round_trip():
-    """Check that encode/decode round-trips correctly with non-default forder (Issue 11c).
+    """
+    Check that encode/decode round-trips correctly with non-default forder.
 
     Also verifies that the same physical state (same irreps on same physical links)
     produces a different bit string when represented in a different forder convention,
