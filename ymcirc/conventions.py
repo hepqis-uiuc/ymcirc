@@ -15,11 +15,13 @@ The constant IRREP_TRUNCATIONS is a dict of possible choices of link irrep state
 to include in a simulation. A particular choice of such states is referred to
 as a truncation throughout this codebase. The keys of IRREP_TRUNCATIONS correspond
 to particular choices of truncation, and the values are the actual bit string encodings.
-Currently supported truncations:
+Example truncations:
 
 - T1: contains 1, 3, 3bar
 - T2: contains T1 along with 6, 6bar, and 8
-- B3: Limits total E^2 Casimir value at a vertex to 3.
+- B3 (d=3/2, 2, 3): Limits total E^2 Casimir value at a vertex to 3.
+
+Consult IRREP_TRUNCATIONS for a complete list of currently supported irrep truncations.
 
 Each truncation is a dictionary which map length-3 tuples to unique bit strings.
 The tuples represent "i-Weights", which are a way of uniquely labeling
@@ -34,6 +36,8 @@ i-Weight values:
 - SIX = (2, 0, 0)
 - SIX_BAR = (2, 2, 0)
 - EIGHT = (2, 1, 0)
+- FIFTEEN = (3, 1, 0)
+- FIFTEEN_BAR = (3, 2, 0)
 
 There are generically "leftover" states when encoding a particular truncation
 into a set of qubits (i.e. the state space of a link in a particular truncation
@@ -49,12 +53,10 @@ which yield various "multiplicites" of singlets.
 ########## Physical plaquette states, and singlet multiplicities ##########
 
 The dict of (lazy-loaded) dicts PHYSICAL_PLAQUETTE_STATES consists of all the single-plaquette
-gauge-invariant states in a particular lattice geometry and truncation. The dict
-contains data for the following cases
+gauge-invariant states in a particular lattice geometry and truncation. For example, the dict
+contains data for (among other cases, see below):
 
-- d=3/2, T1
-- d=3/2, T2
-- d=2, T1
+- d=3/2, T1 or T2
 - d=3, B3
 
 T1 refers to the ONE, THREE, THREE_BAR truncation, while T2 includes the
@@ -66,6 +68,10 @@ PHYSICAL_PLAQUETTE_STATES["d=2"]["T2"]
 
 Since the key in this dict is a string, spacing and capitalization is
 necessary. NOTE: "d=3/2" works but "d=1.5" will cause a KeyError.
+Additionally, some truncations depend on dimension; in such cases, there
+is a string postfix to the truncation key which lists applicable dimensions.
+See PHYSICAL_PLAQUETTE_STATES in this module for a current list of cases.
+
 The entries in the physical states dict consist of lists of all the
 single-plaquete gauge-invariant states in that particular dimensionality and truncation.
 The plaquette data takes the form a tuple of tuples:
@@ -178,24 +184,47 @@ _PLAQUETTE_STATES_DATA_DIR = _PROJECT_ROOT / "_ymcirc_data/plaquette-states/"
 _HAMILTONIAN_DATA_FILE_PATHS: Dict[str, Dict[str, Path]] = {
     "d=3/2": {
         "T1": _HAMILTONIAN_DATA_DIR / "T1_dim(3_2)_magnetic_hamiltonian.json.gz",
-        "T2": _HAMILTONIAN_DATA_DIR / "T2_dim(3_2)_magnetic_hamiltonian.json.gz"},
+        "T2": _HAMILTONIAN_DATA_DIR / "T2_dim(3_2)_magnetic_hamiltonian.json.gz",
+        "B3": _HAMILTONIAN_DATA_DIR / "B3_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
+        "B5": _HAMILTONIAN_DATA_DIR / "B5_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
+        "B6": _HAMILTONIAN_DATA_DIR / "B6_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
+        "B7": _HAMILTONIAN_DATA_DIR / "B7_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
+        "B8": _HAMILTONIAN_DATA_DIR / "B8_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
+        "B9": _HAMILTONIAN_DATA_DIR / "B9_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
+        "B10": _HAMILTONIAN_DATA_DIR / "B10_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
+    },
     "d=2": {
-        "T1": _HAMILTONIAN_DATA_DIR / "T1_dim(2)_magnetic_hamiltonian.json.gz"
+        "T1": _HAMILTONIAN_DATA_DIR / "T1_dim(2)_magnetic_hamiltonian.json.gz",
+        "B3": _HAMILTONIAN_DATA_DIR / "B3_dim(2)_PBC_magnetic_hamiltonian.json.gz",
+        "B4": _HAMILTONIAN_DATA_DIR / "B4_dim(2)_PBC_magnetic_hamiltonian.json.gz",
+        "B7": _HAMILTONIAN_DATA_DIR / "B7_dim(2)_PBC_magnetic_hamiltonian.json.gz",
     },
     "d=3": {
-        "B3": _HAMILTONIAN_DATA_DIR / "B3_dim(3)_cube_PBC_magnetic_hamiltonian.json.gz"
+        "B3": _HAMILTONIAN_DATA_DIR / "B3_dim(3)_PBC_magnetic_hamiltonian.json.gz",
+        "B4": _HAMILTONIAN_DATA_DIR / "B4_dim(3)_PBC_magnetic_hamiltonian.json.gz",
     }
 }
 _PLAQUETTE_STATES_DATA_FILE_PATHS: Dict[str, Dict[str, Path]] = {
     "d=3/2": {
         "T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(3_2)_plaquette_states.json.gz",
-        "T2": _PLAQUETTE_STATES_DATA_DIR / "T2_dim(3_2)_plaquette_states.json.gz"
+        "T2": _PLAQUETTE_STATES_DATA_DIR / "T2_dim(3_2)_plaquette_states.json.gz",
+        "B3": _PLAQUETTE_STATES_DATA_DIR / "B3_dim(3_2)_PBC_plaquette_states.json.gz",
+        "B5": _PLAQUETTE_STATES_DATA_DIR / "B5_dim(3_2)_PBC_plaquette_states.json.gz",
+        "B6": _PLAQUETTE_STATES_DATA_DIR / "B6_dim(3_2)_PBC_plaquette_states.json.gz",
+        "B7": _PLAQUETTE_STATES_DATA_DIR / "B7_dim(3_2)_PBC_plaquette_states.json.gz",
+        "B8": _PLAQUETTE_STATES_DATA_DIR / "B8_dim(3_2)_PBC_plaquette_states.json.gz",
+        "B9": _PLAQUETTE_STATES_DATA_DIR / "B9_dim(3_2)_PBC_plaquette_states.json.gz",
+        "B10": _PLAQUETTE_STATES_DATA_DIR / "B10_dim(3_2)_PBC_plaquette_states.json.gz",
     },
     "d=2": {
-        "T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(2)_plaquette_states.json.gz"
+        "T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(2)_plaquette_states.json.gz",
+        "B3": _PLAQUETTE_STATES_DATA_DIR / "B3_dim(2)_PBC_plaquette_states.json.gz",
+        "B4": _PLAQUETTE_STATES_DATA_DIR / "B4_dim(2)_PBC_plaquette_states.json.gz",
+        "B7": _PLAQUETTE_STATES_DATA_DIR / "B7_dim(2)_PBC_plaquette_states.json.gz",
     },
     "d=3": {
-        "B3": _PLAQUETTE_STATES_DATA_DIR / "B3_dim(3)_cube_PBC_plaquette_states.json.gz"
+        "B3": _PLAQUETTE_STATES_DATA_DIR / "B3_dim(3)_PBC_plaquette_states.json.gz",
+        "B4": _PLAQUETTE_STATES_DATA_DIR / "B4_dim(3)_PBC_plaquette_states.json.gz",
     }
 }
 
@@ -227,14 +256,18 @@ EncodedPlaquetteTransition = Tuple[str, str]
 HamiltonianData = Dict[EncodedPlaquetteTransition, MatrixElementValue]
 
 # Irrep iweights (top row of GT pattern).
+# Note: related to (p, q) scheme via (p + q, q, 0).
 ONE: IrrepWeight = (0, 0, 0)
 THREE: IrrepWeight = (1, 0, 0)
 THREE_BAR: IrrepWeight = (1, 1, 0)
 SIX: IrrepWeight = (2, 0, 0)
 SIX_BAR: IrrepWeight = (2, 2, 0)
 EIGHT: IrrepWeight = (2, 1, 0)
+FIFTEEN: IrrepWeight = (3, 1, 0)
+FIFTEEN_BAR: IrrepWeight = (3, 2, 0)
 
 # Irrep encoding bitmaps.
+# TODO: refactor to make this depend on separate dimension and truncation keys.
 IRREP_TRUNCATIONS: Dict[str, IrrepBitmap] = {
     "T1": {
         ONE: "00",
@@ -250,10 +283,64 @@ IRREP_TRUNCATIONS: Dict[str, IrrepBitmap] = {
         EIGHT: "111"
     },
     # B-series truncations from pyclebsch (distinct from T-series).
+    # When there is a difference between dimensions, key includes dimensional suffix
+    # Constituting a list of dimensions for which the irrep content applies.
     "B3": {
         ONE: "00",
         THREE: "10",
         THREE_BAR: "01"
+    },
+    "B4_d=2,d=3": {
+        ONE: "00",
+        THREE: "10",
+        THREE_BAR: "01"
+    },
+    "B5_d=3/2": {
+        ONE: "00",
+        THREE: "10",
+        THREE_BAR: "01"
+    },
+    "B6_d=3/2": {
+        ONE: "000",
+        THREE: "100",
+        THREE_BAR: "001",
+        SIX: "110",
+        SIX_BAR: "011",
+        EIGHT: "111"
+    },
+    "B7_d=3/2,d=2": {
+        ONE: "000",
+        THREE: "100",
+        THREE_BAR: "001",
+        SIX: "110",
+        SIX_BAR: "011",
+        EIGHT: "111"
+    },
+    "B8_d=3/2": {
+        ONE: "000",
+        THREE: "100",
+        THREE_BAR: "001",
+        SIX: "110",
+        SIX_BAR: "011",
+        EIGHT: "111"
+    },
+    "B9_d=3/2": {
+        ONE: "000",
+        THREE: "100",
+        THREE_BAR: "001",
+        SIX: "110",
+        SIX_BAR: "011",
+        EIGHT: "111"
+    },
+    "B10_d=3/2": {
+        ONE: "000",
+        THREE: "100",
+        THREE_BAR: "001",
+        SIX: "110",
+        SIX_BAR: "011",
+        EIGHT: "111",
+        FIFTEEN: "101",
+        FIFTEEN_BAR: "010"
     }
 }
 

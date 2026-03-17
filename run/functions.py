@@ -222,8 +222,26 @@ def configure_script_options(
     options["load_circuit_from_file"] = load_circuit_from_file
 
     # Automatically set some additional options based on user input above.
+    # TODO refactor to avoid the wonky indexing necessary for B truncations.
     options["dimensions"] = 1.5 if (dimensionality_string == "d=3/2" or dimensionality_string == "d=1.5") else int(dimensionality_string[2:])
-    options["link_bitmap"] = IRREP_TRUNCATIONS[options["truncation_string"]]
+    if options["truncation_string"] in IRREP_TRUNCATIONS.keys():
+        options["link_bitmap"] = IRREP_TRUNCATIONS[options["truncation_string"]]
+    else:
+        SEPARATOR_TRUNC_DIM = "_"
+        SEPARATOR_DIMS = ","
+        for current_trunc in IRREP_TRUNCATIONS.keys():
+            if SEPARATOR_TRUNC_DIM not in current_trunc:
+                continue
+            trunc_prefix, dim_suffix = current_trunc.split(SEPARATOR_TRUNC_DIM)
+            dims_available_for_trunc = dim_suffix.split(SEPARATOR_DIMS)
+            if trunc_prefix == options["truncation_string"] and options["dimensionality_string"] in dims_available_for_trunc:
+                options["link_bitmap"] = IRREP_TRUNCATIONS[current_trunc]
+        if not "link_bitmap" in options:
+            raise ValueError(
+                f"Failed to fetch link bitmap for specified case {options['dimensionality_string']}, {options['truncation_string']}. "
+                f"Available irrep data:\n{IRREP_TRUNCATIONS.keys()}.\n"
+                "Truncations where only specific dimensions are available are denoted with a dimensionality substring. This substring is automatically checked."
+            )
 
     # Trigger lazy data load, then read f_order from metadata so the LatticeDef
     # uses the same F-order convention the data was generated with.
@@ -416,6 +434,19 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
     # for each electric or magnetic Trotter step individually,
     # but in this case, we use the same dt for both at each total sim duration,
     # and use one value of the coupling g for all simulations.
+    # For MPS simulations (Aer version 0.17.2), AerSimulator.configuration().n_qubits is a conservative
+    # metadata estimate (hardcoded to 63) that the Qiskit transpiler enforces as a hard qubit-count
+    # cap. For large circuits we temporarily raise it to the actual circuit size so transpilation
+    # succeeds; the MPS simulator itself imposes no such limit.
+    n_circuit_qubits = len(circuit.qubits)
+    original_simulator_n_qubits = simulator.configuration().n_qubits
+    _mps_n_qubits_overridden = (
+        script_options['method'] == 'matrix_product_state'
+        and n_circuit_qubits > original_simulator_n_qubits
+    )
+    if _mps_n_qubits_overridden:
+        simulator._set_configuration_option("n_qubits", n_circuit_qubits)
+
     transpiled_circuits_with_assigned_params = []
     for idx, sim_time in enumerate(script_options["sim_times"]):
         print(f"Setting parameters for circuit {idx+1}/{len(script_options['sim_times'])} (sim_time = {sim_time})")
@@ -431,6 +462,9 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
         transpiled_circuit_with_final_measurement.measure_all()
         transpiled_circuit_with_final_measurement = transpile(transpiled_circuit_with_final_measurement, simulator, optimization_level=3)
         transpiled_circuits_with_assigned_params.append(transpiled_circuit_with_final_measurement)
+
+    if _mps_n_qubits_overridden:
+        simulator._set_configuration_option("n_qubits", original_simulator_n_qubits)
     print(f"Gate counts for circuit(s) after transpiling with set params for '{script_options['method']}' simulation method:\n{transpiled_circuits_with_assigned_params[0].count_ops()}")
 
     # Execute circuits.

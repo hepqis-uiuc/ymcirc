@@ -1,113 +1,128 @@
 import pytest
+from typing import List
 from ymcirc._abstract import LatticeDef
-from ymcirc._abstract.lattice_data import Plaquette
 from ymcirc.conventions import (
     PHYSICAL_PLAQUETTE_STATES, IRREP_TRUNCATIONS, ONE, THREE,
     THREE_BAR, SIX, SIX_BAR, EIGHT,
     LatticeStateEncoder, HAMILTONIAN_BOX_TERMS,
     compute_all_rotations_from_just_box_terms,
-    _filter_matrix_element_value, _sum_matrix_element_values
+    _filter_matrix_element_value, _sum_matrix_element_values,
+    IrrepBitmap, PlaquetteState, FIFTEEN, FIFTEEN_BAR
 )
 
 
-def test_no_duplicate_physical_plaquette_states():
+@pytest.mark.parametrize("dim_string,trunc_string", [
+    ("d=3/2", "T1"),
+    ("d=3/2", "T2"),
+    ("d=3/2", "B3"),
+    ("d=3/2", "B3"),
+    ("d=3/2", "B5"),
+    ("d=3/2", "B6"),
+    ("d=3/2", "B7"),
+    ("d=3/2", "B8"),
+    ("d=3/2", "B9"),
+    ("d=3/2", "B10"),
+    ("d=2", "T1"),
+    ("d=2", "B3"),
+    ("d=2", "B4"),
+    pytest.param("d=2", "B7", marks=pytest.mark.slow),
+    ("d=3", "B3"),
+    pytest.param("d=3", "B4", marks=pytest.mark.slow),
+])
+def test_physical_plaquette_states_data_valid(dim_string, trunc_string):
     print("Checking that none of the physical plaquette states data contain duplicates.")
-    for dim_string in PHYSICAL_PLAQUETTE_STATES.keys():
-        for trunc_string in PHYSICAL_PLAQUETTE_STATES[dim_string].keys():
-            print(f"Checking {dim_string}, {trunc_string}...")
-            num_duplicates = len(PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string]) \
-                - len(set(PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string]))
-            has_no_duplicates = num_duplicates == 0
-            assert has_no_duplicates, f"Detected {num_duplicates} duplicate entries."
+    num_duplicates = len(PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string]) \
+        - len(set(PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string]))
+    has_no_duplicates = num_duplicates == 0
+    assert has_no_duplicates, f"Detected {num_duplicates} duplicate entries."
 
-
-def test_no_duplicate_matrix_elements():
-    print("Checking that none of the matrix element data contain duplicates.")
-    for dim_string in HAMILTONIAN_BOX_TERMS.keys():
-        for trunc_string in HAMILTONIAN_BOX_TERMS[dim_string].keys():
-            print(f"Checking {dim_string}, {trunc_string}...")
-            # list of tuples (final state, initial state) that index matrix elements.
-            state_indices = list(HAMILTONIAN_BOX_TERMS[dim_string][trunc_string].keys())
-            num_duplicates = len(state_indices) - len(set(state_indices))
-            has_no_duplicates = num_duplicates == 0
-            assert has_no_duplicates, f"Detected {num_duplicates} duplicate entries."
-
-
-def test_physical_plaquette_state_data_are_valid():
     print("Checking that physical state data are valid.")
     expected_num_vertices = 4
     expected_num_a_links = 4
     expected_iweight_length = 3
-    for dim in PHYSICAL_PLAQUETTE_STATES.keys():
-        for trunc in PHYSICAL_PLAQUETTE_STATES[dim].keys():
-            print(f"Case: {dim}, {trunc}")
-            # Figure out number of control links based on dimension.
-            match dim:
-                case "d=3/2":
-                    expected_num_c_links = 4
-                case "d=2":
-                    expected_num_c_links = 8
-                case "d=3":
-                    expected_num_c_links = 16  # 4 controls/vertex * 4 vertices
-                case _:
-                    raise NotImplementedError(f"Test not implemented for dimension {dim}.")
-            for state in PHYSICAL_PLAQUETTE_STATES[dim][trunc]:
-                assert len(state) == 3, \
-                    "States should be length-3 tuples of tuples (vertices, a-links, c-links)." \
-                    f" Encountered state: {state}"
-                vertices = state[0]
-                a_links = state[1]
-                c_links = state[2]
+    match dim_string:
+        case "d=3/2":
+            expected_num_c_links = 4
+        case "d=2":
+            expected_num_c_links = 8
+        case "d=3":
+            expected_num_c_links = 16  # 4 controls/vertex * 4 vertices
+        case _:
+            raise NotImplementedError(f"Test not implemented for dimension {dim_string}.")
+    for state in PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string]:
+        assert len(state) == 3, \
+            "States should be length-3 tuples of tuples (vertices, a-links, c-links)." \
+            f" Encountered state: {state}"
+        vertices = state[0]
+        a_links = state[1]
+        c_links = state[2]
 
-                vertices_are_valid = len(vertices) == expected_num_vertices \
-                    and all(isinstance(vertex, int) for vertex in vertices)
-                assert vertices_are_valid is True, f"Encountered state with invalid vertices: {vertices}."
+        vertices_are_valid = len(vertices) == expected_num_vertices \
+            and all(isinstance(vertex, int) for vertex in vertices)
+        assert vertices_are_valid is True, f"Encountered state with invalid vertices: {vertices}."
 
-                a_links_are_valid = len(a_links) == expected_num_a_links \
-                    and all(isinstance(a_link, tuple) and len(a_link) == expected_iweight_length for a_link in a_links) \
-                    and all(isinstance(iweight_elem, int) for a_link in a_links for iweight_elem in a_link)
-                assert a_links_are_valid is True, f"Encountered state with invalid active links: {a_links}."
+        a_links_are_valid = len(a_links) == expected_num_a_links \
+            and all(isinstance(a_link, tuple) and len(a_link) == expected_iweight_length for a_link in a_links) \
+            and all(isinstance(iweight_elem, int) for a_link in a_links for iweight_elem in a_link)
+        assert a_links_are_valid is True, f"Encountered state with invalid active links: {a_links}."
 
-                # c_links is now per-vertex nested: ((c_at_v1, ...), (c_at_v2, ...), ...)
-                assert len(c_links) == 4, f"Expected 4 per-vertex control link tuples, got {len(c_links)}."
-                total_c_links = sum(len(vc) for vc in c_links)
-                assert total_c_links == expected_num_c_links, \
-                    f"Expected {expected_num_c_links} total control links, got {total_c_links}."
-                for vc in c_links:
-                    for c_link in vc:
-                        assert isinstance(c_link, tuple) and len(c_link) == expected_iweight_length, \
-                            f"Encountered invalid control link: {c_link}."
-                        assert all(isinstance(elem, int) for elem in c_link), \
-                            f"Non-int element in control link: {c_link}."
+        # c_links is now per-vertex nested: ((c_at_v1, ...), (c_at_v2, ...), ...)
+        assert len(c_links) == 4, f"Expected 4 per-vertex control link tuples, got {len(c_links)}."
+        total_c_links = sum(len(vc) for vc in c_links)
+        assert total_c_links == expected_num_c_links, \
+            f"Expected {expected_num_c_links} total control links, got {total_c_links}."
+        for vc in c_links:
+            for c_link in vc:
+                assert isinstance(c_link, tuple) and len(c_link) == expected_iweight_length, \
+                    f"Encountered invalid control link: {c_link}."
+                assert all(isinstance(elem, int) for elem in c_link), \
+                    f"Non-int element in control link: {c_link}."
+
+
+@pytest.mark.parametrize("expected_dim_string,expected_trunc_string", [
+    ("d=3/2", "T1"),
+    ("d=3/2", "T2"),
+    ("d=3/2", "B3"),
+    ("d=3/2", "B3"),
+    ("d=3/2", "B5"),
+    ("d=3/2", "B6"),
+    ("d=3/2", "B7"),
+    ("d=3/2", "B8"),
+    ("d=3/2", "B9"),
+    ("d=3/2", "B10"),
+    ("d=2", "T1"),
+    ("d=2", "B3"),
+    ("d=2", "B4"),
+    pytest.param("d=2", "B7", marks=pytest.mark.slow),
+    ("d=3", "B3"),
+    pytest.param("d=3", "B4", marks=pytest.mark.slow),
+])
+def test_hamiltonian_box_terms_no_missing_expected_cases(expected_dim_string, expected_trunc_string):
+    # Check for no missing expected data.
+    assert expected_dim_string in HAMILTONIAN_BOX_TERMS.keys(), f"{expected_dim_string} data not present."
+    assert expected_trunc_string in HAMILTONIAN_BOX_TERMS[expected_dim_string].keys(), f"{expected_dim_string}, {expected_trunc_string} data not present."
 
 
 def test_hamiltonian_box_terms_no_unexpected_cases():
-    expected_box_term_dim_trunc_cases = {
-        "d=3/2": set(["T1", "T2"]),
-        "d=2": set(["T1"]),
-        "d=3": set(["B3"])
+    all_expected_dim_trunc_cases = {
+        "d=3/2": set(["T1", "T2", "B3", "B5", "B6", "B7", "B8", "B9", "B10"]),
+        "d=2": set(["T1", "B3", "B4", "B7"]),
+        "d=3": set(["B3", "B4"])
     }
     print(
         "Checking that the following dimension/truncation cases have matrix element data, and that no unexpected cases come up:\n"
-        f"{expected_box_term_dim_trunc_cases}"
+        f"{all_expected_dim_trunc_cases}"
     )
-
-    # Check for no missing expected data
-    for expected_dim in expected_box_term_dim_trunc_cases.keys():
-        assert expected_dim in HAMILTONIAN_BOX_TERMS.keys(), f"{expected_dim} data not present."
-        for expected_trunc in expected_box_term_dim_trunc_cases[expected_dim]:
-            assert expected_trunc in HAMILTONIAN_BOX_TERMS[expected_dim].keys(), f"{expected_dim}, {expected_trunc} data not unexpected."
-    
     # Check for no unexpected actual data.
     for actual_dim in HAMILTONIAN_BOX_TERMS.keys():
-        assert actual_dim in expected_box_term_dim_trunc_cases.keys(), f"{actual_dim} was unexpected."
+        assert actual_dim in all_expected_dim_trunc_cases.keys(), f"{actual_dim} was unexpected."
         for actual_trunc in HAMILTONIAN_BOX_TERMS[actual_dim].keys():
-            assert actual_trunc in expected_box_term_dim_trunc_cases[actual_dim], f"{actual_dim}, {actual_trunc} was unexpected."
+            assert actual_trunc in all_expected_dim_trunc_cases[actual_dim], f"{actual_dim}, {actual_trunc} was unexpected."
 
 
-def test_load_magnetic_hamiltonian_constructs_correct_num_rotations():
+def test_compute_all_rotations_from_just_box_terms_constructs_correct_num_rotations():
     print(
-        "Checking that loading magnetic Hamiltonian data yields the right number of Givens rotations. "
+        "Checking that the helper function called during loading mag Hamiltonian data constructs the right number of Givens rotations. "
         "Since H = box + box^dagger with vanishing diagonals, there should be (1/2)n(n-1) rotations "
         "for an nxn matrix."
     )
@@ -200,49 +215,26 @@ def test_compute_all_rotations_handles_dict_valued_matrix_elements():
         plane_b: {sig_a: 0.3},
     }
 
-
-def test_matrix_element_data_are_valid_d_3_2_T1():
-    dim_string = "d=3/2"
-    trunc_string = "T1"
+@pytest.mark.parametrize("dim_string,trunc_string", [
+    ("d=3/2", "T1"),
+    pytest.param("d=3/2", "T2", marks=pytest.mark.slow),
+    ("d=3/2", "B3"),
+    ("d=3/2", "B3"),
+    ("d=3/2", "B5"),
+    pytest.param("d=3/2", "B6", marks=pytest.mark.slow),
+    pytest.param("d=3/2", "B7", marks=pytest.mark.slow),
+    pytest.param("d=3/2", "B8", marks=pytest.mark.slow),
+    pytest.param("d=3/2", "B9", marks=pytest.mark.slow),
+    pytest.param("d=3/2", "B10", marks=pytest.mark.slow),
+    pytest.param("d=2", "T1", marks=pytest.mark.slow),
+    ("d=2", "B3"),
+    pytest.param("d=2", "B4", marks=pytest.mark.slow),
+    pytest.param("d=2", "B7", marks=pytest.mark.slow),
+    pytest.param("d=3", "B3", marks=pytest.mark.slow),
+    pytest.param("d=3", "B4", marks=pytest.mark.slow),
+])
+def test_matrix_element_data_are_valid(dim_string, trunc_string):
     print(f"Checking that matrix element data are valid for {dim_string}, {trunc_string}.")
-    current_iter = 0
-    for (state_f, state_i), mat_elem_val in HAMILTONIAN_BOX_TERMS[dim_string][trunc_string].items():
-        # Log test progress
-        current_iter += 1
-        percent_done = current_iter/len(HAMILTONIAN_BOX_TERMS[dim_string][trunc_string])
-        print(f"Current status: {percent_done:.4%}", end='\r')
-
-        assert state_f in PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string], "Encountered state not in physical" \
-            f" plaquette state list: {state_f}."
-        assert state_i in PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string], "Encountered state not in physical" \
-            f" plaquette state list: {state_i}."
-        assert isinstance(mat_elem_val, dict), f"Unexpected matrix element type: {type(mat_elem_val)}, value: {mat_elem_val}."
-
-
-@pytest.mark.slow
-def test_matrix_element_data_are_valid_d_3_2_T2():
-    dim_string = "d=3/2"
-    trunc_string = "T2"
-    print(f"Checking that matrix element data are valid for {dim_string}, {trunc_string}. WARNING: this can be slow.")
-    current_iter = 0
-    for (state_f, state_i), mat_elem_val in HAMILTONIAN_BOX_TERMS[dim_string][trunc_string].items():
-        # Log test progress
-        current_iter += 1
-        percent_done = current_iter/len(HAMILTONIAN_BOX_TERMS[dim_string][trunc_string])
-        print(f"Current status: {percent_done:.4%}", end='\r')
-
-        assert state_f in PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string], "Encountered state not in physical" \
-            f" plaquette state list: {state_f}."
-        assert state_i in PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string], "Encountered state not in physical" \
-            f" plaquette state list: {state_i}."
-        assert isinstance(mat_elem_val, dict), f"Unexpected matrix element type: {type(mat_elem_val)}, value: {mat_elem_val}."
-
-
-@pytest.mark.slow
-def test_matrix_element_data_are_valid_d_2_T1():
-    dim_string = "d=2"
-    trunc_string = "T1"
-    print(f"Checking that matrix element data are valid for {dim_string}, {trunc_string}. WARNING: this can be slow.")
     current_iter = 0
     for (state_f, state_i), mat_elem_val in HAMILTONIAN_BOX_TERMS[dim_string][trunc_string].items():
         # Log test progress
@@ -1085,63 +1077,81 @@ def test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding(
     assert n_unique_plaquette_encodings == len(all_plaquette_states), f"Encountered {n_unique_plaquette_encodings} unique bit strings encoding {len(all_plaquette_states)} unique plaquette states."
 
 
-def test_bit_string_decoding_to_plaquette():
-    # Check that decoding of bit strings is as expected.
-    # Case data tuple format:
-    # case_name, encoded_plaquette, vertex_bitmap, link_bitmap, expected_decoded_plaquette.
-    # Note that the data were manually constructed by irrep encoding bitmaps
-    # with data in vertex singlet json files.
-    cases = [
+# See arxiv 2509.25865 for tables of max multiplicity per B truncation. Guides choice of vertex values in test data.
+# Note that the data were manually constructed by irrep encoding bitmaps
+# with data in vertex singlet json files.
+@pytest.mark.parametrize("current_dim_string,current_trunc_string,encoded_plaquette,current_lattice,link_bitmap,expected_decoded_plaquette", [
+    (
+        "d=3/2",
+        "T1",
+        "10001001" + "00000110", # active links + control links
+        LatticeDef(3/2, 3),
+        IRREP_TRUNCATIONS["T1"],
         (
-            "d=3/2",
-            "T1",
-            "10101001" + "00001110", # active links + control links (one of which is in a garbage state)
-            LatticeDef(3/2, 3),
-            IRREP_TRUNCATIONS["T1"],
-            (
-                (None, None, None, None),  # When no vertex bitmap needed, should get back None for decoded vertices.
-                (THREE, THREE, THREE, THREE_BAR),
-                ((ONE,), (ONE,), (None,), (THREE,))  # Garbage control link should decode to None
-            )
-        ),
-        (
-            "d=3/2",
-            "T2",
-            "0001" + "110111000001" + "000000111011",  # vertex multiplicities + active links + control links
-            LatticeDef(3/2, 3),
-            IRREP_TRUNCATIONS["T2"],
-            (
-                (0, 0, 0, 1),
-                (SIX, EIGHT, ONE, THREE_BAR),
-                ((ONE,), (ONE,), (EIGHT,), (SIX_BAR,))
-            )
-        ),
-        (
-            "d=2",
-            "T1",
-            "1011" + "00000010" + "0101011010000100",  # vertex multiplicities + active links + control links
-            LatticeDef(2, 2),
-            IRREP_TRUNCATIONS["T1"],
-            (
-                (1, 0, 1, 1),
-                (ONE, ONE, ONE, THREE),
-                ((THREE_BAR, THREE_BAR), (THREE_BAR, THREE), (THREE, ONE), (THREE_BAR, ONE))
-            )
+            (None, None, None, None),  # When no vertex bitmap needed, should get back None for decoded vertices.
+            (THREE, ONE, THREE, THREE_BAR),
+            ((ONE,), (ONE,), (THREE_BAR,), (THREE,))
         )
-    ]
-
+    ),
+    (
+        "d=3/2",
+        "B10",
+        "0110" + "100101100001" + "000010110100", # vertex multiplicites + active links + control links
+        LatticeDef(3/2, 3),
+        IRREP_TRUNCATIONS["B10_d=3/2"],
+        (
+            (0, 1, 1, 0),  
+            (THREE, FIFTEEN, THREE, THREE_BAR),
+            ((ONE,), (FIFTEEN_BAR,), (SIX,), (THREE,))
+        )
+    ),
+    (
+        "d=3/2",
+        "T2",
+        "0001" + "110111000001" + "000000111011",  # vertex multiplicities + active links + control links
+        LatticeDef(3/2, 3),
+        IRREP_TRUNCATIONS["T2"],
+        (
+            (0, 0, 0, 1),
+            (SIX, EIGHT, ONE, THREE_BAR),
+            ((ONE,), (ONE,), (EIGHT,), (SIX_BAR,))
+        )
+    ),
+    (
+        "d=2",
+        "T1",
+        "1011" + "00000010" + "0101011010000111",  # vertex multiplicities + active links + control links (one of which is in a garbage state)
+        LatticeDef(2, 2),
+        IRREP_TRUNCATIONS["T1"],
+        (
+            (1, 0, 1, 1),
+            (ONE, ONE, ONE, THREE),
+            ((THREE_BAR, THREE_BAR), (THREE_BAR, THREE), (THREE, ONE), (THREE_BAR, None)) # Garbage control link should decode to None
+        )
+    ),
+    (
+        "d=3",
+        "B3",
+        "00000010" + "01000001010000101000000001000000",  # active links + control links
+        LatticeDef(3, 3),
+        IRREP_TRUNCATIONS["B3"],
+        (
+            (None, None, None, None), # No nontrivial multiplicites in this case.
+            (ONE, ONE, ONE, THREE),
+            ((THREE_BAR, ONE, ONE, THREE_BAR), (THREE_BAR, ONE, ONE, THREE), (THREE, ONE, ONE, ONE), (THREE_BAR, ONE, ONE, ONE))
+        )
+    )
+])
+def test_bit_string_decoding_to_plaquette(current_dim_string, current_trunc_string, encoded_plaquette, current_lattice, link_bitmap, expected_decoded_plaquette):
     print("Checking decoding of bit strings corresponding to gauge-invariant plaquette states.")
 
-    for current_dim_string, current_trunc_string, encoded_plaquette, current_lattice, link_bitmap, expected_decoded_plaquette in cases:
-        print(f"Checking plaquette bit string decoding for a {current_dim_string}, {current_trunc_string} plaquette...")
-        lattice_encoder = LatticeStateEncoder(
-            link_bitmap,
-            PHYSICAL_PLAQUETTE_STATES[current_dim_string][current_trunc_string],
-            current_lattice
-        )
-        resulting_decoded_plaquette = lattice_encoder.decode_bit_string_to_plaquette_state(encoded_plaquette)
-        assert resulting_decoded_plaquette == expected_decoded_plaquette, f"Expected: {expected_decoded_plaquette}\nEncountered: {resulting_decoded_plaquette}"
-        print(f"\n{encoded_plaquette} successfully decoded to {resulting_decoded_plaquette}.")
+    lattice_encoder = LatticeStateEncoder(
+        link_bitmap,
+        PHYSICAL_PLAQUETTE_STATES[current_dim_string][current_trunc_string],
+        current_lattice
+    )
+    resulting_decoded_plaquette = lattice_encoder.decode_bit_string_to_plaquette_state(encoded_plaquette)
+    assert resulting_decoded_plaquette == expected_decoded_plaquette, f"Expected: {expected_decoded_plaquette}\nEncountered: {resulting_decoded_plaquette}"
 
 
 def test_decoding_garbage_bit_strings_result_in_none():
@@ -1268,7 +1278,8 @@ def test_decoding_fails_when_len_bit_string_doesnt_match_bitmaps():
 
 
 def test_non_default_forder_plaquette_encode_decode_round_trip():
-    """Check that encode/decode round-trips correctly with non-default forder (Issue 11c).
+    """
+    Check that encode/decode round-trips correctly with non-default forder.
 
     Also verifies that the same physical state (same irreps on same physical links)
     produces a different bit string when represented in a different forder convention,

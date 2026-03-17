@@ -34,8 +34,8 @@ if __name__ == "__main__":
     # NOTE for QPY files: Read/write for circuits WITH ANCILLAS broken
     # due to parse error in Qiskit's QPY serializer (see https://github.com/Qiskit/qiskit/issues/11619).
     script_options = configure_script_options(
-        dimensionality_string="d=3/2",
-        truncation_string="T1",
+        dimensionality_string="d=3",
+        truncation_string="B3",
         lattice_size=2,
         sim_times=np.linspace(0.0, 2.5, num=20),
         n_trotter_steps=2,
@@ -44,8 +44,8 @@ if __name__ == "__main__":
         control_fusion=True,
         prune_controls=True,
         warn_unphysical_links=True,
-        method='matrix_product_state',  # matrix_product_state, statevector, etc. See Qiskit Aer docs.
-        matrix_product_state_max_bond_dimension=None, # Set to None if no limit desired. Ignored for non-MPS methods.
+        method='matrix_product_state',  # matrix_product_state, statevector, etc. See Qiskit Aer docs. For Aer version 0.17.2, AerSimulator has a hard cap of 63 qubits for MPS simulations. functions.py includes workaround hack for MPS simulations.
+        matrix_product_state_max_bond_dimension=16, # Set to None if no limit desired. Set to a small integer value if MPS simulations take a long time, but note that if too small circuit execution can fail with BLAS errors. Ignored for non-MPS methods.
         cache_mag_evol_circuit=True,
         load_circuit_from_file=None,  # Replace with file path if desired.
         save_circuit_to_qasm=False,
