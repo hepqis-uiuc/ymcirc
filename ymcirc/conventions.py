@@ -227,12 +227,15 @@ EncodedPlaquetteTransition = Tuple[str, str]
 HamiltonianData = Dict[EncodedPlaquetteTransition, MatrixElementValue]
 
 # Irrep iweights (top row of GT pattern).
+# Note: related to (p, q) scheme via (p + q, q, 0).
 ONE: IrrepWeight = (0, 0, 0)
 THREE: IrrepWeight = (1, 0, 0)
 THREE_BAR: IrrepWeight = (1, 1, 0)
 SIX: IrrepWeight = (2, 0, 0)
 SIX_BAR: IrrepWeight = (2, 2, 0)
 EIGHT: IrrepWeight = (2, 1, 0)
+FIFTEEN: IrrepWeight = (3, 1, 0)
+FIFTEEN_BAR: IrrepWeight = (3, 2, 0)
 
 # Irrep encoding bitmaps.
 IRREP_TRUNCATIONS: Dict[str, IrrepBitmap] = {
