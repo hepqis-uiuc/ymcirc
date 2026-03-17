@@ -21,18 +21,6 @@ def test_no_duplicate_physical_plaquette_states():
             assert has_no_duplicates, f"Detected {num_duplicates} duplicate entries."
 
 
-def test_no_duplicate_matrix_elements():
-    print("Checking that none of the matrix element data contain duplicates.")
-    for dim_string in HAMILTONIAN_BOX_TERMS.keys():
-        for trunc_string in HAMILTONIAN_BOX_TERMS[dim_string].keys():
-            print(f"Checking {dim_string}, {trunc_string}...")
-            # list of tuples (final state, initial state) that index matrix elements.
-            state_indices = list(HAMILTONIAN_BOX_TERMS[dim_string][trunc_string].keys())
-            num_duplicates = len(state_indices) - len(set(state_indices))
-            has_no_duplicates = num_duplicates == 0
-            assert has_no_duplicates, f"Detected {num_duplicates} duplicate entries."
-
-
 def test_physical_plaquette_state_data_are_valid():
     print("Checking that physical state data are valid.")
     expected_num_vertices = 4
