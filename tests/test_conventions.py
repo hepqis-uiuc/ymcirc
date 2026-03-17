@@ -1077,63 +1077,81 @@ def test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding(
     assert n_unique_plaquette_encodings == len(all_plaquette_states), f"Encountered {n_unique_plaquette_encodings} unique bit strings encoding {len(all_plaquette_states)} unique plaquette states."
 
 
-def test_bit_string_decoding_to_plaquette():
-    # Check that decoding of bit strings is as expected.
-    # Case data tuple format:
-    # case_name, encoded_plaquette, vertex_bitmap, link_bitmap, expected_decoded_plaquette.
-    # Note that the data were manually constructed by irrep encoding bitmaps
-    # with data in vertex singlet json files.
-    cases = [
+# See arxiv 2509.25865 for tables of max multiplicity per B truncation. Guides choice of vertex values in test data.
+# Note that the data were manually constructed by irrep encoding bitmaps
+# with data in vertex singlet json files.
+@pytest.mark.parametrize("current_dim_string,current_trunc_string,encoded_plaquette,current_lattice,link_bitmap,expected_decoded_plaquette", [
+    (
+        "d=3/2",
+        "T1",
+        "10001001" + "00000110", # active links + control links
+        LatticeDef(3/2, 3),
+        IRREP_TRUNCATIONS["T1"],
         (
-            "d=3/2",
-            "T1",
-            "10101001" + "00001110", # active links + control links (one of which is in a garbage state)
-            LatticeDef(3/2, 3),
-            IRREP_TRUNCATIONS["T1"],
-            (
-                (None, None, None, None),  # When no vertex bitmap needed, should get back None for decoded vertices.
-                (THREE, THREE, THREE, THREE_BAR),
-                ((ONE,), (ONE,), (None,), (THREE,))  # Garbage control link should decode to None
-            )
-        ),
-        (
-            "d=3/2",
-            "T2",
-            "0001" + "110111000001" + "000000111011",  # vertex multiplicities + active links + control links
-            LatticeDef(3/2, 3),
-            IRREP_TRUNCATIONS["T2"],
-            (
-                (0, 0, 0, 1),
-                (SIX, EIGHT, ONE, THREE_BAR),
-                ((ONE,), (ONE,), (EIGHT,), (SIX_BAR,))
-            )
-        ),
-        (
-            "d=2",
-            "T1",
-            "1011" + "00000010" + "0101011010000100",  # vertex multiplicities + active links + control links
-            LatticeDef(2, 2),
-            IRREP_TRUNCATIONS["T1"],
-            (
-                (1, 0, 1, 1),
-                (ONE, ONE, ONE, THREE),
-                ((THREE_BAR, THREE_BAR), (THREE_BAR, THREE), (THREE, ONE), (THREE_BAR, ONE))
-            )
+            (None, None, None, None),  # When no vertex bitmap needed, should get back None for decoded vertices.
+            (THREE, ONE, THREE, THREE_BAR),
+            ((ONE,), (ONE,), (THREE_BAR,), (THREE,))
         )
-    ]
-
+    ),
+    (
+        "d=3/2",
+        "B10",
+        "0110" + "100101100001" + "000010110100", # vertex multiplicites + active links + control links
+        LatticeDef(3/2, 3),
+        IRREP_TRUNCATIONS["B10_d=3/2"],
+        (
+            (0, 1, 1, 0),  
+            (THREE, FIFTEEN, THREE, THREE_BAR),
+            ((ONE,), (FIFTEEN_BAR,), (SIX,), (THREE,))
+        )
+    ),
+    (
+        "d=3/2",
+        "T2",
+        "0001" + "110111000001" + "000000111011",  # vertex multiplicities + active links + control links
+        LatticeDef(3/2, 3),
+        IRREP_TRUNCATIONS["T2"],
+        (
+            (0, 0, 0, 1),
+            (SIX, EIGHT, ONE, THREE_BAR),
+            ((ONE,), (ONE,), (EIGHT,), (SIX_BAR,))
+        )
+    ),
+    (
+        "d=2",
+        "T1",
+        "1011" + "00000010" + "0101011010000111",  # vertex multiplicities + active links + control links (one of which is in a garbage state)
+        LatticeDef(2, 2),
+        IRREP_TRUNCATIONS["T1"],
+        (
+            (1, 0, 1, 1),
+            (ONE, ONE, ONE, THREE),
+            ((THREE_BAR, THREE_BAR), (THREE_BAR, THREE), (THREE, ONE), (THREE_BAR, None)) # Garbage control link should decode to None
+        )
+    ),
+    (
+        "d=3",
+        "B3",
+        "00000010" + "01000001010000101000000001000000",  # active links + control links
+        LatticeDef(3, 3),
+        IRREP_TRUNCATIONS["B3"],
+        (
+            (None, None, None, None), # No nontrivial multiplicites in this case.
+            (ONE, ONE, ONE, THREE),
+            ((THREE_BAR, ONE, ONE, THREE_BAR), (THREE_BAR, ONE, ONE, THREE), (THREE, ONE, ONE, ONE), (THREE_BAR, ONE, ONE, ONE))
+        )
+    )
+])
+def test_bit_string_decoding_to_plaquette(current_dim_string, current_trunc_string, encoded_plaquette, current_lattice, link_bitmap, expected_decoded_plaquette):
     print("Checking decoding of bit strings corresponding to gauge-invariant plaquette states.")
 
-    for current_dim_string, current_trunc_string, encoded_plaquette, current_lattice, link_bitmap, expected_decoded_plaquette in cases:
-        print(f"Checking plaquette bit string decoding for a {current_dim_string}, {current_trunc_string} plaquette...")
-        lattice_encoder = LatticeStateEncoder(
-            link_bitmap,
-            PHYSICAL_PLAQUETTE_STATES[current_dim_string][current_trunc_string],
-            current_lattice
-        )
-        resulting_decoded_plaquette = lattice_encoder.decode_bit_string_to_plaquette_state(encoded_plaquette)
-        assert resulting_decoded_plaquette == expected_decoded_plaquette, f"Expected: {expected_decoded_plaquette}\nEncountered: {resulting_decoded_plaquette}"
-        print(f"\n{encoded_plaquette} successfully decoded to {resulting_decoded_plaquette}.")
+    lattice_encoder = LatticeStateEncoder(
+        link_bitmap,
+        PHYSICAL_PLAQUETTE_STATES[current_dim_string][current_trunc_string],
+        current_lattice
+    )
+    resulting_decoded_plaquette = lattice_encoder.decode_bit_string_to_plaquette_state(encoded_plaquette)
+    assert resulting_decoded_plaquette == expected_decoded_plaquette, f"Expected: {expected_decoded_plaquette}\nEncountered: {resulting_decoded_plaquette}"
 
 
 def test_decoding_garbage_bit_strings_result_in_none():
