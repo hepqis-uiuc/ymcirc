@@ -27,7 +27,7 @@ Modify `gen_ymcirc_data.py` to produce universal data files that contain all pos
   - Acceptance: Files generated, loadable, and contain the expected signature count. All existing PBC signatures are present as a subset.
   - Failure: Generation fails or takes unreasonably long (>1 hour per case). Matrix element values for the PBC signature do not match existing PBC-only files.
 
-- [ ] **1.4a Debug pyclebsch KeyError for B6+ d=3/2 OBC boundaries**
+- [x] **1.4a Debug pyclebsch KeyError for B6+ d=3/2 OBC boundaries**
   `calc_plaquette_elements()` raises `KeyError: ((2, 1, 0), (2, 2, 0))` in `glue_plaquette_site_factors()` when computing matrix elements at OBC boundary vertices for B6–B10 d=3/2. The site factor lookup table is missing entries for irrep combinations that appear at boundary sites with these higher truncations. Investigate the root cause in pyclebsch and fix.
   - Acceptance: B6 d=3/2 universal file generates successfully. PBC-signature matrix elements match existing B6 PBC data.
   - Failure: The fix requires substantial restructuring of pyclebsch's site factor computation. If so, flag for discussion — may need to defer higher B-truncation OBC support.
