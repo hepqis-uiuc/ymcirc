@@ -32,5 +32,5 @@
 
 - Phase 3 step 3.1: Update conventions.py path registry and loading code to handle multi-signature universal files.
 - Phase 3 step 3.1: At that point, install universal files from `pyclebsch/out/` and update `_HAMILTONIAN_DATA_FILE_PATHS` / `_PLAQUETTE_STATES_DATA_FILE_PATHS`.
-- Fix pyclebsch site factor computation for B6+ d=3/2 OBC boundaries (separate task).
-- Generate B-truncation d=2 and d=3 universal files once pyclebsch fix is available and time permits.
+- **Step 1.4a**: Debug pyclebsch `KeyError` in `glue_plaquette_site_factors()` for B6+ d=3/2 OBC boundary sites — missing site factor entries for irrep combo `((2,1,0),(2,2,0))`.
+- **Step 1.4b**: After 1.4a fix, generate B4–B10 d=3/2, B3 d=2, and B3 d=3 universal files.
