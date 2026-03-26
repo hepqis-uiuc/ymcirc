@@ -2,7 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from itertools import product
 import logging
-from math import ceil, isclose, comb
+from math import ceil, isclose
 from typing import List, Tuple, Union, Set, TypeVar, Generic, Iterable
 
 # Set up module-specific logger
@@ -337,21 +337,37 @@ class LatticeDef:
                                  periodic_boundary_conds: bool | tuple[bool, ...]):
         if isinstance(size, Iterable):
             raise NotImplementedError("Tuples for lattice size not yet supported.")
-        if isinstance(periodic_boundary_conds, Iterable):
-            raise NotImplementedError("Tuples for boundary conditions not yet supported.")
 
-        if not isinstance(size, int) and (dim == "3/2" or isclose(float(dim), 1.5)):
+        is_d_three_halves = dim == "3/2" or (isinstance(dim, (float, int)) and isclose(float(dim), 1.5))
+
+        # Validate boundary conditions: bool or tuple of bools.
+        if isinstance(periodic_boundary_conds, tuple):
+            n_spatial_dirs = 2 if is_d_three_halves else (int(dim) if isinstance(dim, int) and dim > 1 else None)
+            if n_spatial_dirs is not None and len(periodic_boundary_conds) != n_spatial_dirs:
+                raise ValueError(
+                    f"periodic_boundary_conds tuple length ({len(periodic_boundary_conds)}) "
+                    f"must match number of spatial directions ({n_spatial_dirs})."
+                )
+            if not all(isinstance(bc, bool) for bc in periodic_boundary_conds):
+                raise TypeError(
+                    f"All elements of periodic_boundary_conds must be bool. Got: {periodic_boundary_conds}"
+                )
+            if is_d_three_halves and len(periodic_boundary_conds) >= 2 and periodic_boundary_conds[1]:
+                raise ValueError("Vertical direction cannot be periodic for d=3/2 lattices.")
+        elif not isinstance(periodic_boundary_conds, bool):
+            raise TypeError(
+                f"periodic_boundary_conds must be bool or tuple of bools. Got: {periodic_boundary_conds}"
+            )
+
+        if not isinstance(size, int) and is_d_three_halves:
             raise ValueError(f"The size of a d=3/2 lattice must be specified by an int. Encountered: {size}.")
 
         if isinstance(size, int) and size < 2:
             raise ValueError("Lattice must have at least two vertices in each "
                              f"dimension. A size = {size} doesn't make sense.")
 
-        if not (dim == "3/2" or isclose(float(dim), 1.5) or (isinstance(dim, int) and dim > 1)):
+        if not (is_d_three_halves or (isinstance(dim, int) and dim > 1)):
             raise ValueError(f"A {dim}-dimensional lattice doesn't make sense.")
-
-        if not isinstance(periodic_boundary_conds, bool):
-            raise TypeError(f"Cannot interpret boundary condition as boolean: {periodic_boundary_conds}.")
 
     def _configure_lattice(self, dim: DimensionalitySpecifier, size: int | tuple[int, ...]):
         if isinstance(size, Iterable):
@@ -373,18 +389,26 @@ class LatticeDef:
             i for i in range(1, ceil(self._dim) + 1)]
 
         # Construct the link addresses.
+        pbc = self._periodic_boundary_conds_per_direction()
         self._all_link_addreses = []
         for vertex_vector in self._all_vertex_vectors:
             for link_unit_vector in self._lattice_unit_vector_labels:
                 if self.dim == 1.5 and self._skip_links_above_or_below_d_equals_three_halves(vertex_vector, link_unit_vector):
                     continue  # Skip to next lattice direction.
-                else:
-                    link_address = (vertex_vector, link_unit_vector)
-                    self._all_link_addreses.append(link_address)
+                # Skip links that exit a non-periodic boundary.
+                dir_idx = link_unit_vector - 1
+                if not pbc[dir_idx] and vertex_vector[dir_idx] == self.shape[dir_idx] - 1:
+                    continue
+                link_address = (vertex_vector, link_unit_vector)
+                self._all_link_addreses.append(link_address)
         self._all_link_addreses = set(self._all_link_addreses)
 
     def _normalize_link_address(self, link_address: LinkAddress) -> LinkAddress:
-        """Convert link_address to form where the direction label is positive."""
+        """Convert link_address to form where the direction label is positive.
+
+        Raises ``KeyError`` if the normalized vertex is out of bounds in a
+        non-periodic direction.
+        """
         lattice_vector, unit_vector_label = link_address[0], link_address[1]
 
         # Validate input
@@ -401,35 +425,53 @@ class LatticeDef:
             unit_vector_label = abs(unit_vector_label)
 
         # Handle links on boundaries of lattice.
-        if any(component < 0 for component in lattice_vector) or any(component > self.shape[0] for component in lattice_vector):
-            # TODO implement boundary logic for periodic boundary conditions
-            vertical_dir_idx = VERTICAL_DIR_LABEL - 1
-            if self.dim == 1.5 and (lattice_vector[vertical_dir_idx] < 0 or lattice_vector[vertical_dir_idx] > 1):
-                raise KeyError(f"Lattice vertex {lattice_vector} doesn't exist for d = 3/2.")
-            elif self.all_boundary_conds_periodic:
-                lattice_vector = tuple(comp % self.shape[dir_idx] for dir_idx, comp in enumerate(lattice_vector))
-            else:
-                # TODO implement handling of fixed boundary conditions.
-                raise NotImplementedError()
+        pbc = self._periodic_boundary_conds_per_direction()
+        out_of_bounds = any(
+            comp < 0 or comp >= self.shape[dir_idx]
+            for dir_idx, comp in enumerate(lattice_vector)
+        )
+
+        if out_of_bounds:
+            wrapped = []
+            for dir_idx, comp in enumerate(lattice_vector):
+                if comp < 0 or comp >= self.shape[dir_idx]:
+                    if pbc[dir_idx]:
+                        wrapped.append(comp % self.shape[dir_idx])
+                    else:
+                        raise KeyError(
+                            f"Link at vertex {lattice_vector} doesn't exist: "
+                            f"out of bounds in non-periodic direction {dir_idx + 1}."
+                        )
+                else:
+                    wrapped.append(comp)
+            lattice_vector = tuple(wrapped)
 
         normalized_link_address = (lattice_vector, unit_vector_label)
         return normalized_link_address
 
     @property
     def n_plaquettes(self) -> int:
-        """Retrieve the total number of unique plaquettes in the entire lattice."""
-        if self.all_boundary_conds_periodic is True:
-            if self.dim >= 2:
-                # For each unique vertex, there are dim choose 2 unique plaquettes
-                # that are defined by pairs of positive lattice directions.
-                return int(len(self.vertex_addresses) * comb(self.dim, 2))
-            else:
-                # For d=3/2, only need a count of the number of vertices along the
-                # "bottom" rung of the lattice. This is half the total number of
-                # vertices.
-                return int(len(self.vertex_addresses) / 2)
-        else:
-            raise NotImplementedError("Number of plaquettes calculation only implemented for periodic lattices.")
+        """Retrieve the total number of unique plaquettes in the entire lattice.
+
+        For each plane (pair of spatial directions), the count of plaquettes
+        equals the product of effective sizes in each direction (``shape[i]``
+        for periodic, ``shape[i] - 1`` for non-periodic) times the product of
+        full sizes in the remaining directions.
+        """
+        pbc = self._periodic_boundary_conds_per_direction()
+        n_dirs = ceil(self.dim)
+
+        total = 0
+        for i in range(n_dirs):
+            for j in range(i + 1, n_dirs):
+                n_i = self.shape[i] if pbc[i] else self.shape[i] - 1
+                n_j = self.shape[j] if pbc[j] else self.shape[j] - 1
+                n_other = 1
+                for k in range(n_dirs):
+                    if k != i and k != j:
+                        n_other *= self.shape[k]
+                total += n_i * n_j * n_other
+        return total
 
     @property
     def n_vertices(self) -> int:
@@ -450,12 +492,18 @@ class LatticeDef:
         for periodic boundary conditions on small lattices. This number is
         NOT necessarily the same as the number of physically unique links
         controlling a plaquette.
+
+        Raises ``ValueError`` for non-periodic lattices where the count
+        varies per plaquette.  Use ``Plaquette.control_links_per_vertex``
+        for per-plaquette counts in that case.
         """
-        if self.all_boundary_conds_periodic is False:
-            raise NotImplementedError("Only periodic boundary conditions have been implemented.")
-        else:
-            n_controls_per_vertex = int(2 * (self.dim - 1))
-            return 4 * n_controls_per_vertex
+        if not self.all_boundary_conds_periodic:
+            raise ValueError(
+                "Control link count is not uniform for non-periodic lattices. "
+                "Use Plaquette.control_links_per_vertex for per-plaquette counts."
+            )
+        n_controls_per_vertex = int(2 * (self.dim - 1))
+        return 4 * n_controls_per_vertex
 
     @property
     def vertex_addresses(self) -> list[LatticeVector]:
@@ -499,6 +547,21 @@ class LatticeDef:
             if isinstance(self.periodic_boundary_conds, Iterable) \
                else self.periodic_boundary_conds
 
+    def _periodic_boundary_conds_per_direction(self) -> Tuple[bool, ...]:
+        """Return per-direction periodicity as a tuple, one bool per spatial direction.
+
+        Normalizes a scalar ``periodic_boundary_conds`` into a tuple.
+        For d=3/2, the vertical direction is always non-periodic.
+        """
+        pbc = self._periodic_boundary_conds
+        if isinstance(pbc, tuple):
+            return pbc
+        # pbc is a single bool — expand to a tuple.
+        if self.dim == 1.5:
+            # Vertical direction is NEVER periodic in d=3/2.
+            return (pbc, False)
+        return (pbc,) * ceil(self.dim)
+
     @property
     def forder(self) -> List[int]:
         """Return the half-link ordering convention (FORDER)."""
@@ -509,6 +572,8 @@ class LatticeDef:
         Return the lattice vector one site away from vertex vector in the direction unit_vec_dir.
 
         Negative values for unit_vec_dir yield backward steps.
+        For non-periodic directions, raises ``KeyError`` if the result would
+        step off the lattice boundary.
         """
         if unit_vec_dir == 0:
             raise ValueError(f"Unit vector label must be a nonzero integer.")
@@ -521,15 +586,21 @@ class LatticeDef:
 
         result_vector = tuple(v_comp + u_comp for v_comp, u_comp in zip(vertex_vector, unit_vector))
 
-        if self.all_boundary_conds_periodic is True and self.dim != 1.5:
-            result_vector = tuple(comp % self.shape[0] for comp in result_vector)
-        elif self.all_boundary_conds_periodic is True:
-            # Vertical direction is NEVER periodic in d=3/2.
-            result_vector = (result_vector[0] % self.shape[0], result_vector[1])
-        else:
-            raise NotImplementedError("Vector addition not yet implemented on nonperiodic lattices.")
+        # Apply per-direction boundary conditions.
+        pbc = self._periodic_boundary_conds_per_direction()
+        wrapped = []
+        for dir_idx, comp in enumerate(result_vector):
+            if pbc[dir_idx]:
+                wrapped.append(comp % self.shape[dir_idx])
+            else:
+                if comp < 0 or comp >= self.shape[dir_idx]:
+                    raise KeyError(
+                        f"Vertex {result_vector} is out of bounds in non-periodic "
+                        f"direction {dir_idx + 1} (shape {self.shape})."
+                    )
+                wrapped.append(comp)
 
-        return result_vector
+        return tuple(wrapped)
 
     def get_traversal_order(self) -> List[Tuple[LatticeVector, List[LinkAddress]]]:
         """
@@ -584,20 +655,17 @@ class LatticeDef:
         because they do not exist on that lattice.
         """
         logger.debug("Constructing lattice traversal data.")
-        if self.all_boundary_conds_periodic is False:
-            raise NotImplementedError("Iteration through nonperiodic lattices not yet supported.")
+        pbc = self._periodic_boundary_conds_per_direction()
 
         all_vertex_addresses_sorted = sorted(self.vertex_addresses)
         all_addresses_traversal_order = []
         for current_vertex_address in all_vertex_addresses_sorted:
             link_addresses_following_current_vertex_address = []
             for positive_direction in range(1, ceil(self.dim) + 1):
-                has_no_vertical_periodic_link_three_halves_case = (
-                    self.dim == 1.5
-                    and positive_direction > 1
-                    and current_vertex_address[1] == 1
-                )
-                if has_no_vertical_periodic_link_three_halves_case:
+                dir_idx = positive_direction - 1
+
+                # Skip links that exit a non-periodic boundary.
+                if not pbc[dir_idx] and current_vertex_address[dir_idx] == self.shape[dir_idx] - 1:
                     continue
 
                 current_link_address = (current_vertex_address, positive_direction)

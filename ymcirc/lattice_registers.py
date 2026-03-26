@@ -8,7 +8,6 @@ from ymcirc.conventions import IrrepBitmap, LatticeStateEncoder, VertexMultiplic
 from ymcirc._abstract.lattice_data import (
     LatticeData, Plaquette, LatticeVector, LatticeDef,
     LinkUnitVectorLabel, LinkAddress, DimensionalitySpecifier,
-    VERTICAL_DIR_LABEL, VERTICAL_NUM_VERTICES_D_THREE_HALVES
 )
 
 # Set up module-specific logger
@@ -144,14 +143,25 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
             self._link_registers[link_address] = QuantumRegister(self._n_qubits_per_link, name=f"l:{link_address}")
 
     def get_vertex(self, lattice_vector: LatticeVector) -> QuantumRegister:
-        """Return the QuantumRegister for the vertex specified by lattice_vector."""
-        if self.all_boundary_conds_periodic:
-            if self.dim != 1.5:
-                lattice_vector = tuple(component % self.shape[0] for component in lattice_vector)
-            else:  # Don't do anything to the vertical direction in d=3/2 since that direction is NEVER periodic!
-                lattice_vector = (lattice_vector[0] % self.shape[0], ) + lattice_vector[1:]
-        else:
-            raise NotImplementedError()
+        """Return the QuantumRegister for the vertex specified by lattice_vector.
+
+        For periodic directions, coordinates are wrapped via modular
+        arithmetic.  For non-periodic directions, out-of-bounds
+        coordinates raise ``KeyError``.
+        """
+        pbc = self._periodic_boundary_conds_per_direction()
+        wrapped = []
+        for dir_idx, comp in enumerate(lattice_vector):
+            if pbc[dir_idx]:
+                wrapped.append(comp % self.shape[dir_idx])
+            else:
+                if comp < 0 or comp >= self.shape[dir_idx]:
+                    raise KeyError(
+                        f"Vertex {lattice_vector} is out of bounds in non-periodic "
+                        f"direction {dir_idx + 1} (shape {self.shape})."
+                    )
+                wrapped.append(comp)
+        lattice_vector = tuple(wrapped)
 
         return self._vertex_registers[lattice_vector]
 
