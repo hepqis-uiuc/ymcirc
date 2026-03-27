@@ -141,7 +141,7 @@ Testing runs throughout, but this phase covers the final integration tests.
   - Acceptance: All new tests pass. All existing tests still pass (`uv run pytest -v`).
   - Failure: Existing tests break due to Phase 2 changes.
 
-- [ ] **4.2 Unit tests for encoding layer (Phase 3)**
+- [x] **4.2 Unit tests for encoding layer (Phase 3)**
   Test variable-length bitstring encoding/decoding:
   - Encode/decode round-trip for each distinct signature on a d=2 OBC lattice
   - Verify PBC encoding is unchanged
@@ -149,7 +149,7 @@ Testing runs throughout, but this phase covers the final integration tests.
   - Acceptance: All round-trip tests pass. PBC regression tests pass.
   - Failure: Encoding inconsistencies between signatures.
 
-- [ ] **4.3 Integration test: OBC circuit construction**
+- [x] **4.3 Integration test: OBC circuit construction**
   Construct a full Trotter step circuit on a small OBC lattice (e.g., 2x2 d=2 OBC, single plaquette):
   - Verify circuit builds without error
   - Verify circuit has the correct number of qubits (fewer than PBC equivalent)
@@ -157,19 +157,19 @@ Testing runs throughout, but this phase covers the final integration tests.
   - Acceptance: Full Trotter step circuit (magnetic + electric) builds and runs on simulator for a 2x2 OBC lattice.
   - Failure: Circuit construction fails or produces incorrect qubit counts.
 
-- [ ] **4.4 Integration test: Mixed BC circuit construction**
+- [x] **4.4 Integration test: Mixed BC circuit construction**
   Construct a Trotter step circuit on a mixed BC lattice (e.g., 3x3 d=2 with x-periodic, y-open):
   - Verify correct plaquette count (fewer than full PBC, more than full OBC)
   - Verify signatures match expectations (3 distinct types)
   - Acceptance: Circuit builds and runs on simulator.
   - Failure: Mixed BC traversal or signature resolution fails.
 
-- [ ] **4.5 Regression: all existing PBC tests pass**
+- [x] **4.5 Regression: all existing PBC tests pass**
   Run the full test suite to confirm no regressions.
   - Acceptance: `uv run pytest -v` passes with no new failures.
   - Failure: Any existing test fails.
 
-- [ ] **4.6 Data validation: universal files match existing PBC data**
+- [x] **4.6 Data validation: universal files match existing PBC data**
   For each `(trunc, dim)` with existing PBC-only data files, verify that the universal file's PBC-signature entries produce identical matrix elements (within floating-point tolerance).
   - Acceptance: All PBC-signature matrix elements in universal files match the existing PBC-only files to within 1e-12 relative error.
   - Failure: Discrepancies beyond floating-point noise.
