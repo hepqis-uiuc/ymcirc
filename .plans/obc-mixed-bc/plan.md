@@ -32,12 +32,12 @@ Modify `gen_ymcirc_data.py` to produce universal data files that contain all pos
   - Acceptance: B6 d=3/2 universal file generates successfully. PBC-signature matrix elements match existing B6 PBC data.
   - Failure: The fix requires substantial restructuring of pyclebsch's site factor computation. If so, flag for discussion — may need to defer higher B-truncation OBC support.
 
-- [ ] **1.4b Run data generation for remaining B-truncation universal files**
+- [x] **1.4b Run data generation for remaining B-truncation universal files**
   Generate universal data files for: B4–B10 d=3/2 (after 1.4a fix), B3 d=2, and B3 d=3. B3 and B5 d=3/2 are already done. Validate PBC-signature matrix elements against existing PBC data.
   - Acceptance: Files generated. PBC-signature matrix elements match existing data. File sizes are reasonable (<100MB each).
   - Failure: File sizes exceed 100MB, or generation takes >4 hours per case. If so, flag for discussion before proceeding.
 
-- [ ] **1.5 Install universal data files in ymcirc**
+- [x] **1.5 Install universal data files in ymcirc**
   Copy generated files to `ymcirc/_ymcirc_data/` subdirectories. Keep existing PBC-only files temporarily (for regression testing) but mark them as deprecated.
   - Acceptance: Universal files present in `_ymcirc_data/`. Both old and new files coexist.
   - Failure: Files too large for the repository.
@@ -89,36 +89,36 @@ Implement the foundational geometry and lattice traversal changes in `_abstract/
 
 Connect the geometry layer (Phase 2) to data loading and circuit construction. This phase depends on both Phase 1 (data files exist) and Phase 2 (geometry works).
 
-- [ ] **3.1 Update path registry to point to universal data files**
+- [x] **3.1 Update path registry to point to universal data files**
   In `conventions.py` (~lines 183-229), update `_HAMILTONIAN_DATA_FILE_PATHS` and `_PLAQUETTE_STATES_DATA_FILE_PATHS` to point to the new universal filenames (without `_PBC`). For backward compatibility during transition, support both old and new filenames (check for universal file first, fall back to PBC-only file).
   - Acceptance: `HAMILTONIAN_BOX_TERMS["d=2"]["T1"]` loads the universal file. Existing code that loads PBC data still works.
   - Failure: Import-time errors due to missing files.
 
-- [ ] **3.2 Implement variable-length bitstring encoding in `LatticeStateEncoder`**
+- [x] **3.2 Implement variable-length bitstring encoding in `LatticeStateEncoder`**
   This is the hardest single step. Currently, `LatticeStateEncoder` assumes uniform `n_control_links_per_plaquette` for all plaquettes (~line 649). For non-periodic lattices, different plaquettes have different control link counts, so bitstring lengths vary by signature.
 
   Approach: make the encoding signature-aware. Add a method that encodes/decodes plaquette states given a specific signature (which determines the control link count at each vertex). The existing `encode_plaquette_state()` and `decode_bit_string_to_plaquette_state()` should dispatch based on whether the lattice is periodic (uniform encoding) or non-periodic (signature-dependent encoding).
   - Acceptance: Can encode and decode plaquette states for both PBC and OBC lattices. Round-trip `decode(encode(state)) == state` for all physical states of a given signature. Existing PBC encoding is unchanged.
   - Failure: The variable-length encoding breaks assumptions in circuit stitching that depend on uniform bitstring lengths. If so, flag for replanning.
 
-- [ ] **3.3 Update `load_magnetic_hamiltonian()` for variable-length bitstrings**
+- [x] **3.3 Update `load_magnetic_hamiltonian()` for variable-length bitstrings**
   `load_magnetic_hamiltonian()` in `conventions.py` encodes plaquette states as bitstrings. For universal data files, the plaquette states in the file come from multiple signatures with different control link counts. The encoding must be signature-aware: when encoding a `(plane, signature)` pair's matrix elements, use the control link count implied by that signature.
   - Acceptance: `load_magnetic_hamiltonian()` returns correctly encoded data for universal files. Bitstring pairs for different signatures have different lengths. Existing PBC data loading produces identical results to before.
   - Failure: Cannot determine signature from the data file's key structure. If so, restructure the loading to pass signature information through.
 
-- [ ] **3.4 Remove PBC-only guard in `LatticeCircuitManager.__init__()`**
+- [x] **3.4 Remove PBC-only guard in `LatticeCircuitManager.__init__()`**
   At `circuit.py` ~line 82, remove or relax the `NotImplementedError` that blocks non-periodic lattices. Ensure the small-lattice PBC logic (~lines 100-154) is properly gated by `self._lattice_is_periodic` (it already appears to be, but verify).
   - Acceptance: `LatticeCircuitManager` can be instantiated with an OBC `LatticeDef`. Small-lattice PBC logic does not activate for OBC lattices.
   - Failure: Other assumptions in `__init__` break for OBC lattices.
 
-- [ ] **3.5 Handle variable control qubit counts in circuit stitching**
+- [x] **3.5 Handle variable control qubit counts in circuit stitching**
   In `circuit.py`, `apply_magnetic_trotter_step()` (~lines 600-686) stitches per-plaquette rotation circuits into the master circuit. The control qubit collection logic assumes a uniform number of controls per plaquette. For OBC, the rotation circuit for a boundary plaquette has fewer control qubits.
 
   The cache key is already `(plane, signature)` (~line 610), so different-sized rotation circuits are cached separately. The stitching logic must use the actual control link count from the plaquette (via `Plaquette.control_links_ordered` or `control_links_per_vertex`), not a global constant.
   - Acceptance: `apply_magnetic_trotter_step()` produces a valid circuit on an OBC lattice. Interior plaquettes get full-size rotation subcircuits; boundary plaquettes get smaller ones. Circuit qubit counts are correct.
   - Failure: The Givens rotation construction in `givens.py` assumes a fixed qubit count and cannot handle variable sizes. If so, investigate and flag.
 
-- [ ] **3.6 Implement `decode_bit_string_to_plaquette_state()` for non-periodic lattices**
+- [x] **3.6 Implement `decode_bit_string_to_plaquette_state()` for non-periodic lattices**
   At `conventions.py` ~line 878, implement the non-periodic branch. Use the plaquette's signature to determine the expected bitstring length and control link layout.
   - Acceptance: Can decode measurement bitstrings from OBC lattice circuits back into plaquette states. Round-trip consistency with encoding.
   - Failure: Measurement bitstring layout doesn't cleanly separate plaquettes with different control counts.

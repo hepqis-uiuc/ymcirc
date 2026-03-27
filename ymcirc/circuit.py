@@ -78,9 +78,7 @@ class LatticeCircuitManager:
         self._lattice_is_small = False
         self._lattice_is_periodic = False
         lattice_size_threshold_for_smallness = 2
-        if not lattice_encoder.lattice_def.all_boundary_conds_periodic:
-            raise NotImplementedError("Lattices with nonperiodic or mixed boundary conditions not yet supported.")
-        else:
+        if lattice_encoder.lattice_def.all_boundary_conds_periodic:
             self._lattice_is_periodic = True
         match lattice_encoder.lattice_def.dim:
             case 1.5:
@@ -585,14 +583,35 @@ class LatticeCircuitManager:
                 continue
 
             # Get the plaquettes for the current vertex.
+            # On non-periodic lattices, boundary vertices may not have valid
+            # plaquettes in all (or any) planes — Plaquette construction raises
+            # KeyError when a vertex would fall outside the lattice.
             logger.info(f"Fetching all positive plaquettes at vertex {vertex_address}.")
             has_only_one_positive_plaquette = lattice.dim == 1.5 or lattice.dim == 2
             if has_only_one_positive_plaquette:
-                plaquettes: List[Plaquette] = [
-                    lattice.get_plaquettes(vertex_address, 1, 2)
-                ]
+                try:
+                    plaquettes: List[Plaquette] = [
+                        lattice.get_plaquettes(vertex_address, 1, 2)
+                    ]
+                except KeyError:
+                    continue
             else:
-                plaquettes: List[Plaquette] = lattice.get_plaquettes(vertex_address)
+                # For d >= 3, construct each plane individually so that
+                # planes extending beyond the boundary are skipped while
+                # valid planes at the same vertex are kept.
+                all_planes = sorted(
+                    (i, j)
+                    for i in range(1, ceil(lattice.dim) + 1)
+                    for j in range(i + 1, ceil(lattice.dim) + 1)
+                )
+                plaquettes: List[Plaquette] = []
+                for plane in all_planes:
+                    try:
+                        plaquettes.append(lattice.get_plaquettes(vertex_address, *plane))
+                    except KeyError:
+                        continue
+                if not plaquettes:
+                    continue
             logger.debug(f"Found {len(plaquettes)} plaquette(s).")
 
             # For each plaquette, apply the the local Trotter step circuit.

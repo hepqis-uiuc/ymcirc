@@ -185,22 +185,23 @@ _HAMILTONIAN_DATA_FILE_PATHS: Dict[str, Dict[str, Path]] = {
     "d=3/2": {
         "T1": _HAMILTONIAN_DATA_DIR / "T1_dim(3_2)_magnetic_hamiltonian.json.gz",
         "T2": _HAMILTONIAN_DATA_DIR / "T2_dim(3_2)_magnetic_hamiltonian.json.gz",
-        "B3": _HAMILTONIAN_DATA_DIR / "B3_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
-        "B5": _HAMILTONIAN_DATA_DIR / "B5_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
-        "B6": _HAMILTONIAN_DATA_DIR / "B6_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
-        "B7": _HAMILTONIAN_DATA_DIR / "B7_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
-        "B8": _HAMILTONIAN_DATA_DIR / "B8_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
-        "B9": _HAMILTONIAN_DATA_DIR / "B9_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
-        "B10": _HAMILTONIAN_DATA_DIR / "B10_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
+        "B3": _HAMILTONIAN_DATA_DIR / "B3_dim(3_2)_magnetic_hamiltonian.json.gz",
+        "B4": _HAMILTONIAN_DATA_DIR / "B4_dim(3_2)_magnetic_hamiltonian.json.gz",
+        "B5": _HAMILTONIAN_DATA_DIR / "B5_dim(3_2)_magnetic_hamiltonian.json.gz",
+        "B6": _HAMILTONIAN_DATA_DIR / "B6_dim(3_2)_magnetic_hamiltonian.json.gz",
+        "B7": _HAMILTONIAN_DATA_DIR / "B7_dim(3_2)_magnetic_hamiltonian.json.gz",
+        "B8": _HAMILTONIAN_DATA_DIR / "B8_dim(3_2)_magnetic_hamiltonian.json.gz",
+        "B9": _HAMILTONIAN_DATA_DIR / "B9_dim(3_2)_magnetic_hamiltonian.json.gz",
+        "B10": _HAMILTONIAN_DATA_DIR / "B10_dim(3_2)_magnetic_hamiltonian.json.gz",
     },
     "d=2": {
         "T1": _HAMILTONIAN_DATA_DIR / "T1_dim(2)_magnetic_hamiltonian.json.gz",
-        "B3": _HAMILTONIAN_DATA_DIR / "B3_dim(2)_PBC_magnetic_hamiltonian.json.gz",
+        "B3": _HAMILTONIAN_DATA_DIR / "B3_dim(2)_magnetic_hamiltonian.json.gz",
         "B4": _HAMILTONIAN_DATA_DIR / "B4_dim(2)_PBC_magnetic_hamiltonian.json.gz",
         "B7": _HAMILTONIAN_DATA_DIR / "B7_dim(2)_PBC_magnetic_hamiltonian.json.gz",
     },
     "d=3": {
-        "B3": _HAMILTONIAN_DATA_DIR / "B3_dim(3)_PBC_magnetic_hamiltonian.json.gz",
+        "B3": _HAMILTONIAN_DATA_DIR / "B3_dim(3)_magnetic_hamiltonian.json.gz",
         "B4": _HAMILTONIAN_DATA_DIR / "B4_dim(3)_PBC_magnetic_hamiltonian.json.gz",
     }
 }
@@ -208,22 +209,23 @@ _PLAQUETTE_STATES_DATA_FILE_PATHS: Dict[str, Dict[str, Path]] = {
     "d=3/2": {
         "T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(3_2)_plaquette_states.json.gz",
         "T2": _PLAQUETTE_STATES_DATA_DIR / "T2_dim(3_2)_plaquette_states.json.gz",
-        "B3": _PLAQUETTE_STATES_DATA_DIR / "B3_dim(3_2)_PBC_plaquette_states.json.gz",
-        "B5": _PLAQUETTE_STATES_DATA_DIR / "B5_dim(3_2)_PBC_plaquette_states.json.gz",
-        "B6": _PLAQUETTE_STATES_DATA_DIR / "B6_dim(3_2)_PBC_plaquette_states.json.gz",
-        "B7": _PLAQUETTE_STATES_DATA_DIR / "B7_dim(3_2)_PBC_plaquette_states.json.gz",
-        "B8": _PLAQUETTE_STATES_DATA_DIR / "B8_dim(3_2)_PBC_plaquette_states.json.gz",
-        "B9": _PLAQUETTE_STATES_DATA_DIR / "B9_dim(3_2)_PBC_plaquette_states.json.gz",
-        "B10": _PLAQUETTE_STATES_DATA_DIR / "B10_dim(3_2)_PBC_plaquette_states.json.gz",
+        "B3": _PLAQUETTE_STATES_DATA_DIR / "B3_dim(3_2)_plaquette_states.json.gz",
+        "B4": _PLAQUETTE_STATES_DATA_DIR / "B4_dim(3_2)_plaquette_states.json.gz",
+        "B5": _PLAQUETTE_STATES_DATA_DIR / "B5_dim(3_2)_plaquette_states.json.gz",
+        "B6": _PLAQUETTE_STATES_DATA_DIR / "B6_dim(3_2)_plaquette_states.json.gz",
+        "B7": _PLAQUETTE_STATES_DATA_DIR / "B7_dim(3_2)_plaquette_states.json.gz",
+        "B8": _PLAQUETTE_STATES_DATA_DIR / "B8_dim(3_2)_plaquette_states.json.gz",
+        "B9": _PLAQUETTE_STATES_DATA_DIR / "B9_dim(3_2)_plaquette_states.json.gz",
+        "B10": _PLAQUETTE_STATES_DATA_DIR / "B10_dim(3_2)_plaquette_states.json.gz",
     },
     "d=2": {
         "T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(2)_plaquette_states.json.gz",
-        "B3": _PLAQUETTE_STATES_DATA_DIR / "B3_dim(2)_PBC_plaquette_states.json.gz",
+        "B3": _PLAQUETTE_STATES_DATA_DIR / "B3_dim(2)_plaquette_states.json.gz",
         "B4": _PLAQUETTE_STATES_DATA_DIR / "B4_dim(2)_PBC_plaquette_states.json.gz",
         "B7": _PLAQUETTE_STATES_DATA_DIR / "B7_dim(2)_PBC_plaquette_states.json.gz",
     },
     "d=3": {
-        "B3": _PLAQUETTE_STATES_DATA_DIR / "B3_dim(3)_PBC_plaquette_states.json.gz",
+        "B3": _PLAQUETTE_STATES_DATA_DIR / "B3_dim(3)_plaquette_states.json.gz",
         "B4": _PLAQUETTE_STATES_DATA_DIR / "B4_dim(3)_PBC_plaquette_states.json.gz",
     }
 }
@@ -484,8 +486,21 @@ def load_magnetic_hamiltonian(
         HAMILTONIAN_BOX_TERMS[dim_string][trunc_string]
     )
 
+    # For periodic encoders, determine the expected control link count so we can
+    # skip state pairs from non-interior signatures in universal data files.
+    _expected_n_controls: int | None = None
+    if lattice_encoder.lattice_def.all_boundary_conds_periodic:
+        _expected_n_controls = lattice_encoder.lattice_def.n_control_links_per_plaquette
+    _count_controls = lambda ps: sum(len(vc) for vc in ps[2])
+
     mag_hamiltonian: Dict[Tuple[str, str], MatrixElementValue] = {}
     for (plaquette_state_1, plaquette_state_2), matrix_elem in rotations.items():
+        # Skip state pairs with incompatible control counts on periodic lattices.
+        if _expected_n_controls is not None:
+            if (_count_controls(plaquette_state_1) != _expected_n_controls
+                    or _count_controls(plaquette_state_2) != _expected_n_controls):
+                continue
+
         # Apply threshold filter.
         if mag_hamiltonian_matrix_element_threshold > 0:
             filtered = _filter_matrix_element_value(matrix_elem, mag_hamiltonian_matrix_element_threshold)
@@ -615,11 +630,6 @@ class LatticeStateEncoder:
         plaquette_states_are_unique = len(physical_plaquette_states) == len(set(physical_plaquette_states))
         # Count total controls across all vertices in the nested format.
         _count_total_controls = lambda c_links: sum(len(vc) for vc in c_links)
-        first_total_controls = _count_total_controls(physical_plaquette_states[0][2])
-        consistent_num_controls_in_plaquette_states = all(
-            _count_total_controls(plaquette[2]) == first_total_controls
-            for plaquette in physical_plaquette_states
-        )
         if link_bitmap_has_unique_values is False:
             raise ValueError("Argument link_bitmap must be a dict with unique values. "
                              f"Encountered: {link_bitmap}")
@@ -628,8 +638,19 @@ class LatticeStateEncoder:
                              f" with unique values. Encountered: {physical_plaquette_states}.")
         if not isinstance(lattice, LatticeDef):
             raise TypeError(f"The lattice argument must be an instance of {LatticeDef.__name__}. Received: {type(lattice)}.")
-        if consistent_num_controls_in_plaquette_states is not True:
-            raise ValueError("All physical plaquette states must have the same number of controls.")
+        # For periodic lattices with universal data files, filter out plaquette
+        # states from non-interior signatures (those with a different number of
+        # control links than the lattice geometry expects).
+        if lattice.all_boundary_conds_periodic:
+            expected_n_controls = lattice.n_control_links_per_plaquette
+            filtered = [ps for ps in physical_plaquette_states if _count_total_controls(ps[2]) == expected_n_controls]
+            if len(filtered) < len(physical_plaquette_states):
+                logger.info(
+                    f"Filtered {len(physical_plaquette_states) - len(filtered)} plaquette states "
+                    f"with non-interior control link counts from universal data file "
+                    f"(kept {len(filtered)} of {len(physical_plaquette_states)})."
+                )
+                physical_plaquette_states = filtered
 
         # Now construct the vertex multiplicity bitmap, and infer qubit counts per DoFs.
         max_zero_indexed_multiplicity = max([current_vertex for vertices, a_links, c_links in physical_plaquette_states for current_vertex in vertices])
@@ -645,12 +666,15 @@ class LatticeStateEncoder:
                 for multiplicity_index in range(max_zero_indexed_multiplicity + 1)
             }
         self._expected_link_bit_string_length = len(list(link_bitmap.values())[0])
-        n_total_control_links = first_total_controls
-        if not n_total_control_links == lattice.n_control_links_per_plaquette:
-            raise ValueError(f"Expected {lattice.n_control_links_per_plaquette} total plaquette controls from lattice. Encountered a plaquette states with {n_total_control_links} total controls.")
-        self._expected_plaquette_bit_string_length = \
-            (4 * (self._expected_vertex_bit_string_length + self._expected_link_bit_string_length)) \
-            + (n_total_control_links * self._expected_link_bit_string_length)
+        if lattice.all_boundary_conds_periodic:
+            n_total_control_links = lattice.n_control_links_per_plaquette
+            self._expected_plaquette_bit_string_length = \
+                (4 * (self._expected_vertex_bit_string_length + self._expected_link_bit_string_length)) \
+                + (n_total_control_links * self._expected_link_bit_string_length)
+        else:
+            # Non-periodic lattices have variable control counts per signature.
+            # _expected_plaquette_bit_string_length is None to signal variability.
+            self._expected_plaquette_bit_string_length = None
 
         # Check all bitmaps for consistency of length of bit string encodings.
         if any(len(bit_string) != self._expected_vertex_bit_string_length for bit_string in vertex_bitmap.values()):
@@ -699,8 +723,12 @@ class LatticeStateEncoder:
         return copy.deepcopy(self._link_bitmap)
 
     @property
-    def expected_plaquette_bit_string_length(self) -> int:
-        """Return the length of plaquette bit strings the encoder expects."""
+    def expected_plaquette_bit_string_length(self) -> int | None:
+        """Return the length of plaquette bit strings the encoder expects.
+
+        Returns None for non-periodic lattices where control link counts vary
+        by signature, making the bitstring length variable.
+        """
         return self._expected_plaquette_bit_string_length
 
     @property
@@ -712,6 +740,15 @@ class LatticeStateEncoder:
     def expected_vertex_bit_string_length(self) -> int:
         """Return the length of vertex bit strings the encoder expects."""
         return self._expected_vertex_bit_string_length
+
+    @property
+    def physical_plaquette_states(self) -> List[PlaquetteState]:
+        """Return the physical plaquette states used by this encoder.
+
+        For periodic lattices with universal data files, this is the filtered
+        subset of states matching the interior signature (uniform control count).
+        """
+        return copy.deepcopy(self.__physical_plaquette_states)
 
     @property
     def forder(self) -> List[int]:
@@ -820,8 +857,9 @@ class LatticeStateEncoder:
         if len(a_links) != 4:
             raise ValueError(f"Encountered {len(a_links)} active links instead of 4.")
         total_c_links = sum(len(vc) for vc in c_links)
-        if total_c_links != self._lattice.n_control_links_per_plaquette and (override_n_c_links_validation is False):
-            raise ValueError(f"Encountered {total_c_links} control links instead of {self._lattice.n_control_links_per_plaquette}.")
+        if self._lattice.all_boundary_conds_periodic and (override_n_c_links_validation is False):
+            if total_c_links != self._lattice.n_control_links_per_plaquette:
+                raise ValueError(f"Encountered {total_c_links} control links instead of {self._lattice.n_control_links_per_plaquette}.")
 
         bit_string_encoding = ""
 
@@ -848,7 +886,11 @@ class LatticeStateEncoder:
 
         return bit_string_encoding
 
-    def decode_bit_string_to_plaquette_state(self, bit_string: str) -> PlaquetteState:
+    def decode_bit_string_to_plaquette_state(
+            self,
+            bit_string: str,
+            n_controls_per_vertex: tuple[int, ...] | None = None,
+    ) -> PlaquetteState:
         """
         Decode bit string to a plaquette state in terms of iWeights.
 
@@ -870,18 +912,21 @@ class LatticeStateEncoder:
         by FORDER. If unable to decode to physical state data, returns None for
         that degree of freedom.
 
-        Raises NotImplementedError if the lattice does not use periodic boundary
-        conditions, since decoding logic for nonperiodic lattices is not yet
-        implemented.
+        For non-periodic lattices, n_controls_per_vertex must be provided as a
+        4-tuple giving the number of control links at each vertex (since this
+        varies by plaquette signature).
         """
-        if not self._lattice.periodic_boundary_conds:
-            raise NotImplementedError(
-                "Decoding plaquette states for nonperiodic lattices is not yet supported."
+        if not self._lattice.all_boundary_conds_periodic and n_controls_per_vertex is None:
+            raise ValueError(
+                "n_controls_per_vertex must be provided for non-periodic lattices, "
+                "since the number of control links varies by plaquette signature."
             )
-        # Validate input.
-        if self._expected_plaquette_bit_string_length != len(bit_string):
-            raise ValueError("Vertex and link bitmaps are inconsistent with length of\n"
-                             f"bit string {bit_string}. Expected n_bits: {self._expected_plaquette_bit_string_length}; encountered n_bits: {len(bit_string)}.")
+
+        # Validate input length for periodic lattices.
+        if self._expected_plaquette_bit_string_length is not None:
+            if self._expected_plaquette_bit_string_length != len(bit_string):
+                raise ValueError("Vertex and link bitmaps are inconsistent with length of\n"
+                                 f"bit string {bit_string}. Expected n_bits: {self._expected_plaquette_bit_string_length}; encountered n_bits: {len(bit_string)}.")
 
         # Parse input into vertex, active link, and control link substrings.
         idx_first_a_link_bit = 4 * self._expected_vertex_bit_string_length
@@ -908,12 +953,21 @@ class LatticeStateEncoder:
             LatticeStateEncoder._split_string_evenly(
                 c_links_substring, self._expected_link_bit_string_length)
         ]
-        # Number of controls per vertex for periodic lattices.
-        n_controls_per_vertex = int(2 * (self._lattice.dim - 1))
-        decoded_c_links = tuple(
-            tuple(decoded_c_links_flat[i:i + n_controls_per_vertex])
-            for i in range(0, len(decoded_c_links_flat), n_controls_per_vertex)
-        )
+        if n_controls_per_vertex is not None:
+            # Non-periodic: use the provided per-vertex control counts.
+            decoded_c_links = []
+            offset = 0
+            for n_ctrl in n_controls_per_vertex:
+                decoded_c_links.append(tuple(decoded_c_links_flat[offset:offset + n_ctrl]))
+                offset += n_ctrl
+            decoded_c_links = tuple(decoded_c_links)
+        else:
+            # Periodic: uniform controls per vertex.
+            n_ctrl_per_vertex = int(2 * (self._lattice.dim - 1))
+            decoded_c_links = tuple(
+                tuple(decoded_c_links_flat[i:i + n_ctrl_per_vertex])
+                for i in range(0, len(decoded_c_links_flat), n_ctrl_per_vertex)
+            )
 
         decoded_plaquette = (
             decoded_vertices,

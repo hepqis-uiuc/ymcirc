@@ -784,7 +784,7 @@ def test_creating_correct_ancilla_register_for_d_3_2_T1_small():
         PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string],
         lattice=lattice_def)
 
-    physical_plaquette_states = set(lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string])
+    physical_plaquette_states = set(lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in lattice_encoder.physical_plaquette_states)
 
     lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
     magnetic_hamiltonian = load_magnetic_hamiltonian(
@@ -796,7 +796,7 @@ def test_creating_correct_ancilla_register_for_d_3_2_T1_small():
     master_circuit = circ_mgr.create_blank_full_lattice_circuit(
         lattice_registers)
 
-    circ_mgr.num_ancillas = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(master_circuit, lattice_registers, control_fusion=True, 
+    circ_mgr.num_ancillas = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(master_circuit, lattice_registers, control_fusion=True,
         physical_states_for_control_pruning=physical_plaquette_states,
         optimize_circuits=False)
     circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit)
@@ -817,7 +817,7 @@ def test_creating_correct_ancilla_register_for_d_2_T1_small():
         PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string],
         lattice=lattice_def)
 
-    physical_plaquette_states = set(lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string])
+    physical_plaquette_states = set(lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in lattice_encoder.physical_plaquette_states)
 
     lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
     magnetic_hamiltonian = load_magnetic_hamiltonian(
@@ -850,7 +850,7 @@ def test_magnetic_with_ancilla_has_no_MCX():
         PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string],
         lattice=lattice_def)
 
-    physical_plaquette_states = set(lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string])
+    physical_plaquette_states = set(lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in lattice_encoder.physical_plaquette_states)
 
     lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
     magnetic_hamiltonian = load_magnetic_hamiltonian(
@@ -1790,8 +1790,8 @@ def test_per_plane_consistency_check_d3():
     """For d=3 size=2, a plaquette state can be consistent for one plane but not another."""
     circ_mgr, encoder = _make_d3_size2_circ_mgr()
 
-    # Grab an arbitrary physical plaquette state from the data.
-    physical_states = PHYSICAL_PLAQUETTE_STATES["d=3"]["B3"]
+    # Grab an arbitrary physical plaquette state from the data (filtered to interior signature).
+    physical_states = encoder.physical_plaquette_states
     assert len(physical_states) > 0, "No physical plaquette states loaded for d=3 B3."
 
     # All physical states should be consistent for all planes (they come from valid data).
@@ -1826,7 +1826,7 @@ def test_per_plane_control_trimming_d3():
     """For d=3 size=2, trimming produces 12 total controls per plaquette state (4+3+3+2)."""
     circ_mgr, encoder = _make_d3_size2_circ_mgr()
 
-    physical_states = PHYSICAL_PLAQUETTE_STATES["d=3"]["B3"]
+    physical_states = encoder.physical_plaquette_states
     planes = [(1, 2), (1, 3), (2, 3)]
 
     for ps in physical_states[:10]:  # Check a sample
@@ -1848,8 +1848,8 @@ def test_per_plane_strip_redundant_controls_d3():
     """_strip_redundant_controls returns a per-plane dict with 3 planes for d=3 size=2."""
     circ_mgr, encoder = _make_d3_size2_circ_mgr()
 
-    # Use all physical states to ensure we have consistent ones for each plane.
-    physical_states = PHYSICAL_PLAQUETTE_STATES["d=3"]["B3"]
+    # Use interior-signature physical states (filtered by the encoder).
+    physical_states = encoder.physical_plaquette_states
     physical_state_bitstrings = set(
         encoder.encode_plaquette_state_as_bit_string(ps) for ps in physical_states
     )

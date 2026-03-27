@@ -1,5 +1,5 @@
 # OBC/Mixed BC Implementation — Status Overview
 
-**Status: Phases 1 and 2 substantially complete. Step 1.4a (pyclebsch KeyError) is FIXED. Ready for Phase 3.**
+**Status: Phase 3 complete. Phases 1, 2, and 3 all done. Phase 4 (testing) not yet started. All tests passing (208 passed, 20 skipped).**
 
-Phase 2 (geometry layer) is fully implemented — all 7 steps done, all 208 existing tests pass with zero regressions. Phase 1 steps 1.1–1.4a are complete: `gen_ymcirc_data.py` is updated with universal lattice cases, T-truncation universal files (T1 d=3/2, T2 d=3/2, T1 d=2) plus B3 and B5 d=3/2 have been generated and validated in `pyclebsch/out/`, and the pyclebsch KeyError blocking B6+ d=3/2 generation has been fixed (two missing guards in `glue_plaquette_site_factors()`). Step **1.4b** (generate remaining B-truncation files: B4, B6–B10 d=3/2, B3 d=2, B3 d=3) is now unblocked. Step 1.5 (installation) is deferred to Phase 3.
+Phases 1 (data generation), 2 (geometry layer), and 3 (encoding + circuit layer) are fully complete. The final Phase 3 steps — removing the PBC-only guard in `LatticeCircuitManager.__init__()` (3.4) and handling boundary-vertex plaquette construction in `apply_magnetic_trotter_step()` (3.5) — were completed on 2026-03-27 with no test regressions. Phase 4 (testing and validation: unit tests for geometry, encoding, OBC/mixed BC integration tests, and full regression) is not yet started. See `phase-3-encoding-circuit.md` for details on the completed Phase 3 work.

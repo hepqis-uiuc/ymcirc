@@ -40,13 +40,14 @@ def test_physical_plaquette_states_data_valid(dim_string, trunc_string):
     expected_num_vertices = 4
     expected_num_a_links = 4
     expected_iweight_length = 3
+    # Maximum total control links for the interior signature of each dimension.
     match dim_string:
         case "d=3/2":
-            expected_num_c_links = 4
+            max_num_c_links = 4
         case "d=2":
-            expected_num_c_links = 8
+            max_num_c_links = 8
         case "d=3":
-            expected_num_c_links = 16  # 4 controls/vertex * 4 vertices
+            max_num_c_links = 16  # 4 controls/vertex * 4 vertices
         case _:
             raise NotImplementedError(f"Test not implemented for dimension {dim_string}.")
     for state in PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string]:
@@ -67,10 +68,12 @@ def test_physical_plaquette_states_data_valid(dim_string, trunc_string):
         assert a_links_are_valid is True, f"Encountered state with invalid active links: {a_links}."
 
         # c_links is now per-vertex nested: ((c_at_v1, ...), (c_at_v2, ...), ...)
+        # Universal data files include states from all signatures (interior, edge, corner),
+        # so boundary-signature states may have fewer controls than the interior maximum.
         assert len(c_links) == 4, f"Expected 4 per-vertex control link tuples, got {len(c_links)}."
         total_c_links = sum(len(vc) for vc in c_links)
-        assert total_c_links == expected_num_c_links, \
-            f"Expected {expected_num_c_links} total control links, got {total_c_links}."
+        assert total_c_links <= max_num_c_links, \
+            f"Expected at most {max_num_c_links} total control links, got {total_c_links}."
         for vc in c_links:
             for c_link in vc:
                 assert isinstance(c_link, tuple) and len(c_link) == expected_iweight_length, \
@@ -105,7 +108,7 @@ def test_hamiltonian_box_terms_no_missing_expected_cases(expected_dim_string, ex
 
 def test_hamiltonian_box_terms_no_unexpected_cases():
     all_expected_dim_trunc_cases = {
-        "d=3/2": set(["T1", "T2", "B3", "B5", "B6", "B7", "B8", "B9", "B10"]),
+        "d=3/2": set(["T1", "T2", "B3", "B4", "B5", "B6", "B7", "B8", "B9", "B10"]),
         "d=2": set(["T1", "B3", "B4", "B7"]),
         "d=3": set(["B3", "B4"])
     }
@@ -741,7 +744,7 @@ def test_lattice_encoder_infers_correct_plaquette_length():
 
 
 def test_lattice_encoder_fails_on_bad_creation_args():
-    print("Checking that plaquette states list with differing lengths of controls causes ValueError.")
+    print("Checking that plaquette states with differing control lengths are filtered on periodic lattices.")
     good_link_bitmap: IrrepBitmap = {
         ONE: "00",
         THREE: "10",
@@ -760,8 +763,10 @@ def test_lattice_encoder_fails_on_bad_creation_args():
         )
     ]
     lattice_d_3_2 = LatticeDef(1.5, 2)
-    with pytest.raises(ValueError) as e_info:
-        LatticeStateEncoder(good_link_bitmap, physical_states_inconsistent_control_lengths, lattice_d_3_2)
+    # Periodic lattices now filter states by control count (for universal data file support).
+    # The state with 4 controls matches n_control_links_per_plaquette=4 for d=3/2 size 2.
+    encoder = LatticeStateEncoder(good_link_bitmap, physical_states_inconsistent_control_lengths, lattice_d_3_2)
+    assert len(encoder.physical_plaquette_states) == 1
 
 
     print("Checking that repeated physical plaquette states cause a ValueError.")
@@ -1055,10 +1060,16 @@ def test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding(
           f"Link bitmap =  {lattice_encoder.link_bitmap}\n"
           f"Vertex bitmap = {lattice_encoder.vertex_bitmap}")
 
-    # Get the set of unique plaquette states.
+    # Get the set of unique plaquette states, filtering to interior-signature
+    # states on periodic lattices (universal data files include boundary-signature
+    # states with fewer control links that the periodic encoder cannot encode).
+    expected_n_controls = current_lattice.n_control_links_per_plaquette
+    _count_controls = lambda ps: sum(len(vc) for vc in ps[2])
     all_plaquette_states = set([
-        final_and_initial_state_tuple[0] for final_and_initial_state_tuple in HAMILTONIAN_BOX_TERMS[current_dim_string][current_trunc_string].keys()] + [
+        s for s in [
+            final_and_initial_state_tuple[0] for final_and_initial_state_tuple in HAMILTONIAN_BOX_TERMS[current_dim_string][current_trunc_string].keys()] + [
             final_and_initial_state_tuple[1] for final_and_initial_state_tuple in HAMILTONIAN_BOX_TERMS[current_dim_string][current_trunc_string].keys()
+        ] if _count_controls(s) == expected_n_controls
         ])
 
     # Attempt encodings and check for uniqueness.

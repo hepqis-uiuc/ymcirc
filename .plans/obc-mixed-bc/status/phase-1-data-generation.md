@@ -1,6 +1,6 @@
 # Phase 1: pyclebsch — Generate Universal Data Files — Status
 
-**Status: Steps 1.1–1.4a COMPLETED. Steps 1.4b and 1.5 remain.**
+**Status: COMPLETED** (2026-03-26)
 
 ## What was done
 
@@ -22,21 +22,27 @@
   - Line 323: `if (s1[0],s1[2]) not in info[2]: return matrix_elements` — early return for s2 mismatch
   - Line 337: `if (s2[1],s2[3]) not in info[3]: continue` — skip for s3 mismatch
 
-  These guards correctly produce no matrix elements for incompatible irrep combinations, consistent with the physics (plaquette link irreps must match at shared links).
-
   **Validation**: B6 d=3/2 all 3 plaquettes generate successfully (34 + 1000 + 34 matrix elements). PBC regression tests pass (B5 d=3/2: 81 me, T1 d=2: 19329 me). All 14 pyclebsch tests pass.
+
+- **1.4b**: **COMPLETED.** Generated all remaining B-truncation universal files:
+  - B4 d=3/2, B6–B10 d=3/2: all generated successfully (3 signatures each).
+  - B3 d=2: 9 signatures, generated successfully (3.5K hamiltonian, 7.8K plaquette states).
+  - B3 d=3: 27 signatures, generated successfully (64K hamiltonian, 1.5M plaquette states).
+  - All files under 100MB (largest is B3 d=3 plaquette states at 1.5MB).
+  - All files passed internal consistency validation (mat elem states ⊆ plaquette states).
+
+- **1.5**: **COMPLETED.** Copied all universal files from `pyclebsch/out/` to `ymcirc/_ymcirc_data/` subdirectories. Old PBC-only files retained alongside universal files.
 
 ## What failed
 
-- **B6–B10 d=3/2** previously failed with KeyError — now fixed by step 1.4a.
+- **B6–B10 d=3/2** previously failed with KeyError — fixed by step 1.4a.
 
 ## Deviations from plan
 
-- **Step 1.5 deferred**: Installing universal files into `ymcirc/_ymcirc_data/` now overwrites the existing PBC-only files and breaks 20 tests because `conventions.py` loading code doesn't handle multi-signature data yet. Installation must be done as part of Phase 3 when the encoding layer is updated.
-
 - **Parallelization disabled**: Set `parallelize = False` in gen_ymcirc_data.py to avoid known EOFError in multiprocessing.
+- **Step 1.5 was done alongside 3.1** (path registry update) rather than separately.
+- Used a temporary `gen_remaining_universal.py` script to run only the new cases without re-generating existing files.
 
-## Next steps
+## Resolution
 
-- **Step 1.4b**: Generate remaining B-truncation universal files: B4, B6–B10 d=3/2 (now unblocked), B3 d=2, B3 d=3.
-- **Step 1.5**: Install universal files into `ymcirc/_ymcirc_data/` (deferred to Phase 3).
+Phase 1 is fully complete. All universal data files generated and installed.
