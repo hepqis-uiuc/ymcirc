@@ -1,5 +1,5 @@
 # OBC/Mixed BC Implementation — Status Overview
 
-**Status: Phase 3 complete. Phases 1, 2, and 3 all done. Phase 4 (testing) not yet started. All tests passing (208 passed, 20 skipped).**
+**Status: Phase 4.1 complete. Phases 1–3 done. Phase 4.2–4.6 not yet started.**
 
-Phases 1 (data generation), 2 (geometry layer), and 3 (encoding + circuit layer) are fully complete. The final Phase 3 steps — removing the PBC-only guard in `LatticeCircuitManager.__init__()` (3.4) and handling boundary-vertex plaquette construction in `apply_magnetic_trotter_step()` (3.5) — were completed on 2026-03-27 with no test regressions. Phase 4 (testing and validation: unit tests for geometry, encoding, OBC/mixed BC integration tests, and full regression) is not yet started. See `phase-3-encoding-circuit.md` for details on the completed Phase 3 work.
+Phases 1 (data generation), 2 (geometry layer), and 3 (encoding + circuit layer) are fully complete. Phase 4.1 (geometry layer unit tests) was completed on 2026-03-27: 57 new tests in `tests/test_geometry_obc.py` plus the unskipped `test_signature_nonperiodic` in `tests/test_circuit.py`, all passing. Full regression suite has not yet been run to completion for 4.5. Remaining: 4.2 (encoding unit tests), 4.3 (OBC integration), 4.4 (mixed BC integration), 4.5 (full regression), 4.6 (data validation). See `phase-4-testing.md` for details.

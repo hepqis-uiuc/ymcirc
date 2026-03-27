@@ -129,7 +129,7 @@ Connect the geometry layer (Phase 2) to data loading and circuit construction. T
 
 Testing runs throughout, but this phase covers the final integration tests.
 
-- [ ] **4.1 Unit tests for geometry layer (Phase 2)**
+- [x] **4.1 Unit tests for geometry layer (Phase 2)**
   Add tests in `tests/` for each geometry change:
   - Tuple-valued BCs in `LatticeDef`
   - `add_unit_vector_to_vertex_vector()` on OBC and mixed BC lattices

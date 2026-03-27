@@ -1765,11 +1765,62 @@ def test_signature():
     assert plaq_2_ns.signature == ((-1, 2, 1, -2), (-1, 2, 1, -2), (-1, 2, 1, -2), (-1, 2, 1, -2))
 
 
-@pytest.mark.skip(reason="Non-periodic LatticeDef support not yet available. "
-                         "Should verify plaquette.signature reflects missing directions at boundary vertices.")
 def test_signature_nonperiodic():
-    """Placeholder: verify signature correctness on a non-periodic lattice."""
-    pass
+    """Verify plaquette.signature reflects missing directions at boundary vertices on OBC lattices."""
+    default_forder = [1, 2, 3, -1, -2, -3]
+    link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    vertex_bitmap = {}
+
+    # d=2 OBC, size=4 (large enough so interior plaquettes exist).
+    lattice = LatticeRegisters(2, 4, periodic_boundary_conds=False, link_bitmap=link_bitmap,
+                               vertex_bitmap=vertex_bitmap, forder=default_forder)
+
+    # Interior plaquette at (1,1): all 4 vertices have all 4 directions.
+    interior_plaq = lattice.get_plaquettes((1, 1), 1, 2)
+    interior_sig = ((1, 2, -1, -2),) * 4
+    assert interior_plaq.signature == interior_sig
+
+    # Corner plaquette at (0,0): bottom-left vertex missing -1 and -2.
+    #   v1=(0,0): active {+1,+2}, controls would be {-1,-2} but both out of bounds → dirs {1,2}
+    #   v2=(1,0): active {-1,+2}, controls would be {+1,-2} — +1 exists, -2 out of bounds → {1,2,-1}
+    #   v3=(1,1): active {-1,-2}, controls {+1,+2} — both exist → {1,2,-1,-2}
+    #   v4=(0,1): active {+1,-2}, controls {-1,+2} — -1 out of bounds, +2 exists → {1,2,-2}
+    corner_plaq = lattice.get_plaquettes((0, 0), 1, 2)
+    assert corner_plaq.signature == (
+        (1, 2),           # v1: only active dirs
+        (1, 2, -1),       # v2: +1 control exists
+        (1, 2, -1, -2),   # v3: interior
+        (1, 2, -2),       # v4: +2 control exists
+    )
+
+    # Edge plaquette at (1,0) (bottom edge, not corner):
+    #   v1=(1,0): active {+1,+2}, controls {-1,-2} — -1 exists, -2 out of bounds → {1,2,-1}
+    #   v2=(2,0): active {-1,+2}, controls {+1,-2} — +1 exists, -2 out of bounds → {1,2,-1}
+    #   v3=(2,1): active {-1,-2}, controls {+1,+2} — both exist → {1,2,-1,-2}
+    #   v4=(1,1): active {+1,-2}, controls {-1,+2} — both exist → {1,2,-1,-2}
+    edge_plaq = lattice.get_plaquettes((1, 0), 1, 2)
+    assert edge_plaq.signature == (
+        (1, 2, -1),       # v1: bottom edge
+        (1, 2, -1),       # v2: bottom edge
+        (1, 2, -1, -2),   # v3: interior
+        (1, 2, -1, -2),   # v4: interior
+    )
+
+    # d=3/2 OBC (open in horizontal), size=4:
+    lattice_3_2 = LatticeRegisters(1.5, 4, periodic_boundary_conds=(False, False),
+                                   link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap, forder=default_forder)
+    # Left-edge plaquette at (0,0): v1=(0,0) and v4=(0,1) missing -1 control.
+    left_plaq = lattice_3_2.get_plaquettes((0, 0), 1, 2)
+    # v1=(0,0) bottom: active {+1,+2}, possible controls {-1} but -1 out of bounds → {1,2}
+    # v2=(1,0) bottom: active {-1,+2}, possible controls {+1} exists → {1,2,-1}
+    # v3=(1,1) top: active {-1,-2}, possible controls {+1} exists → {1,-1,-2}
+    # v4=(0,1) top: active {+1,-2}, possible controls {-1} out of bounds → {1,-2}
+    assert left_plaq.signature == (
+        (1, 2),
+        (1, 2, -1),
+        (1, -1, -2),
+        (1, -2),
+    )
 
 
 # --- d=3 per-plane filtering unit tests ---
