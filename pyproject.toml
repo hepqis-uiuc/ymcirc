@@ -3,7 +3,7 @@ name = "ymcirc"
 version = "0.1.0"
 description = "Circuit Hamiltonians for SU(3) lattice gauge theory"
 readme = "README.md"
-requires-python = "~=3.12.0"
+requires-python = ">=3.12"
 dependencies = [
     "matplotlib~=3.9",
     "matplotlib-label-lines~=0.7.0",
