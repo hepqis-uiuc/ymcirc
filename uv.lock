@@ -793,7 +793,7 @@ wheels = [
 [[package]]
 name = "ymcirc"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "matplotlib" },
     { name = "matplotlib-label-lines" },
