@@ -15,6 +15,18 @@ VertexAddress = LatticeVector
 LinkUnitVectorLabel = int
 LinkAddress = Tuple[LatticeVector, LinkUnitVectorLabel]
 DimensionalitySpecifier = Union[int, float, str]  # Allows specification of d = 3/2 via strings or floats.
+# A pair of lattice directions defining a plaquette plane.
+Plane = Tuple[int, int]
+# A signature is a tuple of 4 per-vertex direction-label tuples, each sorted by FORDER.
+# Each inner tuple contains the half-link direction labels (integers) for ALL existing
+# links at that vertex (both active and control), sorted by FORDER position.
+# This matches the signature keys used in the Hamiltonian data files.
+Signature = Tuple[
+    Tuple[int, ...],
+    Tuple[int, ...],
+    Tuple[int, ...],
+    Tuple[int, ...],
+]
 
 # Constants
 VERTICAL_DIR_LABEL: LinkUnitVectorLabel = 2
@@ -66,11 +78,6 @@ class Plaquette(Generic[T]):
         plane (tuple[LinkUnitVectorLabel, LinkUnitVectorLabel]):
             Retrieve a length-2 tuple of lattice unit vectors defining the plane of the lattice.
     """
-
-    _CONTROL_LINK_DIRS_PER_VERTEX_MAP: dict[DimensionalitySpecifier, Tuple[Tuple[int, ...], ...]] = {
-            1.5: ((-1,), (1,), (1,), (-1,)),
-            2: ((-1, -2), (-2, 1), (1, 2), (2, -1))
-        }
 
     def __init__(
             self,
@@ -154,46 +161,94 @@ class Plaquette(Generic[T]):
         return self._control_links
 
     @property
+    def control_links_per_vertex(self) -> tuple[tuple[T, ...], ...]:
+        """Retrieve control link data grouped by vertex in FORDER-sorted order.
+
+        Returns a tuple of 4 tuples, one per vertex (CCW from bottom-left).
+        Each inner tuple contains the control link data at that vertex,
+        sorted by the FORDER convention.
+        """
+        forder = self._lattice.forder
+        result = []
+        for vertex_vector in self._ordered_vertex_vectors:
+            ctrl_addrs = list(self._control_links[vertex_vector].keys())
+            ctrl_addrs.sort(key=lambda addr: forder.index(addr[1]))
+            vertex_data = tuple(self._control_links[vertex_vector][addr] for addr in ctrl_addrs)
+            result.append(vertex_data)
+        return tuple(result)
+
+    @property
     def control_links_ordered(self) -> tuple[T, ...]:
+        """Retrieve control links as a flat tuple in FORDER-sorted, vertex-by-vertex order.
+
+        Control links are ordered by iterating over vertices counter-clockwise
+        starting from the bottom-left vertex. Within each vertex, control links
+        are sorted by their position in the FORDER list.
+
+        Note that this property returns the data associated with control links,
+        not the directions in which they extend. For direction information,
+        use the control_link_dirs_per_vertex method.
         """
-        Retrieve the data on the control links in "standard" order.
+        return tuple(link for vertex in self.control_links_per_vertex for link in vertex)
 
-        A "counter-clockwise" convention is used to order the control links
-        stating with the bottom-left vertex.
+    def _existing_dirs_at_vertex(self, vertex_idx: int) -> set[int]:
+        """Return the set of half-link directions that actually exist at a given vertex.
 
-        In d=3/2, a length-4 tuple is returned
-        with the following order:
+        Combines active link directions (from the plaquette plane) with
+        control link directions that were successfully resolved during __init__.
 
-        4 ------------- 3
-              |   |
-        1 ------------- 2
-
-        In d=2, a length-eight tuple is returned with the following
-        order:
-
-              7   6
-              |   |
-        8 ------------- 5
-              |   |
-        1 ------------- 4
-              |   |
-              2   3
-
-        In d=3, a length-16 tuple is returned where items 1-8 follow d=2 ordering.
-        Items 9-12 are the links "above" the plaquette as determined by the right
-        hand rule, going counter-clockwise starting from the bottom left vertex.
-        Items 13-16 are analogously the links "below" the plaquette.
+        Arguments:
+            vertex_idx: Vertex index 0-3 (CCW from bottom-left).
         """
-        control_links_ordered = []
-        try:
-            control_link_dirs_per_vertex = Plaquette._CONTROL_LINK_DIRS_PER_VERTEX_MAP[self._lattice.dim]
-        except KeyError:
-            raise NotImplementedError(f"Control link ordering for dim-{self._lattice.dim} plaquettes not yet implemented")
-        for vertex_idx, vertex_vector in enumerate(self._ordered_vertex_vectors):
-            for link_dir in control_link_dirs_per_vertex[vertex_idx]:
-                control_links_ordered.append(self._lattice.get_link((vertex_vector, link_dir), **self._init_kwargs))
+        e1, e2 = self._plane
+        # Active link directions per vertex (CCW: v1, v2, v3, v4).
+        active_dirs = [{e1, e2}, {-e1, e2}, {-e1, -e2}, {e1, -e2}][vertex_idx]
 
-        return tuple(control_links_ordered)
+        # Control link directions that were successfully resolved.
+        vertex_vector = self._ordered_vertex_vectors[vertex_idx]
+        control_dirs = {addr[1] for addr in self._control_links[vertex_vector].keys()}
+
+        return active_dirs | control_dirs
+
+    @property
+    def signature(self) -> Signature:
+        """Compute the signature for this plaquette.
+
+        For each of the 4 plaquette vertices, returns a tuple of ALL existing
+        half-link directions at that vertex (both active and control), sorted
+        by their position in the forder list. This matches the signature keys
+        used in the Hamiltonian matrix element data files.
+
+        Physically, the signature encodes whether a plaquette is in the
+        "interior" of a lattice, on a "corner", on an "edge", etc.
+        """
+        forder = self._lattice.forder
+        result = []
+        for vertex_idx in range(4):
+            dirs = self._existing_dirs_at_vertex(vertex_idx)
+            sorted_dirs = sorted(dirs, key=lambda d: forder.index(d))
+            result.append(tuple(sorted_dirs))
+        return tuple(result)
+
+    @property
+    def control_link_dirs_per_vertex(self) -> Tuple[Tuple[int, ...], ...]:
+        """Per-vertex control link directions sorted by FORDER.
+
+        For each of the 4 plaquette vertices, returns a tuple of the
+        non-active link directions that exist at that vertex, sorted
+        by their position in the forder list.
+
+        Note that this property returns the directions in which control
+        links extend, not the data which are associated with each link.
+        For the actual data, use the control_links_ordered method.
+        """
+        forder = self._lattice.forder
+        result = []
+        for vertex_vector in self._ordered_vertex_vectors:
+            ctrl_addrs = list(self._control_links[vertex_vector].keys())
+            ctrl_dirs = sorted([addr[1] for addr in ctrl_addrs], key=lambda d: forder.index(d))
+            result.append(tuple(ctrl_dirs))
+        return tuple(result)
 
     @property
     def bottom_left_vertex(self) -> LatticeVector:
@@ -209,11 +264,14 @@ class Plaquette(Generic[T]):
 class LatticeDef:
     """A class that defines a particular lattice geometry."""
 
+    _DEFAULT_FORDER = [1, 2, 3, -1, -2, -3]
+
     def __init__(
             self,
             dimensions: DimensionalitySpecifier,
             size: int | tuple[int, ...],
-            periodic_boundary_conds: bool | tuple[bool, ...] = True
+            periodic_boundary_conds: bool | tuple[bool, ...] = True,
+            forder: List[int] | None = None
     ):
         """
         Initialize a lattice with specified dimensionality, size, and boundary conditions.
@@ -227,6 +285,10 @@ class LatticeDef:
             periodic_boundary_conds:
                 If a bool, controls boundary counds in every lattice direction. If a tuple,
                 controls boundary conditions in each lattice direction.
+            forder:
+                Half-link ordering convention used by pyclebsch data files.
+                Must be a permutation of [1, 2, 3, -1, -2, -3].
+                Defaults to [1, 2, 3, -1, -2, -3] if None.
         """
         # Set up lattice configuration.
         self._validate_lattice_params(
@@ -235,12 +297,20 @@ class LatticeDef:
             periodic_boundary_conds
         )
         self._periodic_boundary_conds = periodic_boundary_conds
+
+        # Validate and store forder.
+        if forder is None:
+            forder = list(LatticeDef._DEFAULT_FORDER)
+        if sorted(forder, key=lambda x: (abs(x), x < 0)) != sorted(LatticeDef._DEFAULT_FORDER, key=lambda x: (abs(x), x < 0)):
+            raise ValueError(f"forder must be a permutation of {LatticeDef._DEFAULT_FORDER}. Got: {forder}")
+        self._forder = list(forder)
+
         self._configure_lattice(dimensions, size)
 
     def __repr__(self):
         class_name = type(self).__name__
         size = self.shape[0]
-        return f"{class_name}(dim={self.dim}, size={size}, periodic_boundary_conds={self.periodic_boundary_conds})"
+        return f"{class_name}(dim={self.dim}, size={size}, periodic_boundary_conds={self.periodic_boundary_conds}, forder={self.forder})"
 
     def __str__(self):
         if isinstance(self.periodic_boundary_conds, bool):
@@ -429,6 +499,11 @@ class LatticeDef:
             if isinstance(self.periodic_boundary_conds, Iterable) \
                else self.periodic_boundary_conds
 
+    @property
+    def forder(self) -> List[int]:
+        """Return the half-link ordering convention (FORDER)."""
+        return list(self._forder)
+
     def add_unit_vector_to_vertex_vector(self, vertex_vector: LatticeVector, unit_vec_dir: LinkUnitVectorLabel):
         """
         Return the lattice vector one site away from vertex vector in the direction unit_vec_dir.
@@ -553,10 +628,10 @@ class LatticeData(ABC, LatticeDef, Generic[T]):
     """
     Abstract base class for storing data on a hypercubic lattice.
 
-    This class defines an interface for handling various kinds of data that are 
-    associated with a hypercubic lattice structure, which includes link and vertex 
-    degrees of freedom. Subclasses should implement all abstractmethods defined in this 
-    interface to provide specific functionality for manipulating and analyzing 
+    This class defines an interface for handling various kinds of data that are
+    associated with a hypercubic lattice structure, which includes link and vertex
+    degrees of freedom. Subclasses should implement all abstractmethods defined in this
+    interface to provide specific functionality for manipulating and analyzing
     lattice data.
     """
 
@@ -564,7 +639,8 @@ class LatticeData(ABC, LatticeDef, Generic[T]):
             self,
             dimensions: DimensionalitySpecifier,
             size: int | tuple[int, ...],
-            periodic_boundary_conds: bool | tuple[bool, ...] = True
+            periodic_boundary_conds: bool | tuple[bool, ...] = True,
+            forder: List[int] | None = None
     ):
         """
         Initialize a lattice with specified dimensionality, size, and boundary conditions.
@@ -578,8 +654,10 @@ class LatticeData(ABC, LatticeDef, Generic[T]):
             periodic_boundary_conds:
                 If a bool, controls boundary counds in every lattice direction. If a tuple,
                 controls boundary conditions in each lattice direction.
+            forder:
+                Half-link ordering convention. See LatticeDef for details.
         """
-        super().__init__(dimensions, size, periodic_boundary_conds)
+        super().__init__(dimensions, size, periodic_boundary_conds, forder=forder)
 
     @abstractmethod
     def get_vertex(self, lattice_vector: LatticeVector) -> T:

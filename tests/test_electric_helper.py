@@ -92,7 +92,7 @@ def test_convert_bitstring_to_evalue_d_2_ground_state():
         (
             (0, 0, 0, 1),  # Since 1 is the highest multiplicity, one vertex qubit.
             (ONE, ONE, ONE, ONE),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         )
     ]
     lattice = LatticeDef(dimensions=2, size=2)
@@ -117,7 +117,7 @@ def test_convert_bitstring_to_evalue_d_2_excited_state():
         (
             (0, 0, 0, 3),  # Since 3 is the highest multiplicity, two vertex qubits.
             (ONE, ONE, ONE, ONE),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         )
     ]
     lattice = LatticeDef(dimensions=2, size=3)
@@ -151,7 +151,7 @@ def test_convert_bitstring_to_evalue_d_3_2_excited_state():
         (
             (0, 0, 0, 0),  # All zeros flag that no vertex qubits needed, only trivial multiplicities.
             (ONE, ONE, ONE, ONE),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         )
     ]
     lattice = LatticeDef(dimensions=1.5, size=2)
@@ -174,7 +174,7 @@ def test_convert_bitstring_to_evalue_ignore_unphysical_links():
         (
             (0, 0, 0, 1),  # One vertex qubit needed to track these multiplicities.
             (ONE, ONE, ONE, ONE),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         )
     ]
     lattice = LatticeDef(dimensions=1.5, size=2)
@@ -202,7 +202,7 @@ def test_convert_bitstring_to_evalue_raise_error_on_unphysical_links():
         (
             (0, 0, 0, 1),  # One vertex qubit needed to track these multiplicities.
             (ONE, ONE, ONE, ONE),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         )
     ]
     lattice = LatticeDef(dimensions=1.5, size=2)
@@ -232,7 +232,7 @@ def test_convert_bitstring_to_evalue_d_2_T2_truncation():
         (
             (0, 0, 0, 3),  # Since 3 is the highest multiplicity, two vertex qubits.
             (ONE, ONE, ONE, ONE),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, ONE)
+            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         )
     ]
     lattice = LatticeDef(dimensions=2, size=3)

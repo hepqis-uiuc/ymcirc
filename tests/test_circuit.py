@@ -1,11 +1,14 @@
+from itertools import product
+from pathlib import Path
 import pytest
 import numpy as np
-from ymcirc._abstract import LatticeDef
+from ymcirc._abstract import LatticeDef, Plaquette
+from ymcirc._abstract.lattice_data import Plane
 from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.conventions import LatticeStateEncoder, ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT, IRREP_TRUNCATIONS, PHYSICAL_PLAQUETTE_STATES, load_magnetic_hamiltonian
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.utilities import _flatten_circuit, _check_circuits_logically_equivalent
-from qiskit.circuit import QuantumCircuit, AncillaRegister
+from qiskit.circuit import Parameter, QuantumCircuit, QuantumRegister, AncillaRegister
 from qiskit.circuit.library.standard_gates import RXGate, RZGate, RYGate, MCXGate
 from qiskit.circuit.exceptions import CircuitError
 from qiskit.quantum_info import Operator, Statevector, DensityMatrix, partial_trace
@@ -26,59 +29,72 @@ def test_create_blank_full_lattice_circuit_has_promised_register_order():
         (
             (0, 0, 0, 0),
             (iweight_one, iweight_one, iweight_three, iweight_one),
-            (iweight_one, iweight_one, iweight_one, iweight_one)
+            ((iweight_one,), (iweight_one,), (iweight_one,), (iweight_one,))
         ),
         (
             (0, 0, 0, 0),
             (iweight_one, iweight_three, iweight_three, iweight_three),
-            (iweight_three, iweight_one, iweight_one, iweight_one)
+            ((iweight_three,), (iweight_one,), (iweight_one,), (iweight_one,))
         )
     ]
     physical_plaquette_states_3halves = [
         (
             (0, 0, 0, 0),
             (iweight_one, iweight_one, iweight_three, iweight_one),
-            (iweight_one, iweight_one, iweight_one, iweight_one)
+            ((iweight_one,), (iweight_one,), (iweight_one,), (iweight_one,))
         ),
         (
             (1, 1, 1, 1),
             (iweight_one, iweight_one, iweight_three, iweight_one),
-            (iweight_one, iweight_one, iweight_one, iweight_one)
+            ((iweight_one,), (iweight_one,), (iweight_one,), (iweight_one,))
         ),
         (
             (2, 2, 2, 2),
             (iweight_one, iweight_one, iweight_three, iweight_one),
-            (iweight_one, iweight_one, iweight_one, iweight_one)
+            ((iweight_one,), (iweight_one,), (iweight_one,), (iweight_one,))
         ),
         (
             (0, 0, 0, 0),
             (iweight_one, iweight_three, iweight_three, iweight_three),
-            (iweight_three, iweight_one, iweight_one, iweight_one)
+            ((iweight_three,), (iweight_one,), (iweight_one,), (iweight_one,))
         )
     ]
     physical_plaquette_states_2d = [
         (
             (0, 0, 0, 0),
             (iweight_one, iweight_one, iweight_three, iweight_one),
-            (iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one)
+            ((iweight_one, iweight_one), (iweight_one, iweight_one), (iweight_one, iweight_one), (iweight_one, iweight_one))
         ),
         (
             (1, 1, 1, 1),
             (iweight_one, iweight_one, iweight_three, iweight_one),
-            (iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one)
+            ((iweight_one, iweight_one), (iweight_one, iweight_one), (iweight_one, iweight_one), (iweight_one, iweight_one))
         ),
         (
             (0, 0, 0, 0),
             (iweight_one, iweight_three, iweight_three, iweight_three),
-            (iweight_three, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one, iweight_one)
+            ((iweight_three, iweight_one), (iweight_one, iweight_one), (iweight_one, iweight_one), (iweight_one, iweight_one))
         )
     ]
     # Hamiltonian bitstrings take the form vertex_bits + active link bits + c link bits.
     # For the "no_vertices" data, vertex_bits is the empty string. The numbers of
     # Vertex bits and link bits can be inferred from the test data (encode integer in bitstring, use link bitmap).
-    mag_hamiltonian_2d = [("1110111100000000", "0001000011111111", -0.33), ("0000111100000000", "1111000011111111", 1.0)]
-    mag_hamiltonian_3halves = [("1010010111110000", "0000000011110000", 1.0), ("0000000010100101", "1010101000000001", 1.0)]
-    mag_hamiltonian_3halves_no_vertices = [("10101111", "11110010", 1.0), ("10010000", "10000001", 1.0), ("11111101", "00000101", 1.0)]
+    # Dummy plane/signature for wrapping scalar Hamiltonian values in MatrixElementValue format.
+    _plane = (1, 2)
+    _sig = ((1,), (1,), (1,), (1,))
+    mag_hamiltonian_2d = {
+        ("1110111100000000", "0001000011111111"): {_plane: {_sig: -0.33}},
+        ("0000111100000000", "1111000011111111"): {_plane: {_sig: 1.0}},
+    }
+    mag_hamiltonian_3halves = {
+        ("1010010111110000", "0000000011110000"): {_plane: {_sig: 1.0}},
+        ("0000000010100101", "1010101000000001"): {_plane: {_sig: 1.0}},
+    }
+    mag_hamiltonian_3halves_no_vertices = {
+        ("10101111", "11110010"): {_plane: {_sig: 1.0}},
+        ("10010000", "10000001"): {_plane: {_sig: 1.0}},
+        ("11111101", "00000101"): {_plane: {_sig: 1.0}},
+    }
     # Registers for lattices with size 3
     expected_register_order_2d = [
         'v:(0, 0)', 'l:((0, 0), 1)', 'l:((0, 0), 2)',
@@ -202,19 +218,22 @@ def test_apply_magnetic_trotter_step_d_3_2_large_lattice():
     #          mapping each substring in the plaquette encoding onto actual registers in the lattice.
     #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or projector operator involved determines the control states.
     # Ask yourself if you REALLY feel like doing all that before mucking about with this test data.
-    dummy_mag_hamiltonian = [
-        ("00100000" + "00000000", "01010100" + "10011010", 0.33)  # One matrix element, plaquette only has a_link and c_link substrings.
-    ]
+    # Signature for d=3/2, plane=(1,2), default forder.
+    _sig_3_2 = ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
+    _plane_12 = (1, 2)
+    dummy_mag_hamiltonian = {
+        ("00100000" + "00000000", "01010100" + "10011010"): {_plane_12: {_sig_3_2: 0.33}}  # One matrix element, plaquette only has a_link and c_link substrings.
+    }
     dummy_phys_states = [
         (  # Matches the first encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (ONE, THREE, ONE, ONE),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (  # Matches the second encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, ONE),
-            (THREE, THREE_BAR, THREE, THREE)
+            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
         )
     ]
     expected_master_circuit = QuantumCircuit(18)
@@ -318,25 +337,28 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice():
     #          mapping each substring in the plaquette encoding onto actual registers in the lattice.
     #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or projector operator involved determines the control states (raising to get to final state is on, projector onto 1 is on).
     # Ask yourself if you REALLY feel like doing all that before mucking about with this test data.
-    dummy_mag_hamiltonian = [
-        ("00100001" + "00000000", "01010110" + "10011010", 0.33),  # One matrix element, plaquette only has a_link and c_link substrings. Should get filtered out based on c_link consistency.
-        ("00100001" + "00000000", "01010110" + "10100000", 0.33)  # One matrix element, plaquette only has a_link and c_link substrings. Should not get filtered out based on c_link consistency.
-    ]
+    # Signature for d=3/2, plane=(1,2), default forder.
+    _sig_3_2 = ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
+    _plane_12 = (1, 2)
+    dummy_mag_hamiltonian = {
+        ("00100001" + "00000000", "01010110" + "10011010"): {_plane_12: {_sig_3_2: 0.33}},  # One matrix element, plaquette only has a_link and c_link substrings. Should get filtered out based on c_link consistency.
+        ("00100001" + "00000000", "01010110" + "10100000"): {_plane_12: {_sig_3_2: 0.33}}  # One matrix element, plaquette only has a_link and c_link substrings. Should not get filtered out based on c_link consistency.
+    }
     dummy_phys_states = [
         (  # Matches the first encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (ONE, THREE, ONE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (  # Matches the second encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE_BAR, THREE, THREE)
+            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
         ),
         (  # Matches the third encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE, ONE, ONE)
+            ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
     expected_master_circuit = QuantumCircuit(12)
@@ -436,70 +458,77 @@ def test_apply_magnetic_trotter_step_d_2_large_lattice():
     #          mapping each substring in the plaquette encoding onto actual registers in the lattice.
     #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or projector operator involved determines the control states.
     # Ask yourself if you REALLY feel like doing all that before mucking about with this test data.
-    dummy_mag_hamiltonian = [
-        ("0000" + "00100000" + "0000000000000010", "0010" + "01010100" + "1001101000000010", 0.33)  # One matrix element, plaquette has v, a_link, and c_link substrings.
-    ]
+    # Signature for d=2, plane=(1,2), default forder.
+    _sig_2 = ((1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2))
+    _plane_12 = (1, 2)
+    # The controls at each vertex are in the default FORDER [1, 2, 3, -1, -2, -3]:
+    # (-1, -2) at v1, (+1, -2) at v2, (+1, +2) at v3, (+2, -1) at v4. v3's two
+    # controls carry different irreps (THREE, ONE), so that swapping them
+    # changes the values the multi-controlled X requires of their qubits.
+    dummy_mag_hamiltonian = {
+        ("0000" + "00100000" + "0000000010000010", "0010" + "01010100" + "1001101010000010"): {_plane_12: {_sig_2: 0.33}}  # One matrix element, plaquette has v, a_link, and c_link substrings.
+    }
     dummy_phys_states = [
         (  # Matches the first encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (ONE, THREE, ONE, ONE),
-            (ONE, ONE, ONE, ONE, ONE, ONE, ONE, THREE)
+            ((ONE, ONE), (ONE, ONE), (THREE, ONE), (ONE, THREE))
         ),
         (  # Matches the second encoded state in the dummy magnetic hamiltonian.
             (0, 0, 1, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, ONE),
-            (THREE, THREE_BAR, THREE, THREE, ONE, ONE, ONE, THREE)
+            ((THREE, THREE_BAR), (THREE, THREE), (THREE, ONE), (ONE, THREE))
         )
     ]
     expected_master_circuit = QuantumCircuit(45)
     expected_rotation_gates = {  # Data for constructing the expected circuit.
         "angle": -0.165,
-        "MCU ctrl state": "000000000000000000000000011",  # Little endian per qiskit convention.
+        "MCU ctrl state": "000000000000000000000000111",  # Little endian per qiskit convention.
         "givens rotations": [
             {
                 "pivot": 20,
-                "CX targets": [2, 18, 19, 7, 31, 14, 28, 16],
-                "MCU ctrls": [18, 36] + [0, 15, 5, 1, 2, 19, 6, 7, 3, 4, 31, 32, 13, 14, 28, 29, 16, 17, 21, 22, 23, 24, 8, 9, 37] # on ctrls first, followed by off, with pivot skipped.
+                "CX targets": [2, 18, 19, 7, 31, 14, 16, 28],
+                "MCU ctrls": [18, 36, 21] + [0, 15, 5, 1, 2, 19, 6, 7, 3, 4, 31, 32, 13, 14, 16, 17, 28, 29, 22, 23, 24, 8, 9, 37] # on ctrls first, followed by off, with pivot skipped.
             },
             {
                 "pivot": 25,
-                "CX targets": [7, 23, 24, 12, 36, 4, 18, 21],
-                "MCU ctrls": [23, 41] + [5, 20, 10, 6, 7, 24, 11, 12, 8, 9, 36, 37, 3, 4, 18, 19, 21, 22, 26, 27, 28, 29, 13, 14, 42]
+                "CX targets": [7, 23, 24, 12, 36, 4, 21, 18],
+                "MCU ctrls": [23, 41, 26] + [5, 20, 10, 6, 7, 24, 11, 12, 8, 9, 36, 37, 3, 4, 21, 22, 18, 19, 27, 28, 29, 13, 14, 42]
             },
             {
                 "pivot": 15,
-                "CX targets": [12, 28, 29, 2, 41, 9, 23, 26],
-                "MCU ctrls": [28, 31] + [10, 25, 0, 11, 12, 29, 1, 2, 13, 14, 41, 42, 8, 9, 23, 24, 26, 27, 16, 17, 18, 19, 3, 4, 32]
+                "CX targets": [12, 28, 29, 2, 41, 9, 26, 23],
+                "MCU ctrls": [28, 31, 16] + [10, 25, 0, 11, 12, 29, 1, 2, 13, 14, 41, 42, 8, 9, 26, 27, 23, 24, 17, 18, 19, 3, 4, 32]
             },
             {
                 "pivot": 35,
-                "CX targets": [17, 33, 34, 22, 1, 29, 43, 31],
-                "MCU ctrls": [33, 6] + [15, 30, 20, 16, 17, 34, 21, 22, 18, 19, 1, 2, 28, 29, 43, 44, 31, 32, 36, 37, 38, 39, 23, 24, 7]
+                "CX targets": [17, 33, 34, 22, 1, 29, 31, 43],
+                "MCU ctrls": [33, 6, 36] + [15, 30, 20, 16, 17, 34, 21, 22, 18, 19, 1, 2, 28, 29, 31, 32, 43, 44, 37, 38, 39, 23, 24, 7]
             },
             {
                 "pivot": 40,
-                "CX targets": [22, 38, 39, 27, 6, 19, 33, 36],
-                "MCU ctrls": [38, 11] + [20, 35, 25, 21, 22, 39, 26, 27, 23, 24, 6, 7, 18, 19, 33, 34, 36, 37, 41, 42, 43, 44, 28, 29, 12]
+                "CX targets": [22, 38, 39, 27, 6, 19, 36, 33],
+                "MCU ctrls": [38, 11, 41] + [20, 35, 25, 21, 22, 39, 26, 27, 23, 24, 6, 7, 18, 19, 36, 37, 33, 34, 42, 43, 44, 28, 29, 12]
             },
             {
                 "pivot": 30,
-                "CX targets": [27, 43, 44, 17, 11, 24, 38, 41],
-                "MCU ctrls": [43, 1] + [25, 40, 15, 26, 27, 44, 16, 17, 28, 29, 11, 12, 23, 24, 38, 39, 41, 42, 31, 32, 33, 34, 18, 19, 2]
+                "CX targets": [27, 43, 44, 17, 11, 24, 41, 38],
+                "MCU ctrls": [43, 1, 31] + [25, 40, 15, 26, 27, 44, 16, 17, 28, 29, 11, 12, 23, 24, 41, 42, 38, 39, 32, 33, 34, 18, 19, 2]
             },
             {
                 "pivot": 5,
-                "CX targets": [32, 3, 4, 37, 16, 44, 13, 1],
-                "MCU ctrls": [3, 21] + [30, 0, 35, 31, 32, 4, 36, 37, 33, 34, 16, 17, 43, 44, 13, 14, 1, 2, 6, 7, 8, 9, 38, 39, 22]
+                "CX targets": [32, 3, 4, 37, 16, 44, 1, 13],
+                "MCU ctrls": [3, 21, 6] + [30, 0, 35, 31, 32, 4, 36, 37, 33, 34, 16, 17, 43, 44, 1, 2, 13, 14, 7, 8, 9, 38, 39, 22]
             },
             {
                 "pivot": 10,
-                "CX targets": [37, 8, 9, 42, 21, 34, 3, 6],
-                "MCU ctrls": [8, 26] + [35, 5, 40, 36, 37, 9, 41, 42, 38, 39, 21, 22, 33, 34, 3, 4, 6, 7, 11, 12, 13, 14, 43, 44, 27]
+                "CX targets": [37, 8, 9, 42, 21, 34, 6, 3],
+                "MCU ctrls": [8, 26, 11] + [35, 5, 40, 36, 37, 9, 41, 42, 38, 39, 21, 22, 33, 34, 6, 7, 3, 4, 12, 13, 14, 43, 44, 27]
             },
             {
                 "pivot": 0,
-                "CX targets": [42, 13, 14, 32, 26, 39, 8, 11],
-                "MCU ctrls": [13, 16] + [40, 10, 30, 41, 42, 14, 31, 32, 43, 44, 26, 27, 38, 39, 8, 9, 11, 12, 1, 2, 3, 4, 33, 34, 17]
+                "CX targets": [42, 13, 14, 32, 26, 39, 11, 8],
+                "MCU ctrls": [13, 16, 1] + [40, 10, 30, 41, 42, 14, 31, 32, 43, 44, 26, 27, 38, 39, 11, 12, 8, 9, 2, 3, 4, 33, 34, 17]
             }
         ]
     }
@@ -582,20 +611,23 @@ def test_apply_magnetic_trotter_step_d_2_small_lattice():
     #          mapping each substring in the plaquette encoding onto actual registers in the lattice.
     #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or projector operator involved determines the control states.
     # Ask yourself if you REALLY feel like doing all that before mucking about with this test data.
-    dummy_mag_hamiltonian = [
-        ("0000" + "00100000" + "0000000000000010", "0010" + "01010100" + "1001101000000010", 0.33), # One matrix element, plaquette has v, a_link, and c_link substrings. Should get filtered out based on c_link consistency.
-        ("0000" + "00100000" + "0000000010000010", "0010" + "01010100" + "1001101000100100", 0.33)  # One matrix element, plaquette has v, a_link, and c_link substrings. Should not get filtered out based on c_link consistency.
-    ]
+    # Signature for d=2, plane=(1,2), default forder.
+    _sig_2 = ((1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2))
+    _plane_12 = (1, 2)
+    dummy_mag_hamiltonian = {
+        ("0000" + "00100000" + "0000000000000010", "0010" + "01010100" + "1001101000000010"): {_plane_12: {_sig_2: 0.33}}, # One matrix element, plaquette has v, a_link, and c_link substrings. Should get filtered out based on c_link consistency.
+        ("0000" + "00100000" + "0000000010000010", "0010" + "01010100" + "1001101000100100"): {_plane_12: {_sig_2: 0.33}}  # One matrix element, plaquette has v, a_link, and c_link substrings. Should not get filtered out based on c_link consistency.
+    }
     dummy_phys_states = [
         (  # Matches the first encoded state in the dummy magnetic hamiltonian that isn't discarded.
             (0, 0, 0, 0),
             (ONE, THREE, ONE, ONE),
-            (ONE, ONE, ONE, ONE, THREE, ONE, ONE, THREE)
+            ((ONE, ONE), (ONE, ONE), (THREE, ONE), (ONE, THREE))
         ),
         (  # Matches the second encoded state in the dummy magnetic hamiltonian that isn't discarded.
             (0, 0, 1, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, ONE),
-            (THREE, THREE_BAR, THREE, THREE, ONE, THREE, THREE_BAR, ONE)
+            ((THREE, THREE_BAR), (THREE, THREE), (ONE, THREE), (THREE_BAR, ONE))
         )
     ]
     expected_master_circuit = QuantumCircuit(20)
@@ -688,17 +720,17 @@ def test_apply_magnetic_trotter_step_d_2_small_lattice():
 def test_apply_electric_trotter_step_d_3_2_lattice():
     print("Checking that the electric trotter step acts as expected on a T2 3x1 lattice.")
     dummy_electric_hamiltonian = [0.33,0.66,0.66,0.99,0.66,0.99,0.99,0.33]
-    dummy_mag_hamiltonian = []
+    dummy_mag_hamiltonian = {}
     dummy_phys_states = [
         (
             (0,0,0,0),
             (ONE, THREE, ONE, THREE_BAR),
-            (THREE_BAR, THREE_BAR, THREE, THREE)
+            ((THREE_BAR,), (THREE_BAR,), (THREE,), (THREE,))
         ),
         (
             (0,0,0,0),
             (EIGHT,SIX,EIGHT,SIX_BAR),
-            (SIX_BAR,SIX_BAR,SIX,SIX)
+            ((SIX_BAR,),(SIX_BAR,),(SIX,),(SIX,))
         )
     ]
     lattice_def = LatticeDef(1.5,3)
@@ -877,25 +909,28 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice_with_ancillas():
     #          mapping each substring in the plaquette encoding onto actual registers in the lattice.
     #      3c. Repeat this exercise with the multi-control rotation, where the type of ladder or projector operator involved determines the control states (raising to get to final state is on, projector onto 1 is on).
     # Ask yourself if you REALLY feel like doing all that before mucking about with this test data.
-    dummy_mag_hamiltonian = [
-        ("00100001" + "00000000", "01010110" + "10011010", 0.33),  # One matrix element, plaquette only has a_link and c_link substrings. Should get filtered out based on c_link consistency.
-        ("00100001" + "00000000", "01010110" + "10100000", 0.33)  # One matrix element, plaquette only has a_link and c_link substrings. Should not get filtered out based on c_link consistency.
-    ]
+    # Signature for d=3/2, plane=(1,2), default forder.
+    _sig_3_2 = ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
+    _plane_12 = (1, 2)
+    dummy_mag_hamiltonian = {
+        ("00100001" + "00000000", "01010110" + "10011010"): {_plane_12: {_sig_3_2: 0.33}},  # One matrix element, plaquette only has a_link and c_link substrings. Should get filtered out based on c_link consistency.
+        ("00100001" + "00000000", "01010110" + "10100000"): {_plane_12: {_sig_3_2: 0.33}}  # One matrix element, plaquette only has a_link and c_link substrings. Should not get filtered out based on c_link consistency.
+    }
     dummy_phys_states = [
         (  # Matches the first encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (ONE, THREE, ONE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (  # Matches the second encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE_BAR, THREE, THREE)
+            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
         ),
         (  # Matches the third encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE, ONE, ONE)
+            ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
     expected_master_circuit = QuantumCircuit(12)
@@ -1002,25 +1037,27 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice_with_ancillas():
 
 def test_num_ancillas_setter_works_nonnegative_ints():
     # Some minimal data to create a LatticeCircuitManager.
-    dummy_mag_hamiltonian = [
-        ("00100001" + "00000000", "01010110" + "10011010", 0.33),
-        ("00100001" + "00000000", "01010110" + "10100000", 0.33)
-    ]
+    _plane = (1, 2)
+    _sig = ((1,), (1,), (1,), (1,))
+    dummy_mag_hamiltonian = {
+        ("00100001" + "00000000", "01010110" + "10011010"): {_plane: {_sig: 0.33}},
+        ("00100001" + "00000000", "01010110" + "10100000"): {_plane: {_sig: 0.33}},
+    }
     dummy_phys_states = [
         (
             (0, 0, 0, 0),
             (ONE, THREE, ONE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE_BAR, THREE, THREE)
+            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE, ONE, ONE)
+            ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
     lattice_def = LatticeDef(1.5, 2)
@@ -1044,25 +1081,27 @@ def test_num_ancillas_setter_works_nonnegative_ints():
 
 def test_num_ancillas_setter_fails_for_non_int():
     # Some minimal data to create a LatticeCircuitManager.
-    dummy_mag_hamiltonian = [
-        ("00100001" + "00000000", "01010110" + "10011010", 0.33),
-        ("00100001" + "00000000", "01010110" + "10100000", 0.33)
-    ]
+    _plane = (1, 2)
+    _sig = ((1,), (1,), (1,), (1,))
+    dummy_mag_hamiltonian = {
+        ("00100001" + "00000000", "01010110" + "10011010"): {_plane: {_sig: 0.33}},
+        ("00100001" + "00000000", "01010110" + "10100000"): {_plane: {_sig: 0.33}},
+    }
     dummy_phys_states = [
         (
             (0, 0, 0, 0),
             (ONE, THREE, ONE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE_BAR, THREE, THREE)
+            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE, ONE, ONE)
+            ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
     lattice_def = LatticeDef(1.5, 2)
@@ -1080,25 +1119,27 @@ def test_num_ancillas_setter_fails_for_non_int():
 
 def test_num_ancillas_setter_fails_for_negative_int():
     # Some minimal data to create a LatticeCircuitManager.
-    dummy_mag_hamiltonian = [
-        ("00100001" + "00000000", "01010110" + "10011010", 0.33),
-        ("00100001" + "00000000", "01010110" + "10100000", 0.33)
-    ]
+    _plane = (1, 2)
+    _sig = ((1,), (1,), (1,), (1,))
+    dummy_mag_hamiltonian = {
+        ("00100001" + "00000000", "01010110" + "10011010"): {_plane: {_sig: 0.33}},
+        ("00100001" + "00000000", "01010110" + "10100000"): {_plane: {_sig: 0.33}},
+    }
     dummy_phys_states = [
         (
             (0, 0, 0, 0),
             (ONE, THREE, ONE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE_BAR, THREE, THREE)
+            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE, ONE, ONE)
+            ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
     lattice_def = LatticeDef(1.5, 2)
@@ -1116,25 +1157,27 @@ def test_num_ancillas_setter_fails_for_negative_int():
 
 def test_adding_ancilla_register_fails_if_already_exists():
     # Some minimal data to create a LatticeCircuitManager.
-    dummy_mag_hamiltonian = [
-        ("00100001" + "00000000", "01010110" + "10011010", 0.33),
-        ("00100001" + "00000000", "01010110" + "10100000", 0.33)
-    ]
+    _plane = (1, 2)
+    _sig = ((1,), (1,), (1,), (1,))
+    dummy_mag_hamiltonian = {
+        ("00100001" + "00000000", "01010110" + "10011010"): {_plane: {_sig: 0.33}},
+        ("00100001" + "00000000", "01010110" + "10100000"): {_plane: {_sig: 0.33}},
+    }
     dummy_phys_states = [
         (
             (0, 0, 0, 0),
             (ONE, THREE, ONE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE_BAR, THREE, THREE)
+            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE, ONE, ONE)
+            ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
     lattice_def = LatticeDef(1.5, 2)
@@ -1161,26 +1204,28 @@ def test_adding_ancilla_register_fails_if_already_exists():
 
 def test_apply_mag_trotter_step_independent_params_for_givens_rotations():
     # Some minimal data to create a LatticeCircuitManager.
-    dummy_mag_hamiltonian = [  # There will be 2 Givens rotations and therefore 2 Parameters.
-        ("00100001" + "00000000", "01010110" + "10011001", 0.99),
-        ("00100001" + "00000000", "01010110" + "10100000", 0.33),
-        ("00100001" + "00000000", "01010110" + "00100000", 0.66)
-    ]
+    _sig_3_2 = ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
+    _plane_12 = (1, 2)
+    dummy_mag_hamiltonian = {  # There will be 2 Givens rotations and therefore 2 Parameters.
+        ("00100001" + "00000000", "01010110" + "10011001"): {_plane_12: {_sig_3_2: 0.99}},
+        ("00100001" + "00000000", "01010110" + "10100000"): {_plane_12: {_sig_3_2: 0.33}},
+        ("00100001" + "00000000", "01010110" + "00100000"): {_plane_12: {_sig_3_2: 0.66}}
+    }
     dummy_phys_states = [
         (
             (0, 0, 0, 0),
             (ONE, THREE, ONE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE_BAR, THREE, THREE)
+            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE, ONE, ONE)
+            ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
     lattice_def = LatticeDef(1.5, 3)
@@ -1200,31 +1245,33 @@ def test_apply_mag_trotter_step_independent_params_for_givens_rotations():
 
 def test_apply_mag_trotter_step_independent_params_multiple_lp_families():
     # This dummy data creates 3 LP bins. Two of them have 2 Givens rotations, one has 3.
-    dummy_mag_hamiltonian = [
-        ("01010101" + "00000101", "10100101" + "00001010", 0.99), #LP fam 1: LLLLPPPP + PPPPLLLL
-        ("10100000" + "10100101", "01010000" + "10101010", 0.99), #LP fam 1: LLLLPPPP + PPPPLLLL
-        ("01010101" + "01010000", "01011010" + "10100000", 0.99), #LP fam 2: PPPPLLLL + LLLLPPPP
-        ("00001010" + "01010000", "00000101" + "10100000", 0.99), #LP fam 2: PPPPLLLL + LLLLPPPP
-        ("00000000" + "10101010", "00000000" + "01010101", 0.99), #LP fam 3: PPPPPPPP + LLLLLLLL
-        ("00000000" + "01010101", "00000000" + "10101010", 0.99), #LP fam 3: PPPPPPPP + LLLLLLLL
-        ("00000000" + "01011010", "00000000" + "10100101", 0.99), #LP fam 3: PPPPPPPP + LLLLLLLL
-    ]
+    _sig_3_2 = ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
+    _plane_12 = (1, 2)
+    dummy_mag_hamiltonian = {
+        ("01010101" + "00000101", "10100101" + "00001010"): {_plane_12: {_sig_3_2: 0.99}}, #LP fam 1: LLLLPPPP + PPPPLLLL
+        ("10100000" + "10100101", "01010000" + "10101010"): {_plane_12: {_sig_3_2: 0.99}}, #LP fam 1: LLLLPPPP + PPPPLLLL
+        ("01010101" + "01010000", "01011010" + "10100000"): {_plane_12: {_sig_3_2: 0.99}}, #LP fam 2: PPPPLLLL + LLLLPPPP
+        ("00001010" + "01010000", "00000101" + "10100000"): {_plane_12: {_sig_3_2: 0.99}}, #LP fam 2: PPPPLLLL + LLLLPPPP
+        ("00000000" + "10101010", "00000000" + "01010101"): {_plane_12: {_sig_3_2: 0.99}}, #LP fam 3: PPPPPPPP + LLLLLLLL
+        ("00000000" + "01010101", "00000000" + "10101010"): {_plane_12: {_sig_3_2: 0.99}}, #LP fam 3: PPPPPPPP + LLLLLLLL
+        ("00000000" + "01011010", "00000000" + "10100101"): {_plane_12: {_sig_3_2: 0.99}}, #LP fam 3: PPPPPPPP + LLLLLLLL
+    }
 
     dummy_phys_states = [
         (
             (0, 0, 0, 0),
             (ONE, THREE, ONE, THREE_BAR),
-            (ONE, ONE, ONE, ONE)
+            ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE_BAR, THREE, THREE)
+            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
         ),
         (
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            (THREE, THREE, ONE, ONE)
+            ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
     lattice_def = LatticeDef(1.5, 3)
@@ -1242,5 +1289,1035 @@ def test_apply_mag_trotter_step_independent_params_multiple_lp_families():
     for idx, parameter in enumerate(master_circuit.parameters):
         assert parameter.name == f'theta[{idx}]'
 
-# TODO: write a test to compare circuits with ancillas and without ancillas. Qiskit doesn't seem to have a clean way to "ignore" registers. 
+@pytest.fixture
+def sample_circuit_no_ancillas() -> QuantumCircuit:
+    data_reg_a = QuantumRegister(3, "RegA")
+    data_reg_b = QuantumRegister(2, "RegB")
+    empty_reg = QuantumRegister(0, "RegEmpty")
+    test_circ = QuantumCircuit(data_reg_a, data_reg_b, empty_reg)
+    test_circ.cx(data_reg_a[1], data_reg_b[1])
+    test_circ.x(data_reg_a[1])
+    test_circ.h(data_reg_b[0])
+
+    return test_circ
+
+@pytest.fixture
+def sample_circuit_with_ancillas() -> QuantumCircuit:
+    data_reg_a = QuantumRegister(3, "RegA")
+    data_reg_b = QuantumRegister(2, "RegB")
+    ancillas = AncillaRegister(4, "anc")
+    test_circ = QuantumCircuit(data_reg_a, data_reg_b, ancillas)
+    test_circ.cx(data_reg_a[1], data_reg_b[1])
+    test_circ.x(data_reg_a[1])
+    test_circ.h(data_reg_b[0])
+    test_circ.cx(data_reg_a[1], ancillas[3])
+    # Dummy "compute/uncompute" pattern using ancillas.
+    test_circ.h(ancillas[3])
+    test_circ.cx(ancillas[3], data_reg_b[0])
+    test_circ.h(ancillas[3])
+    test_circ.cx(data_reg_a[1], ancillas[3])
+
+    return test_circ
+
+@pytest.fixture
+def sample_circuit_with_parameter_and_parameter_expression() -> QuantumCircuit:
+    data_reg = QuantumRegister(3, "data")
+    ancillas = AncillaRegister(2, "anc")
+    test_circ = QuantumCircuit(data_reg, ancillas)
+    theta, phi, a, b, g = Parameter("theta"), Parameter("phi"), Parameter("a"), Parameter("b"), Parameter("g")
+    test_circ.x(data_reg[0])
+    test_circ.h(data_reg[0])
+    test_circ.cx(data_reg[0], ancillas[0])
+    test_circ.rx(theta, data_reg[1]) # Single parameter
+    test_circ.rz(theta * phi, ancillas[0]) # Parameter expression
+    test_circ.cx(ancillas[0], data_reg[1])
+    test_circ.ry(g * g,data_reg[2]) # Qiskit can't parse power operator, so doing this instead.
+    test_circ.ry(a + b, data_reg[2]) # Addition operator
+    test_circ.ry(2*a, data_reg[2]) # Scalar multiplication operator
+
+    return test_circ
+    
+
+# TODO fixture with QASM data (or perhaps this needs to be a test file).
+
+# TODO fixture with QPY data (or perhaps this needs to be a test file).
+
+class TestCircuitSaveAndLoad:
+    def test_save_and_reload_circuit_no_ancillas_qasm(self, sample_circuit_no_ancillas, tmp_path):
+        sample_circ_drawn_str = sample_circuit_no_ancillas.draw() # For use in error messages.
+        filepath_as_string = str(tmp_path / "my_circuit_str_write.qasm")
+        filepath_as_path = tmp_path / "my_circuit_path_write.qasm"
+        LatticeCircuitManager.save_circuit(sample_circuit_no_ancillas, filepath_as_string)
+        LatticeCircuitManager.save_circuit(sample_circuit_no_ancillas, filepath_as_path)
+
+        path_and_str_write_are_equivalent = filepath_as_path.read_bytes() == Path(filepath_as_string).read_bytes()
+        assert path_and_str_write_are_equivalent
+
+        reloaded_circ_filepath_as_string = LatticeCircuitManager.load_circuit(filepath_as_string)
+        reloaded_circ_filepath_as_path = LatticeCircuitManager.load_circuit(filepath_as_path)
+        path_and_string_load_are_equivalent = reloaded_circ_filepath_as_path == reloaded_circ_filepath_as_string
+        assert path_and_string_load_are_equivalent
+
+        saving_and_reloading_circ_gives_back_same_circ = reloaded_circ_filepath_as_path == sample_circuit_no_ancillas
+        assert saving_and_reloading_circ_gives_back_same_circ, f"Inequivalent circuits. Expected:\n {sample_circ_drawn_str}\nEncountered:\n{reloaded_circ_filepath_as_path}"
+
+        # Redundant, but a check that the test data hasn't been altered.
+        # Expecting a circuit with 1 H, 1 CX, and 1 X.
+        assert reloaded_circ_filepath_as_path.count_ops() == {"cx": 1, "x": 1, "h": 1}, f"Circuit ops {reloaded_circ_filepath_as_path.count_ops()} contains unexpected gates."
+
+    def test_save_and_reload_circuit_no_ancillas_qpy(self, sample_circuit_no_ancillas, tmp_path):
+        sample_circ_drawn_str = sample_circuit_no_ancillas.draw() # For use in error messages.
+        filepath_as_string = str(tmp_path / "my_circuit_str_write.qpy")
+        filepath_as_path = tmp_path / "my_circuit_path_write.qpy"
+        LatticeCircuitManager.save_circuit(sample_circuit_no_ancillas, filepath_as_string)
+        LatticeCircuitManager.save_circuit(sample_circuit_no_ancillas, filepath_as_path)
+
+        path_and_str_write_are_equivalent = filepath_as_path.read_bytes() == Path(filepath_as_string).read_bytes()
+        assert path_and_str_write_are_equivalent
+
+        reloaded_circ_filepath_as_string = LatticeCircuitManager.load_circuit(filepath_as_string)
+        reloaded_circ_filepath_as_path = LatticeCircuitManager.load_circuit(filepath_as_path)
+        path_and_string_load_are_equivalent = reloaded_circ_filepath_as_path == reloaded_circ_filepath_as_string
+        assert path_and_string_load_are_equivalent
+
+        saving_and_reloading_circ_gives_back_same_circ = reloaded_circ_filepath_as_path == sample_circuit_no_ancillas
+        assert saving_and_reloading_circ_gives_back_same_circ, f"Inequivalent circuits. Expected:\n {sample_circ_drawn_str}\nEncountered:\n{reloaded_circ_filepath_as_path}"
+
+        # Redundant, but a check that the test data hasn't been altered.
+        # Expecting a circuit with 1 H, 1 CX, and 1 X.
+        assert reloaded_circ_filepath_as_path.count_ops() == {"cx": 1, "x": 1, "h": 1}, f"Circuit ops {reloaded_circ_filepath_as_path.count_ops()} contains unexpected gates."
+
+    def test_save_and_reload_circuit_with_ancillas_qasm(self, sample_circuit_with_ancillas, tmp_path):
+        sample_circ_drawn_str = sample_circuit_with_ancillas.draw() # For use in error messages.
+        filepath_as_string = str(tmp_path / "my_circuit_str_write.qasm")
+        filepath_as_path = tmp_path / "my_circuit_path_write.qasm"
+        LatticeCircuitManager.save_circuit(sample_circuit_with_ancillas, filepath_as_string)
+        LatticeCircuitManager.save_circuit(sample_circuit_with_ancillas, filepath_as_path)
+
+        path_and_str_write_are_equivalent = filepath_as_path.read_bytes() == Path(filepath_as_string).read_bytes()
+        assert path_and_str_write_are_equivalent
+
+        reloaded_circ_filepath_as_string = LatticeCircuitManager.load_circuit(filepath_as_string, ancilla_reg_name='anc')
+        reloaded_circ_filepath_as_path = LatticeCircuitManager.load_circuit(filepath_as_path, ancilla_reg_name='anc')
+        path_and_string_load_are_equivalent = reloaded_circ_filepath_as_path == reloaded_circ_filepath_as_string
+        assert path_and_string_load_are_equivalent
+
+        saving_and_reloading_circ_gives_back_same_circ = reloaded_circ_filepath_as_path == sample_circuit_with_ancillas
+        assert saving_and_reloading_circ_gives_back_same_circ, f"Inequivalent circuits. Expected:\n {sample_circ_drawn_str}\nEncountered:\n{reloaded_circ_filepath_as_path}"
+
+        # Redundant, but a check that the test data hasn't been altered.
+        # Expecting a circuit with 3 H, 4 CX, and 1 X.
+        assert reloaded_circ_filepath_as_path.count_ops() == {"cx": 4, "x": 1, "h": 3}, f"Circuit ops {reloaded_circ_filepath_as_path.count_ops()} contains unexpected gates."
+
+    def test_save_and_reload_circuit_with_ancillas_qpy_name_given(self, sample_circuit_with_ancillas, tmp_path):
+        pytest.skip("The behavior for handling qiskit's deserialization error in this case has not yet been decided.")
+        
+        sample_circ_drawn_str = sample_circuit_with_ancillas.draw() # For use in error messages.
+        filepath_as_string = str(tmp_path / "my_circuit_str_write.qpy")
+        filepath_as_path = tmp_path / "my_circuit_path_write.qpy"
+        LatticeCircuitManager.save_circuit(sample_circuit_with_ancillas, filepath_as_string)
+        LatticeCircuitManager.save_circuit(sample_circuit_with_ancillas, filepath_as_path)
+
+        path_and_str_write_are_equivalent = filepath_as_path.read_bytes() == Path(filepath_as_string).read_bytes()
+        assert path_and_str_write_are_equivalent
+
+        reloaded_circ_filepath_as_string = LatticeCircuitManager.load_circuit(filepath_as_string, ancilla_reg_name='anc')
+        reloaded_circ_filepath_as_path = LatticeCircuitManager.load_circuit(filepath_as_path, ancilla_reg_name='anc')
+        path_and_string_load_are_equivalent = reloaded_circ_filepath_as_path == reloaded_circ_filepath_as_string
+        assert path_and_string_load_are_equivalent
+
+        saving_and_reloading_circ_gives_back_same_circ = reloaded_circ_filepath_as_path == sample_circuit_with_ancillas
+        assert saving_and_reloading_circ_gives_back_same_circ, f"Inequivalent circuits. Expected:\n {sample_circ_drawn_str}\nEncountered:\n{reloaded_circ_filepath_as_path}"
+
+        # Redundant, but a check that the test data hasn't been altered.
+        # Expecting a circuit with 3 H, 4 CX, and 1 X.
+        assert reloaded_circ_filepath_as_path.count_ops() == {"cx": 4, "x": 1, "h": 3}, f"Circuit ops {reloaded_circ_filepath_as_path.count_ops()} contains unexpected gates."
+
+    def test_save_and_reload_circuit_with_ancillas_qpy_no_name_given(self):
+        pytest.skip("The behavior for handling qiskit's deserialization error in this case has not yet been decided.")
+        
+        raise AssertionError("Test not yet written.")
+
+    def test_saving_unknown_filetype_raises_value_error(self, sample_circuit_no_ancillas, tmp_path):
+        with pytest.raises(ValueError) as e_info:
+            LatticeCircuitManager.save_circuit(sample_circuit_no_ancillas, tmp_path / "bad_filetype.txt")
+
+    def test_loading_unknown_filetype_raises_value_error(self, tmp_path):
+        test_file_bad_filetype = tmp_path / Path("bad_filetype.txt")
+        with open(test_file_bad_filetype, "w") as file:
+            file.write("Test file.")
+        with pytest.raises(ValueError) as e_info:
+            LatticeCircuitManager.load_circuit(test_file_bad_filetype)
+
+    def test_save_and_reload_circuit_with_parameter_qasm(self, sample_circuit_with_parameter_and_parameter_expression, tmp_path):
+        sample_circ_drawn_str = sample_circuit_with_parameter_and_parameter_expression.draw()
+        filepath = tmp_path / "circ.qasm"
+        
+        LatticeCircuitManager.save_circuit(sample_circuit_with_parameter_and_parameter_expression, filepath)
+
+        reloaded_circ = LatticeCircuitManager.load_circuit(filepath, ancilla_reg_name='anc')
+
+        # Since the reloaded circ has different parameter instances, need to be less strict
+        # in checking circuit equality.
+        saving_and_reloading_circ_gives_same_gates = reloaded_circ.count_ops() == sample_circuit_with_parameter_and_parameter_expression.count_ops()
+        saving_and_reloading_circ_preserves_parameters = [param.name for param in reloaded_circ.parameters] == [param.name for param in sample_circuit_with_parameter_and_parameter_expression.parameters]
+        
+        assert saving_and_reloading_circ_gives_same_gates and saving_and_reloading_circ_preserves_parameters, f"Inequivalent circuits. Expected:\n {sample_circ_drawn_str}\nEncountered:\n{reloaded_circ}"
+
+        # Redundant, but a check that the test data hasn't been altered.
+        # Expecting a circuit with 3 RY, 2 CX, 1 X, 1 H, 1 RX, 1 RZ.
+        assert reloaded_circ.count_ops() == {'ry': 3, 'cx': 2, 'x': 1, 'h': 1, 'rx': 1, 'rz': 1}
+        assert sorted([param.name for param in reloaded_circ.parameters]) == sorted(['g', 'a', 'b', 'theta', 'phi'])
+
+# TODO: write a test to compare circuits with ancillas and without ancillas. Qiskit doesn't seem to have a clean way to "ignore" registers.
 # test_givens does have a test for givens rotation equivalence between with and without ancillas, so maybe this test would be redundant
+
+
+def test_measure_link_adds_correct_classical_register():
+    """measure_link should add a ClassicalRegister and measurement only for the specified link."""
+    link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    physical_plaquette_states = [
+        ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
+        ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
+    ]
+    lattice_def = LatticeDef(1.5, 2)
+    encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
+    mag_ham = {("0000000000000000", "1010010110100101"): {(1, 2): {((1,), (1,), (1,), (1,)): 1.0}}}
+    lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
+    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
+
+    link_address = ((0, 0), 1)
+    circ_mgr.measure_link(circuit, lattice, link_address)
+
+    # Should have exactly 1 classical register with 2 bits (matching link qubit count)
+    assert len(circuit.cregs) == 1
+    assert circuit.cregs[0].size == encoder.expected_link_bit_string_length
+    # Should have exactly 2 measure instructions
+    measure_ops = [inst for inst in circuit.data if inst.operation.name == "measure"]
+    assert len(measure_ops) == encoder.expected_link_bit_string_length
+
+
+def test_measure_vertex_adds_correct_classical_register():
+    """measure_vertex should add measurement only for the specified vertex register."""
+    link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    physical_plaquette_states = [
+        ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
+        ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
+    ]
+    lattice_def = LatticeDef(1.5, 2)
+    encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
+    mag_ham = {("0000000000000000", "1010010110100101"): {(1, 2): {((1,), (1,), (1,), (1,)): 1.0}}}
+    lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
+    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
+
+    vertex_address = (0, 0)
+    circ_mgr.measure_vertex(circuit, lattice, vertex_address)
+
+    # For T1 d=3/2, vertex registers have 0 qubits, so no measurements should be added.
+    assert len(circuit.cregs) == 0
+    measure_ops = [inst for inst in circuit.data if inst.operation.name == "measure"]
+    assert len(measure_ops) == 0
+
+
+def test_measure_vertex_with_vertex_qubits():
+    """measure_vertex on a lattice with non-trivial vertex registers."""
+    link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    physical_plaquette_states = [
+        ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
+        ((0, 0, 0, 1), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
+        ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
+    ]
+    lattice_def = LatticeDef(1.5, 2)
+    encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
+    mag_ham = {("00000000000000000000", "01010010101010010101"): {(1, 2): {((1,), (1,), (1,), (1,)): 1.0}}}
+    lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
+    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
+
+    vertex_address = (0, 0)
+    circ_mgr.measure_vertex(circuit, lattice, vertex_address)
+
+    # vertex_bitmap should have 1 qubit per vertex
+    assert len(circuit.cregs) == 1
+    assert circuit.cregs[0].size == encoder.expected_vertex_bit_string_length
+
+
+def test_measure_plaquette_measures_all_dofs():
+    """measure_plaquette should measure all vertices, active links, and control links."""
+    link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    physical_plaquette_states = [
+        ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
+        ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
+    ]
+    lattice_def = LatticeDef(1.5, 4)
+    encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
+    mag_ham = {("0000000000000000", "1010010110100101"): {(1, 2): {((1,), (1,), (1,), (1,)): 1.0}}}
+    lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
+    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
+
+    circ_mgr.measure_plaquette(circuit, lattice, (0, 0), 1, 2)
+
+    # d=3/2 plaquette 0 has: 4 vertices (0 qubits each for T1), 4 active links (2 qubits each),
+    # and 4 control links (2 qubits each). Total measured qubits = 0 + 8 + 8 = 16.
+    # That's 8 registers of 2 qubits each = 8 classical registers.
+    measure_ops = [inst for inst in circuit.data if inst.operation.name == "measure"]
+    total_measured_qubits = len(measure_ops)
+    # 4 active links * 2 qubits + 4 control links * 2 qubits = 16
+    assert total_measured_qubits == 16
+
+
+def test_measure_plaquette_deduplicates_shared_registers():
+    """On a small periodic lattice, shared control links should be measured only once."""
+    link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    physical_plaquette_states = [
+        ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
+        ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
+    ]
+    lattice_def = LatticeDef(1.5, 2)
+    encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
+    mag_ham = {("0000000000000000", "1010010110100101"): {(1, 2): {((1,), (1,), (1,), (1,)): 1.0}}}
+    lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
+    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
+
+    circ_mgr.measure_plaquette(circuit, lattice, (0, 0), 1, 2)
+
+    # L=2 d=3/2 periodic: c1==c2 and c3==c4 (shared vertical links).
+    # 4 active links + 2 unique control links = 6 unique link registers.
+    # With 0 vertex qubits, total measured qubits = 6 * 2 = 12.
+    measure_ops = [inst for inst in circuit.data if inst.operation.name == "measure"]
+    assert len(measure_ops) == 12
+
+
+def test_forder_aware_plaquette_consistency_check_d_2():
+    """Check that _plaquette_state_has_inconsistent_controls uses direction-based indexing.
+
+    With alt forder [-1,-2,1,2,3,-3], v2's ctrl dirs become (-2,+1) instead of (+1,-2).
+    A plaquette state that is physically consistent (all shared links match) must be
+    recognized as consistent regardless of forder.
+    """
+    print("Checking forder-aware plaquette consistency check for d=2.")
+    alt_forder = [-1, -2, 1, 2, 3, -3]
+    dim_string, trunc_string = "d=2", "T1"
+
+    lattice_def = LatticeDef(2, 2, forder=alt_forder)
+    lattice_encoder = LatticeStateEncoder(
+        IRREP_TRUNCATIONS[trunc_string],
+        PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string],
+        lattice=lattice_def)
+    circ_mgr = LatticeCircuitManager(lattice_encoder, {})
+
+    # Consistent plaquette state in alt-forder tuple representation.
+    # Alt forder ctrl dirs: v1=(-1,-2), v2=(-2,+1), v3=(+1,+2), v4=(-1,+2).
+    # Shared link constraints (size-2 periodic):
+    #   v1 dir-1 == v2 dir+1, v1 dir-2 == v4 dir+2,
+    #   v2 dir-2 == v3 dir+2, v3 dir+1 == v4 dir-1.
+    consistent_c_links = (
+        (THREE_BAR, THREE),     # v1: dir-1=THREE_BAR, dir-2=THREE
+        (ONE, THREE_BAR),       # v2: dir-2=ONE, dir+1=THREE_BAR (matches v1 dir-1)
+        (ONE, ONE),             # v3: dir+1=ONE, dir+2=ONE (matches v2 dir-2)
+        (ONE, THREE),           # v4: dir-1=ONE (matches v3 dir+1), dir+2=THREE (matches v1 dir-2)
+    )
+    consistent_plaquette = ((0, 0, 0, 0), (ONE, ONE, ONE, ONE), consistent_c_links)
+
+    plane = (1, 2)
+    result = circ_mgr._plaquette_state_has_inconsistent_controls(consistent_plaquette, plane)
+    assert result is False, (
+        "A physically consistent plaquette state was incorrectly flagged as inconsistent. "
+        "The method may be using hard-coded indices instead of direction-based lookups."
+    )
+
+    # Also verify that a genuinely inconsistent state IS detected.
+    # Break the v1 dir-1 / v2 dir+1 shared link.
+    inconsistent_c_links = (
+        (THREE_BAR, THREE),     # v1: dir-1=THREE_BAR
+        (ONE, ONE),             # v2: dir+1=ONE (≠ THREE_BAR → inconsistent)
+        (ONE, ONE),
+        (ONE, THREE),
+    )
+    inconsistent_plaquette = ((0, 0, 0, 0), (ONE, ONE, ONE, ONE), inconsistent_c_links)
+    result_bad = circ_mgr._plaquette_state_has_inconsistent_controls(inconsistent_plaquette, plane)
+    assert result_bad is True, "An inconsistent plaquette state was not detected."
+
+
+def test_forder_aware_duplicate_control_removal_d_2():
+    """Check that _discard_duplicate_controls_from_plaquette_state uses direction-based indexing.
+
+    With alt forder, v2's ctrl dirs are (-2,+1). The method should keep the dir-2 control
+    (first position in alt forder) and discard dir+1 (duplicate of v1's dir-1).
+    """
+    print("Checking forder-aware duplicate control removal for d=2.")
+    alt_forder = [-1, -2, 1, 2, 3, -3]
+    dim_string, trunc_string = "d=2", "T1"
+
+    lattice_def = LatticeDef(2, 2, forder=alt_forder)
+    lattice_encoder = LatticeStateEncoder(
+        IRREP_TRUNCATIONS[trunc_string],
+        PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string],
+        lattice=lattice_def)
+    circ_mgr = LatticeCircuitManager(lattice_encoder, {})
+
+    # Use same consistent state as the consistency check test.
+    consistent_c_links = (
+        (THREE_BAR, THREE),     # v1: dir-1=THREE_BAR, dir-2=THREE
+        (ONE, THREE_BAR),       # v2: dir-2=ONE, dir+1=THREE_BAR
+        (ONE, ONE),             # v3: dir+1=ONE, dir+2=ONE
+        (ONE, THREE),           # v4: dir-1=ONE, dir+2=THREE
+    )
+    plaquette = ((0, 0, 0, 0), (ONE, ONE, ONE, ONE), consistent_c_links)
+
+    plane = (1, 2)
+    result = circ_mgr._discard_duplicate_controls_from_plaquette_state(plaquette, plane)
+    result_c_links = result[2]
+
+    # Expected: v1 keeps both; v2 keeps dir-2 only (index 0 in alt forder);
+    # v3 keeps dir+1 only (index 0); v4 drops both.
+    expected_c_links = (
+        (THREE_BAR, THREE),     # v1: both kept
+        (ONE,),                 # v2: keep dir-2 = c_links[1][0] = ONE
+        (ONE,),                 # v3: keep dir+1 = c_links[2][0] = ONE
+        (),                     # v4: all dropped
+    )
+
+    assert result_c_links == expected_c_links, (
+        f"Expected physical_c_links={expected_c_links}, got {result_c_links}. "
+        "The method may be using hard-coded indices instead of direction-based lookups."
+    )
+    # Vertex multiplicities and active links should be unchanged.
+    assert result[0] == plaquette[0]
+    assert result[1] == plaquette[1]
+
+
+def test_resolve_hamiltonian_for_plaquette():
+    """Test _resolve_hamiltonian_for_plaquette filters by plane and signature.
+
+    Uses the per-plane-first ResolvedHamiltonianData format:
+        plane -> (bs1, bs2) -> signature -> float
+    """
+    plane_a = (1, 2)
+    plane_b = (1, 3)
+    sig_a = ((-1,), (1,), (1,), (-1,))
+    sig_b = ((1,), (-1,), (-1,), (1,))
+
+    # ResolvedHamiltonianData: per-plane-first format.
+    hamiltonian = {
+        plane_a: {
+            ("00", "11"): {sig_a: 0.5, sig_b: 0.3},
+            ("01", "10"): {sig_a: 0.2},
+        },
+        plane_b: {
+            ("00", "11"): {sig_a: 0.7},
+            ("10", "01"): {sig_b: 0.9},
+        },
+    }
+
+    # Match plane_a, sig_a: should get entries from first two entries under plane_a.
+    result = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(hamiltonian, plane_a, sig_a)
+    assert len(result) == 2
+    assert ("00", "11", 0.5) in result
+    assert ("01", "10", 0.2) in result
+
+    # Match plane_a, sig_b: only one entry has sig_b under plane_a.
+    result_b = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(hamiltonian, plane_a, sig_b)
+    assert len(result_b) == 1
+    assert ("00", "11", 0.3) in result_b
+
+    # Match plane_b, sig_b: only last entry under plane_b matches.
+    result_c = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(hamiltonian, plane_b, sig_b)
+    assert len(result_c) == 1
+    assert ("10", "01", 0.9) in result_c
+
+    # No match: plane_b, sig with no entries.
+    result_empty = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(hamiltonian, plane_b, sig_b + ((2,),))
+    assert len(result_empty) == 0
+
+
+def test_signature():
+    """Test Plaquette.signature property for d=3/2 and d=2 with default and nonstandard forder."""
+    default_forder = [1, 2, 3, -1, -2, -3]
+    link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    vertex_bitmap = {}
+
+    # d=3/2, plane (1, 2), default forder:
+    # v1 (bottom): all dirs except -2 → {1, 2, -1} sorted by forder → (1, 2, -1)
+    # v2 (bottom): all dirs except -2 → {1, 2, -1} sorted by forder → (1, 2, -1)
+    # v3 (top):    all dirs except +2 → {1, -1, -2} sorted by forder → (1, -1, -2)
+    # v4 (top):    all dirs except +2 → {1, -1, -2} sorted by forder → (1, -1, -2)
+    lattice_3_2 = LatticeRegisters(1.5, 2, True, link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap, forder=default_forder)
+    plaq_3_2 = lattice_3_2.get_plaquettes((0, 0), 1, 2)
+    assert plaq_3_2.signature == ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
+
+    # d=2, plane (1, 2), default forder:
+    # All vertices have all dirs {1, 2, -1, -2} sorted by forder → (1, 2, -1, -2)
+    lattice_2 = LatticeRegisters(2, 2, True, link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap, forder=default_forder)
+    plaq_2 = lattice_2.get_plaquettes((0, 0), 1, 2)
+    assert plaq_2.signature == ((1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2))
+
+    # d=3/2, plane (1, 2), nonstandard forder [-1, 2, -3, 1, -2, 3]:
+    nonstandard_forder = [-1, 2, -3, 1, -2, 3]
+    lattice_3_2_ns = LatticeRegisters(1.5, 2, True, link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap, forder=nonstandard_forder)
+    plaq_3_2_ns = lattice_3_2_ns.get_plaquettes((0, 0), 1, 2)
+    # v1, v2 (bottom): dirs {1, 2, -1} sorted by nonstandard forder → (-1, 2, 1)
+    # v3, v4 (top): dirs {1, -1, -2} sorted by nonstandard forder → (-1, 1, -2)
+    assert plaq_3_2_ns.signature == ((-1, 2, 1), (-1, 2, 1), (-1, 1, -2), (-1, 1, -2))
+
+    # d=2, plane (1, 2), nonstandard forder [-1, 2, -3, 1, -2, 3]:
+    lattice_2_ns = LatticeRegisters(2, 2, True, link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap, forder=nonstandard_forder)
+    plaq_2_ns = lattice_2_ns.get_plaquettes((0, 0), 1, 2)
+    # All vertices: dirs {1, 2, -1, -2} sorted by nonstandard forder → (-1, 2, 1, -2)
+    assert plaq_2_ns.signature == ((-1, 2, 1, -2), (-1, 2, 1, -2), (-1, 2, 1, -2), (-1, 2, 1, -2))
+
+
+@pytest.mark.skip(reason="Non-periodic LatticeDef support not yet available. "
+                         "Should verify plaquette.signature reflects missing directions at boundary vertices.")
+def test_signature_nonperiodic():
+    """Placeholder: verify signature correctness on a non-periodic lattice."""
+    pass
+
+
+# --- d=3 per-plane filtering unit tests ---
+
+def _make_d3_size2_circ_mgr():
+    """Helper: build a LatticeCircuitManager for d=3 B3 size=2 (small periodic)."""
+    trunc = "B3"
+    link_bitmap = IRREP_TRUNCATIONS[trunc]
+    physical_states = PHYSICAL_PLAQUETTE_STATES["d=3"][trunc]
+    lattice_def = LatticeDef(3, 2, periodic_boundary_conds=True)
+    encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_def)
+    mag_ham = load_magnetic_hamiltonian("d=3", trunc, encoder)
+    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    return circ_mgr, encoder
+
+
+def test_per_plane_consistency_check_d3():
+    """For d=3 size=2, a plaquette state can be consistent for one plane but not another."""
+    circ_mgr, encoder = _make_d3_size2_circ_mgr()
+
+    # Grab an arbitrary physical plaquette state from the data.
+    physical_states = PHYSICAL_PLAQUETTE_STATES["d=3"]["B3"]
+    assert len(physical_states) > 0, "No physical plaquette states loaded for d=3 B3."
+
+    # All physical states should be consistent for all planes (they come from valid data).
+    planes = [(1, 2), (1, 3), (2, 3)]
+    for ps in physical_states[:20]:  # Check a sample
+        for plane in planes:
+            result = circ_mgr._plaquette_state_has_inconsistent_controls(ps, plane)
+            assert isinstance(result, bool)
+
+    # Construct a synthetic inconsistent state for plane (1,2) by
+    # taking a consistent state and flipping one shared control.
+    # On a size-2 lattice, v1[dir -e1] should equal v2[dir +e1].
+    # We'll break this by mutating v2's +e1 control.
+    base_ps = physical_states[0]
+    ctrl_dirs = circ_mgr._cached_ctrl_dirs_small_and_periodic[(1, 2)]
+    e1_idx_v2 = ctrl_dirs[1].index(1)  # index of dir +e1 at v2
+
+    # Build modified c_links: change v2's +e1 control to something different.
+    c_links_list = [list(vc) for vc in base_ps[2]]
+    original_val = c_links_list[1][e1_idx_v2]
+    # Flip to a different irrep.
+    flipped_val = THREE if original_val == ONE else ONE
+    c_links_list[1][e1_idx_v2] = flipped_val
+    modified_c_links = tuple(tuple(vc) for vc in c_links_list)
+    modified_ps = (base_ps[0], base_ps[1], modified_c_links)
+
+    # This should be inconsistent for plane (1,2).
+    assert circ_mgr._plaquette_state_has_inconsistent_controls(modified_ps, (1, 2)) is True
+
+
+def test_per_plane_control_trimming_d3():
+    """For d=3 size=2, trimming produces 12 total controls per plaquette state (4+3+3+2)."""
+    circ_mgr, encoder = _make_d3_size2_circ_mgr()
+
+    physical_states = PHYSICAL_PLAQUETTE_STATES["d=3"]["B3"]
+    planes = [(1, 2), (1, 3), (2, 3)]
+
+    for ps in physical_states[:10]:  # Check a sample
+        for plane in planes:
+            if circ_mgr._plaquette_state_has_inconsistent_controls(ps, plane):
+                continue
+            trimmed = circ_mgr._discard_duplicate_controls_from_plaquette_state(ps, plane)
+            # Verify per-vertex control counts: v1=4, v2=3, v3=3, v4=2
+            trimmed_c_links = trimmed[2]
+            assert len(trimmed_c_links[0]) == 4, f"v1 should keep 4 controls, got {len(trimmed_c_links[0])}"
+            assert len(trimmed_c_links[1]) == 3, f"v2 should keep 3 controls, got {len(trimmed_c_links[1])}"
+            assert len(trimmed_c_links[2]) == 3, f"v3 should keep 3 controls, got {len(trimmed_c_links[2])}"
+            assert len(trimmed_c_links[3]) == 2, f"v4 should keep 2 controls, got {len(trimmed_c_links[3])}"
+            total = sum(len(vc) for vc in trimmed_c_links)
+            assert total == 12, f"Expected 12 total trimmed controls, got {total}"
+
+
+def test_per_plane_strip_redundant_controls_d3():
+    """_strip_redundant_controls returns a per-plane dict with 3 planes for d=3 size=2."""
+    circ_mgr, encoder = _make_d3_size2_circ_mgr()
+
+    # Use all physical states to ensure we have consistent ones for each plane.
+    physical_states = PHYSICAL_PLAQUETTE_STATES["d=3"]["B3"]
+    physical_state_bitstrings = set(
+        encoder.encode_plaquette_state_as_bit_string(ps) for ps in physical_states
+    )
+
+    result = circ_mgr._strip_redundant_controls_if_small_and_periodic_lattice(
+        physical_state_bitstrings
+    )
+    assert result is not None, "Should return a per-plane dict for small periodic d=3."
+    assert set(result.keys()) == {(1, 2), (1, 3), (2, 3)}, (
+        f"Expected 3 planes, got {set(result.keys())}"
+    )
+    # At least one plane should have a non-None set of stripped states.
+    has_any_stripped = any(v is not None for v in result.values())
+    assert has_any_stripped, "Expected at least one plane to have stripped states."
+    # Each non-None value should be a non-empty set.
+    expected_num_stripped_ctrls = 4
+    expected_qubits_per_link = 2
+    expected_stripped_qubits = expected_qubits_per_link * expected_num_stripped_ctrls
+    expected_qubits_in_stripped_state = encoder.expected_plaquette_bit_string_length - expected_stripped_qubits
+    assert expected_qubits_in_stripped_state == 32 # 4 active links, 12 ctrls, 2 qubits each.
+    for plane, stripped_set in result.items():
+        for stripped_state in stripped_set:
+            assert len(stripped_state) == expected_qubits_in_stripped_state
+
+
+def test_per_plane_strip_redundant_controls_returns_none_when_input_none():
+    """_strip_redundant_controls returns None when input is None."""
+    circ_mgr, _ = _make_d3_size2_circ_mgr()
+    result = circ_mgr._strip_redundant_controls_if_small_and_periodic_lattice(None)
+    assert result is None
+
+
+def test_d3_resolved_hamiltonian_has_three_planes():
+    """After __init__, the resolved Hamiltonian for d=3 size=2 should have 3 plane keys."""
+    circ_mgr, _ = _make_d3_size2_circ_mgr()
+    assert set(circ_mgr._mag_hamiltonian.keys()) == {(1, 2), (1, 3), (2, 3)}
+
+
+# --- d=3 circuit construction tests ---
+
+def _make_d3_encoder_and_hamiltonian(size, threshold=0.3):
+    """Helper: create encoder and Hamiltonian for d=3 B3 lattice of given size."""
+    lattice_def = LatticeDef(3, size, periodic_boundary_conds=True)
+    trunc = "B3"
+    link_bitmap = IRREP_TRUNCATIONS[trunc]
+    physical_states = PHYSICAL_PLAQUETTE_STATES["d=3"][trunc]
+    encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_def)
+    mag_ham = load_magnetic_hamiltonian("d=3", trunc, encoder,
+                                       mag_hamiltonian_matrix_element_threshold=threshold)
+    return encoder, mag_ham
+
+
+@pytest.mark.slow
+def test_d3_B3_size3_magnetic_trotter_step():
+    """d=3 B3 size=3: construct circuit and apply one magnetic Trotter step (no small-lattice logic)."""
+    encoder, mag_ham = _make_d3_encoder_and_hamiltonian(size=3)
+    lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
+    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
+
+    circ_mgr.apply_magnetic_trotter_step(circuit, lattice)
+
+    assert circuit.num_qubits > 0
+    assert len(circuit.parameters) > 0, "Circuit should have unbound parameters (dt, coupling_g)."
+
+
+def test_d3_B3_size2_magnetic_trotter_step():
+    """d=3 B3 size=2: triggers small-periodic filtering; verify circuit constructs and has correct c_link counts."""
+    encoder, mag_ham = _make_d3_encoder_and_hamiltonian(size=2)
+    lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
+    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
+
+    circ_mgr.apply_magnetic_trotter_step(circuit, lattice)
+
+    assert circuit.num_qubits > 0
+    assert len(circuit.parameters) > 0, "Circuit should have unbound parameters (dt, coupling_g)."
+
+    # The resolved Hamiltonian should have 3 planes for d=3.
+    assert len(circ_mgr._mag_hamiltonian) == 3, (
+        f"Expected 3 planes in resolved Hamiltonian, got {len(circ_mgr._mag_hamiltonian)}"
+    )
+    # Verify expected planes are present.
+    expected_planes = {(1, 2), (1, 3), (2, 3)}
+    assert set(circ_mgr._mag_hamiltonian.keys()) == expected_planes
+
+
+# Wiring of the d=3 magnetic Trotter step.
+#
+# These tests check which qubits each plaquette's Givens rotation acts on in
+# d=3, on periodic lattices of size 3 and size 2. The expected qubits were
+# derived by hand, as follows. DO NOT CHANGE THE DUMMY DATA BELOW WITHOUT
+# REDERIVING THE EXPECTED QUBITS.
+#
+#   1. Qubit indices of the registers. The circuit holds the registers in
+#      the lattice's traversal order: vertices in lexicographic order of their
+#      coordinates, and at each vertex its vertex register, then its links in
+#      directions 1, 2, 3. With one qubit per vertex and three per link (the
+#      T2 link bitmap), each vertex has 10 qubits. On a lattice of size L, the
+#      vertex (x, y, z) is preceded by r = L^2 x + L y + z vertices in that
+#      order, so its qubits are 10 r to 10 r + 9: its vertex qubit is 10 r,
+#      and its link in direction k starts at 10 r + 1 + 3 (k - 1).
+#   2. The registers of the plaquette at vertex v in plane (e1, e2). Its
+#      vertices are v1 = v, v2 = v + e1, v3 = v + e1 + e2, v4 = v + e2
+#      (mod L). Its active links are (v1, e1), (v2, e2), (v4, e1), (v1, e2).
+#      A vertex has six half-links, one for each direction +k or -k in
+#      which a link leaves it: the half-link at site s in direction +k is
+#      the link (s, k), and in direction -k the link (s - e_k mod L, k).
+#      The controls at a vertex are its four half-links other than the two
+#      that are active links, sorted by the default FORDER
+#      [1, 2, 3, -1, -2, -3].
+#   3. On a periodic lattice of size 2, s + e_k and s - e_k are the same
+#      site, so four controls repeat a control of an earlier vertex and are
+#      dropped: v2's +e1 (v1's -e1), v3's +e2 (v2's -e2), v4's +e2 (v1's -e2)
+#      and v4's -e1 (v3's +e1). The two out-of-plane controls of a vertex
+#      start at different sites, so they never coincide. 12 controls remain.
+#   4. The plaquette circuit acts on the vertex qubits of v1-v4, the qubits
+#      of the active links, then the qubits of the controls, in that order:
+#      position i of the plaquette's bit string is the i-th of these qubits.
+#   5. The rotation between two bit strings has its pivot at the first
+#      position where they differ, CX gates from the pivot to every later
+#      position where they differ, and a multi-controlled X on the pivot,
+#      controlled by every other qubit, with the value that qubit has in the
+#      bit string that has a 0 at the pivot.
+#
+# The dummy data put a different irrep on each of the four controls at a
+# vertex. The T2 link bitmap (IRREP_TRUNCATIONS["T2"]) encodes different
+# irreps as different bit strings, so swapping two controls of one vertex
+# changes the values the multi-controlled X requires of their qubits. On
+# size 2 a control and the earlier control it repeats (step 3) are the same
+# link, so they must carry the same irrep, or the matrix
+# element is discarded, so the irreps are assigned by link: the link shared
+# by v1 and v2 (v1's -e1) is THREE, by v1 and v4 (v1's -e2) THREE_BAR, by v2
+# and v3 (v2's -e2) SIX, by v3 and v4 (v3's +e1) SIX_BAR; every out-of-plane
+# control is EIGHT in the positive direction and ONE in the negative
+# direction. The two states of each matrix element differ only in their
+# active links.
+_D3_WIRING_VERTEX_MULTIPLICITIES = (0, 1, 0, 1)
+# Bit strings in the T2 link bitmap: ONE 000, THREE 100, SIX 110, EIGHT 111.
+_D3_WIRING_INITIAL_ACTIVE_LINKS = (ONE, THREE, SIX, EIGHT)
+# Bit strings in the T2 link bitmap: THREE 100, SIX_BAR 011, ONE 000,
+# THREE_BAR 001.
+_D3_WIRING_FINAL_ACTIVE_LINKS = (THREE, SIX_BAR, ONE, THREE_BAR)
+_D3_WIRING_CONTROLS_BY_PLANE = {
+    (1, 2): (
+        (EIGHT, THREE, THREE_BAR, ONE),  # v1: +3, -1, -2, -3
+        (THREE, EIGHT, SIX, ONE),  # v2: +1, +3, -2, -3
+        (SIX_BAR, SIX, EIGHT, ONE),  # v3: +1, +2, +3, -3
+        (THREE_BAR, EIGHT, SIX_BAR, ONE),  # v4: +2, +3, -1, -3
+    ),
+    (1, 3): (
+        (EIGHT, THREE, ONE, THREE_BAR),  # v1: +2, -1, -2, -3
+        (THREE, EIGHT, ONE, SIX),  # v2: +1, +2, -2, -3
+        (SIX_BAR, EIGHT, SIX, ONE),  # v3: +1, +2, +3, -2
+        (EIGHT, THREE_BAR, SIX_BAR, ONE),  # v4: +2, +3, -1, -2
+    ),
+    (2, 3): (
+        (EIGHT, ONE, THREE, THREE_BAR),  # v1: +1, -1, -2, -3
+        (EIGHT, THREE, ONE, SIX),  # v2: +1, +2, -1, -3
+        (EIGHT, SIX_BAR, SIX, ONE),  # v3: +1, +2, +3, -1
+        (EIGHT, THREE_BAR, ONE, SIX_BAR),  # v4: +1, +3, -1, -2
+    ),
+}
+# A different value per plane, so that a matrix element applied in the wrong
+# plane changes the rotation angle.
+_D3_WIRING_MATRIX_ELEMENT_BY_PLANE = {(1, 2): 0.11, (1, 3): 0.22, (2, 3): 0.33}
+# The signature every plaquette has on a periodic d=3 lattice: all six
+# half-links at every corner (Signature in ymcirc._abstract.lattice_data).
+# The magnetic Hamiltonian is keyed by plane, then signature, so the dummy
+# matrix elements must use it to be applied.
+_D3_WIRING_SIGNATURE = ((1, 2, 3, -1, -2, -3),) * 4
+# The initial and final active links encode to 000 100 110 111 and
+# 100 011 000 001, after the four vertex bits. They first differ at position
+# 4 (the first bit of l1), and then at positions 7, 8, 9 (all of l2), 10, 11
+# (the first two of l3) and 13, 14 (the first two of l4). The initial state
+# has a 0 at the pivot, so its bits are the values the multi-controlled X
+# requires of the other qubits (step 5 above).
+_D3_WIRING_PIVOT_POSITION = 4
+_D3_WIRING_CX_TARGET_POSITIONS = (7, 8, 9, 10, 11, 13, 14)
+# Each rotation: the CX gates, then these gates on the pivot, then the CX
+# gates again (givens.givens and givens._CRXCircuit_with_MCX).
+_D3_WIRING_GATE_TYPES_BETWEEN_CX = [RZGate, RYGate, MCXGate, RYGate, MCXGate, RZGate]
+_D3_WIRING_GATES_PER_ROTATION = 2 * len(_D3_WIRING_CX_TARGET_POSITIONS) + len(_D3_WIRING_GATE_TYPES_BETWEEN_CX)
+_D3_WIRING_QUBITS_PER_LINK = 3
+
+# Expected registers of the plaquettes checked, by (lattice size, bottom-left
+# vertex, plane). Vertex qubits are listed for v1-v4, active links by their
+# first qubit for l1-l4, and controls by their first qubit with the irrep the
+# dummy data put on that link.
+_D3_WIRING_EXPECTED_REGISTERS = {
+    (3, (2, 2, 2), (1, 2)): {
+        # v1 = (2, 2, 2), v2 = (0, 2, 2), v3 = (0, 0, 2), v4 = (2, 0, 2).
+        "vertex qubits": [260, 80, 20, 200],
+        # ((2, 2, 2), 1), ((0, 2, 2), 2), ((2, 0, 2), 1), ((2, 2, 2), 2).
+        "active link first qubits": [261, 84, 201, 264],
+        "controls": [
+            # v1: ((2, 2, 2), 3), ((1, 2, 2), 1), ((2, 1, 2), 2), ((2, 2, 1), 3).
+            (267, EIGHT), (171, THREE), (234, THREE_BAR), (257, ONE),
+            # v2: ((0, 2, 2), 1), ((0, 2, 2), 3), ((0, 1, 2), 2), ((0, 2, 1), 3).
+            (81, THREE), (87, EIGHT), (54, SIX), (77, ONE),
+            # v3: ((0, 0, 2), 1), ((0, 0, 2), 2), ((0, 0, 2), 3), ((0, 0, 1), 3).
+            (21, SIX_BAR), (24, SIX), (27, EIGHT), (17, ONE),
+            # v4: ((2, 0, 2), 2), ((2, 0, 2), 3), ((1, 0, 2), 1), ((2, 0, 1), 3).
+            (204, THREE_BAR), (207, EIGHT), (111, SIX_BAR), (197, ONE),
+        ],
+    },
+    (3, (2, 2, 2), (1, 3)): {
+        # v1 = (2, 2, 2), v2 = (0, 2, 2), v3 = (0, 2, 0), v4 = (2, 2, 0).
+        "vertex qubits": [260, 80, 60, 240],
+        # ((2, 2, 2), 1), ((0, 2, 2), 3), ((2, 2, 0), 1), ((2, 2, 2), 3).
+        "active link first qubits": [261, 87, 241, 267],
+        "controls": [
+            # v1: ((2, 2, 2), 2), ((1, 2, 2), 1), ((2, 1, 2), 2), ((2, 2, 1), 3).
+            (264, EIGHT), (171, THREE), (234, ONE), (257, THREE_BAR),
+            # v2: ((0, 2, 2), 1), ((0, 2, 2), 2), ((0, 1, 2), 2), ((0, 2, 1), 3).
+            (81, THREE), (84, EIGHT), (54, ONE), (77, SIX),
+            # v3: ((0, 2, 0), 1), ((0, 2, 0), 2), ((0, 2, 0), 3), ((0, 1, 0), 2).
+            (61, SIX_BAR), (64, EIGHT), (67, SIX), (34, ONE),
+            # v4: ((2, 2, 0), 2), ((2, 2, 0), 3), ((1, 2, 0), 1), ((2, 1, 0), 2).
+            (244, EIGHT), (247, THREE_BAR), (151, SIX_BAR), (214, ONE),
+        ],
+    },
+    (3, (2, 2, 2), (2, 3)): {
+        # v1 = (2, 2, 2), v2 = (2, 0, 2), v3 = (2, 0, 0), v4 = (2, 2, 0).
+        "vertex qubits": [260, 200, 180, 240],
+        # ((2, 2, 2), 2), ((2, 0, 2), 3), ((2, 2, 0), 2), ((2, 2, 2), 3).
+        "active link first qubits": [264, 207, 244, 267],
+        "controls": [
+            # v1: ((2, 2, 2), 1), ((1, 2, 2), 1), ((2, 1, 2), 2), ((2, 2, 1), 3).
+            (261, EIGHT), (171, ONE), (234, THREE), (257, THREE_BAR),
+            # v2: ((2, 0, 2), 1), ((2, 0, 2), 2), ((1, 0, 2), 1), ((2, 0, 1), 3).
+            (201, EIGHT), (204, THREE), (111, ONE), (197, SIX),
+            # v3: ((2, 0, 0), 1), ((2, 0, 0), 2), ((2, 0, 0), 3), ((1, 0, 0), 1).
+            (181, EIGHT), (184, SIX_BAR), (187, SIX), (91, ONE),
+            # v4: ((2, 2, 0), 1), ((2, 2, 0), 3), ((1, 2, 0), 1), ((2, 1, 0), 2).
+            (241, EIGHT), (247, THREE_BAR), (151, ONE), (214, SIX_BAR),
+        ],
+    },
+    (2, (0, 0, 0), (1, 2)): {
+        # v1 = (0, 0, 0), v2 = (1, 0, 0), v3 = (1, 1, 0), v4 = (0, 1, 0).
+        "vertex qubits": [0, 40, 60, 20],
+        # ((0, 0, 0), 1), ((1, 0, 0), 2), ((0, 1, 0), 1), ((0, 0, 0), 2).
+        "active link first qubits": [1, 44, 21, 4],
+        "controls": [
+            # v1: ((0, 0, 0), 3), ((1, 0, 0), 1), ((0, 1, 0), 2), ((0, 0, 1), 3).
+            (7, EIGHT), (41, THREE), (24, THREE_BAR), (17, ONE),
+            # v2, +1 dropped: ((1, 0, 0), 3), ((1, 1, 0), 2), ((1, 0, 1), 3).
+            (47, EIGHT), (64, SIX), (57, ONE),
+            # v3, +2 dropped: ((1, 1, 0), 1), ((1, 1, 0), 3), ((1, 1, 1), 3).
+            (61, SIX_BAR), (67, EIGHT), (77, ONE),
+            # v4, +2 and -1 dropped: ((0, 1, 0), 3), ((0, 1, 1), 3).
+            (27, EIGHT), (37, ONE),
+        ],
+    },
+    (2, (0, 0, 0), (1, 3)): {
+        # v1 = (0, 0, 0), v2 = (1, 0, 0), v3 = (1, 0, 1), v4 = (0, 0, 1).
+        "vertex qubits": [0, 40, 50, 10],
+        # ((0, 0, 0), 1), ((1, 0, 0), 3), ((0, 0, 1), 1), ((0, 0, 0), 3).
+        "active link first qubits": [1, 47, 11, 7],
+        "controls": [
+            # v1: ((0, 0, 0), 2), ((1, 0, 0), 1), ((0, 1, 0), 2), ((0, 0, 1), 3).
+            (4, EIGHT), (41, THREE), (24, ONE), (17, THREE_BAR),
+            # v2, +1 dropped: ((1, 0, 0), 2), ((1, 1, 0), 2), ((1, 0, 1), 3).
+            (44, EIGHT), (64, ONE), (57, SIX),
+            # v3, +3 dropped: ((1, 0, 1), 1), ((1, 0, 1), 2), ((1, 1, 1), 2).
+            (51, SIX_BAR), (54, EIGHT), (74, ONE),
+            # v4, +3 and -1 dropped: ((0, 0, 1), 2), ((0, 1, 1), 2).
+            (14, EIGHT), (34, ONE),
+        ],
+    },
+    (2, (0, 0, 0), (2, 3)): {
+        # v1 = (0, 0, 0), v2 = (0, 1, 0), v3 = (0, 1, 1), v4 = (0, 0, 1).
+        "vertex qubits": [0, 20, 30, 10],
+        # ((0, 0, 0), 2), ((0, 1, 0), 3), ((0, 0, 1), 2), ((0, 0, 0), 3).
+        "active link first qubits": [4, 27, 14, 7],
+        "controls": [
+            # v1: ((0, 0, 0), 1), ((1, 0, 0), 1), ((0, 1, 0), 2), ((0, 0, 1), 3).
+            (1, EIGHT), (41, ONE), (24, THREE), (17, THREE_BAR),
+            # v2, +2 dropped: ((0, 1, 0), 1), ((1, 1, 0), 1), ((0, 1, 1), 3).
+            (21, EIGHT), (61, ONE), (37, SIX),
+            # v3, +3 dropped: ((0, 1, 1), 1), ((0, 1, 1), 2), ((1, 1, 1), 1).
+            (31, EIGHT), (34, SIX_BAR), (71, ONE),
+            # v4, +3 and -2 dropped: ((0, 0, 1), 1), ((1, 0, 1), 1).
+            (11, EIGHT), (51, ONE),
+        ],
+    },
+    (2, (1, 1, 1), (1, 2)): {
+        # v1 = (1, 1, 1), v2 = (0, 1, 1), v3 = (0, 0, 1), v4 = (1, 0, 1).
+        "vertex qubits": [70, 30, 10, 50],
+        # ((1, 1, 1), 1), ((0, 1, 1), 2), ((1, 0, 1), 1), ((1, 1, 1), 2).
+        "active link first qubits": [71, 34, 51, 74],
+        "controls": [
+            # v1: ((1, 1, 1), 3), ((0, 1, 1), 1), ((1, 0, 1), 2), ((1, 1, 0), 3).
+            (77, EIGHT), (31, THREE), (54, THREE_BAR), (67, ONE),
+            # v2, +1 dropped: ((0, 1, 1), 3), ((0, 0, 1), 2), ((0, 1, 0), 3).
+            (37, EIGHT), (14, SIX), (27, ONE),
+            # v3, +2 dropped: ((0, 0, 1), 1), ((0, 0, 1), 3), ((0, 0, 0), 3).
+            (11, SIX_BAR), (17, EIGHT), (7, ONE),
+            # v4, +2 and -1 dropped: ((1, 0, 1), 3), ((1, 0, 0), 3).
+            (57, EIGHT), (47, ONE),
+        ],
+    },
+    (2, (1, 1, 1), (1, 3)): {
+        # v1 = (1, 1, 1), v2 = (0, 1, 1), v3 = (0, 1, 0), v4 = (1, 1, 0).
+        "vertex qubits": [70, 30, 20, 60],
+        # ((1, 1, 1), 1), ((0, 1, 1), 3), ((1, 1, 0), 1), ((1, 1, 1), 3).
+        "active link first qubits": [71, 37, 61, 77],
+        "controls": [
+            # v1: ((1, 1, 1), 2), ((0, 1, 1), 1), ((1, 0, 1), 2), ((1, 1, 0), 3).
+            (74, EIGHT), (31, THREE), (54, ONE), (67, THREE_BAR),
+            # v2, +1 dropped: ((0, 1, 1), 2), ((0, 0, 1), 2), ((0, 1, 0), 3).
+            (34, EIGHT), (14, ONE), (27, SIX),
+            # v3, +3 dropped: ((0, 1, 0), 1), ((0, 1, 0), 2), ((0, 0, 0), 2).
+            (21, SIX_BAR), (24, EIGHT), (4, ONE),
+            # v4, +3 and -1 dropped: ((1, 1, 0), 2), ((1, 0, 0), 2).
+            (64, EIGHT), (44, ONE),
+        ],
+    },
+    (2, (1, 1, 1), (2, 3)): {
+        # v1 = (1, 1, 1), v2 = (1, 0, 1), v3 = (1, 0, 0), v4 = (1, 1, 0).
+        "vertex qubits": [70, 50, 40, 60],
+        # ((1, 1, 1), 2), ((1, 0, 1), 3), ((1, 1, 0), 2), ((1, 1, 1), 3).
+        "active link first qubits": [74, 57, 64, 77],
+        "controls": [
+            # v1: ((1, 1, 1), 1), ((0, 1, 1), 1), ((1, 0, 1), 2), ((1, 1, 0), 3).
+            (71, EIGHT), (31, ONE), (54, THREE), (67, THREE_BAR),
+            # v2, +2 dropped: ((1, 0, 1), 1), ((0, 0, 1), 1), ((1, 0, 0), 3).
+            (51, EIGHT), (11, ONE), (47, SIX),
+            # v3, +3 dropped: ((1, 0, 0), 1), ((1, 0, 0), 2), ((0, 0, 0), 1).
+            (41, EIGHT), (44, SIX_BAR), (1, ONE),
+            # v4, +3 and -2 dropped: ((1, 1, 0), 1), ((0, 1, 0), 1).
+            (61, EIGHT), (21, ONE),
+        ],
+    },
+}
+
+
+def _d3_wiring_dummy_data() -> tuple[list, dict]:
+    """Return the dummy physical plaquette states and magnetic Hamiltonian of the d=3 wiring tests."""
+    dummy_phys_states = []
+    dummy_mag_hamiltonian = {}
+    for plane, controls in _D3_WIRING_CONTROLS_BY_PLANE.items():
+        initial_state = (_D3_WIRING_VERTEX_MULTIPLICITIES, _D3_WIRING_INITIAL_ACTIVE_LINKS, controls)
+        final_state = (_D3_WIRING_VERTEX_MULTIPLICITIES, _D3_WIRING_FINAL_ACTIVE_LINKS, controls)
+        dummy_phys_states += [initial_state, final_state]
+        dummy_mag_hamiltonian[(final_state, initial_state)] = {
+            plane: {_D3_WIRING_SIGNATURE: _D3_WIRING_MATRIX_ELEMENT_BY_PLANE[plane]}
+        }
+    return dummy_phys_states, dummy_mag_hamiltonian
+
+
+def _d3_wiring_expected_rotation(size: int, vertex: tuple[int, int, int], plane: Plane) -> dict:
+    """
+    Return the expected pivot, CX targets and MCX controls of one plaquette's rotation.
+
+    The qubits come from _D3_WIRING_EXPECTED_REGISTERS, in the order of the
+    plaquette's bit string, and the control values are the bits of the
+    matrix element's initial state.
+    """
+    registers = _D3_WIRING_EXPECTED_REGISTERS[(size, vertex, plane)]
+    link_bitmap = IRREP_TRUNCATIONS["T2"]
+    qubits = list(registers["vertex qubits"])
+    bits = "".join(str(multiplicity) for multiplicity in _D3_WIRING_VERTEX_MULTIPLICITIES)
+    links = list(zip(registers["active link first qubits"], _D3_WIRING_INITIAL_ACTIVE_LINKS)) + registers["controls"]
+    for first_qubit, irrep in links:
+        qubits += range(first_qubit, first_qubit + _D3_WIRING_QUBITS_PER_LINK)
+        bits += link_bitmap[irrep]
+    pivot = qubits[_D3_WIRING_PIVOT_POSITION]
+    return {
+        "pivot": pivot,
+        "CX targets": [qubits[position] for position in _D3_WIRING_CX_TARGET_POSITIONS],
+        "MCX controls": {
+            qubit: bit for position, (qubit, bit) in enumerate(zip(qubits, bits))
+            if position != _D3_WIRING_PIVOT_POSITION
+        },
+        "RY angle": _D3_WIRING_MATRIX_ELEMENT_BY_PLANE[plane],
+    }
+
+
+def _d3_wiring_built_rotation(circuit: QuantumCircuit, rotation_index: int) -> dict:
+    """
+    Return the pivot, CX targets and MCX controls of one rotation in a built circuit.
+
+    The rotation is the rotation_index-th one in the circuit. Checks that its
+    gates have the structure of _D3_WIRING_GATES_PER_ROTATION, and that both
+    copies of its CX gates and of its MCX gate agree.
+    """
+    first_gate = rotation_index * _D3_WIRING_GATES_PER_ROTATION
+    gates = circuit.data[first_gate:first_gate + _D3_WIRING_GATES_PER_ROTATION]
+    n_cx = len(_D3_WIRING_CX_TARGET_POSITIONS)
+    n_core = len(_D3_WIRING_GATE_TYPES_BETWEEN_CX)
+    cx_before, core, cx_after = gates[:n_cx], gates[n_cx:n_cx + n_core], gates[n_cx + n_core:]
+    assert [gate.operation.name for gate in cx_before + cx_after] == ["cx"] * (2 * n_cx)
+    assert all(isinstance(gate.operation, gate_type) for gate, gate_type in zip(core, _D3_WIRING_GATE_TYPES_BETWEEN_CX))
+
+    def index(qubit):
+        return circuit.find_bit(qubit).index
+
+    cx_pairs = [(index(gate.qubits[0]), index(gate.qubits[1])) for gate in cx_before]
+    assert cx_pairs == [(index(gate.qubits[0]), index(gate.qubits[1])) for gate in cx_after]
+    pivot = index(core[0].qubits[0])
+    assert all(control == pivot for control, _ in cx_pairs), "Every CX should be controlled by the pivot."
+
+    def mcx_controls(gate):
+        n_ctrls = gate.operation.num_ctrl_qubits
+        # Qiskit's ctrl_state integer has the first control as its least significant bit.
+        ctrl_values = f"{gate.operation.ctrl_state:0{n_ctrls}b}"[::-1]
+        return {index(qubit): value for qubit, value in zip(gate.qubits[:-1], ctrl_values)}
+
+    first_mcx, second_mcx = core[2], core[4]
+    assert index(first_mcx.qubits[-1]) == pivot and index(second_mcx.qubits[-1]) == pivot
+    assert mcx_controls(first_mcx) == mcx_controls(second_mcx)
+    return {
+        "pivot": pivot,
+        "CX targets": [target for _, target in cx_pairs],
+        "MCX controls": mcx_controls(first_mcx),
+        "RY angle": float(core[1].operation.params[0]),
+    }
+
+
+@pytest.mark.parametrize("size, checked_vertices", [
+    (3, [(2, 2, 2)]),  # Every step in a positive direction from (2, 2, 2) wraps around.
+    (2, [(0, 0, 0), (1, 1, 1)]),  # Repeated controls are dropped.
+])
+def test_apply_magnetic_trotter_step_d_3_wiring(size: int, checked_vertices: list[tuple[int, int, int]]):
+    print(f"Checking the qubits of the d=3 magnetic Trotter step on a size-{size} periodic lattice.")
+    dummy_phys_states, dummy_mag_hamiltonian_by_state = _d3_wiring_dummy_data()
+    lattice_def = LatticeDef(3, size)
+    lattice_encoder = LatticeStateEncoder(IRREP_TRUNCATIONS["T2"], dummy_phys_states, lattice=lattice_def)
+    dummy_mag_hamiltonian = {
+        (lattice_encoder.encode_plaquette_state_as_bit_string(final_state),
+         lattice_encoder.encode_plaquette_state_as_bit_string(initial_state)): value
+        for (final_state, initial_state), value in dummy_mag_hamiltonian_by_state.items()
+    }
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager(lattice_encoder, dummy_mag_hamiltonian)
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
+    circ_mgr.apply_magnetic_trotter_step(
+        master_circuit,
+        lattice_registers,
+        optimize_circuits=False,
+        cache_mag_evol_circuit=True
+    )
+    master_circuit.assign_parameters({"dt_mag__0": 1, "coupling_g_mag__0": 1}, inplace=True)
+
+    # One rotation per plaquette, visited by vertex in lexicographic order,
+    # then by plane.
+    planes = sorted(_D3_WIRING_CONTROLS_BY_PLANE)
+    vertices = sorted(product(range(size), repeat=3))
+    assert len(master_circuit.data) == _D3_WIRING_GATES_PER_ROTATION * len(vertices) * len(planes)
+    for vertex in checked_vertices:
+        for plane_index, plane in enumerate(planes):
+            print(f"Checking the rotation of the plaquette at {vertex} in plane {plane}.")
+            rotation_index = vertices.index(vertex) * len(planes) + plane_index
+            built = _d3_wiring_built_rotation(master_circuit, rotation_index)
+            expected = _d3_wiring_expected_rotation(size, vertex, plane)
+            assert built["pivot"] == expected["pivot"]
+            assert built["CX targets"] == expected["CX targets"]
+            assert built["MCX controls"] == expected["MCX controls"]
+            # The Givens angle is -(matrix element) * dt / g^2, and the first
+            # RY gate's angle is -2/2 times the Givens angle
+            # (givens._CRXCircuit_with_MCX). With dt = g = 1 every factor is
+            # exact in floating point, so the RY angle equals the matrix
+            # element exactly and no tolerance is needed.
+            assert built["RY angle"] == expected["RY angle"]

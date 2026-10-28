@@ -2,11 +2,12 @@
 from __future__ import annotations
 import ast
 from collections.abc import Mapping
+import gzip
 import json
 import logging
 import numpy as np
 from pathlib import Path
-from qiskit.circuit import QuantumCircuit, QuantumRegister
+from qiskit.circuit import CircuitInstruction, QuantumCircuit, QuantumRegister
 import time
 from typing import Dict, List, Optional, Tuple
 
@@ -21,6 +22,11 @@ class LazyDict(Mapping):
     It makes working with dictionaries which have expensive-to-compute
     values less painful. Taken from:
     https://stackoverflow.com/questions/16669367/setup-dictionary-lazily.
+
+    Note: LazyDict does NOT cache loaded values. Every __getitem__ call
+    invokes the loader function with its argument, re-executing the load
+    from scratch. If caching is desired, it must be handled externally
+    (e.g., by the loader function itself storing results in a separate dict).
     """
 
     def __init__(self, *args, **kwargs):
@@ -55,13 +61,22 @@ class LazyDict(Mapping):
         return len(self._raw_dict)
 
 
-def json_loader(json_path: Path) -> Dict | List:
+def json_loader(json_path: Path) -> Tuple[Dict | List, dict]:
     """
-    Load the json file at json_path, and return the data as dict or list.
+    Load a gzip-compressed JSON file at json_path and return (data, metadata).
+
+    The file is expected to be a .json.gz file with a top-level dict containing
+    "metadata" and "data" keys. The "data" portion has ast.literal_eval applied
+    to convert string representations of tuples back to Python objects.
+
+    Returns a 2-tuple of (data, metadata) where data is a dict or list and
+    metadata is a dict.
     """
     logger.debug(f"Loading json data from disk.")
-    with json_path.open('r') as json_file:
-        raw_data = json.load(json_file)
+    with gzip.open(json_path, 'rt') as json_file:
+        raw_top_level = json.load(json_file)
+        metadata = raw_top_level["metadata"]
+        raw_data = raw_top_level["data"]
         # Safer to use ast.literal_eval than eval to convert data keys to tuples.
         # The latter can execute arbitrary potentially malicious code while
         # the worst case attack vector for literal_eval would be to crash
@@ -72,15 +87,29 @@ def json_loader(json_path: Path) -> Dict | List:
             result = {ast.literal_eval(key): value for key, value in raw_data.items()}
         elif isinstance(raw_data, list):
             result = [ast.literal_eval(item) for item in raw_data]
-    return result
+    return result, metadata
 
 
 # The following methods are intended for package-internal use.
 def _check_circuits_logically_equivalent(circ1: QuantumCircuit, circ2: QuantumCircuit, strict: bool = False) -> bool:
     """
-    Check two circuits for logical equivalence by checking whether they have the same gates.
+    Check whether two circuits have the same gates, in the same order, on the same qubits.
 
-    If strict is False, then for larger multi control unitaries, just checks for the right ctrl qubits, target qubit, and ctrl state.
+    Qubits are identified by their index in their circuit. For a controlled
+    gate, the controls are compared as a set, each with the value that
+    triggers the gate, and the target qubits in order, so the same controls
+    listed in another order match. For any other gate, the qubits are
+    compared in order.
+
+    Gates are compared by their matrices where Qiskit provides one; Qiskit
+    (2.3) provides none for a multi-controlled gate with 3 or more controls.
+    Two controlled gates whose matrices differ, or that have none, match if
+    they have the same number of controls and control a gate of the same
+    name, whatever that gate's parameters. (Their matrices differ, for
+    example, when the same controls, not all triggered by the same value,
+    are listed in another order.) If strict
+    is True, gates match only if their matrices are equal, so gates without
+    a matrix never match.
 
     Note this depends on gate order!
     """
@@ -91,7 +120,9 @@ def _check_circuits_logically_equivalent(circ1: QuantumCircuit, circ2: QuantumCi
         return False
 
     # Scan through ops and check equivalence.
-    for idx, (op1, op2) in enumerate(zip(ops1, ops2)):
+    for op1, op2 in zip(ops1, ops2):
+        if _qubits_acted_on(circ1, op1) != _qubits_acted_on(circ2, op2):
+            return False
         try:
             op1_and_op2_same_matrix = np.allclose(op1.matrix, op2.matrix, atol=1e-15)
         except TypeError:  # Happens if no matrix data available. Fall back on other checks.
@@ -100,50 +131,34 @@ def _check_circuits_logically_equivalent(circ1: QuantumCircuit, circ2: QuantumCi
             if strict is True:
                 return False
             elif op1.is_controlled_gate() and op2.is_controlled_gate():
-                # Initial sanity check.
-                has_same_qubits = set(op1.qubits) == set(op2.qubits)
+                # The qubits and control values agree (checked above), so
+                # compare the number of controls and the gate they control.
                 has_same_num_ctrls = op1.operation.num_ctrl_qubits == op2.operation.num_ctrl_qubits
-                if not has_same_qubits or not has_same_num_ctrls:
+                has_same_base_gate = op1.operation.base_gate.name == op2.operation.base_gate.name
+                if not has_same_num_ctrls or not has_same_base_gate:
                     return False
-
-                # Now check for equality of target qubit.
-                op1_target = op1.qubits[-1]
-                op2_target = op2.qubits[-1]
-                has_same_target = op1_target == op2_target
-                if not has_same_target:
-                    return False
-
-                # Now let verify that the control qubits are the same, and the
-                # control state is identical. We need to obey qiskit's
-                # little endian convention when constructing ctrl state strings.
-                op1_ctrls = op1.qubits[:-1]
-                op2_ctrls = op2.qubits[:-1]
-                op1_ctrl_state = f'{op1.operation.ctrl_state:0{op1.operation.num_ctrl_qubits}b}'[::-1]
-                op2_ctrl_state = f'{op2.operation.ctrl_state:0{op2.operation.num_ctrl_qubits}b}'[::-1]
-
-                # Now let's gather all the qubit indices showing up among the controls
-                # of both operations, and set the value of that qubit in the
-                # corresponding control string.
-                ctrl_val_comp_dict: dict[int, dict[str, str]] = {idx: {} for idx in range(circ1.num_qubits)}
-                for qubit_idx in range(op1.operation.num_ctrl_qubits):
-                    # NOTE: This is pretty hacky and could break in the future.
-                    ctrl_val_comp_dict[op1_ctrls[qubit_idx]._index]["op1_ctrl_val"] = op1_ctrl_state[qubit_idx]
-                    ctrl_val_comp_dict[op2_ctrls[qubit_idx]._index]["op2_ctrl_val"] = op2_ctrl_state[qubit_idx]
-
-                # Now the control string data is organized enough for simple equality checks.
-                for idx in ctrl_val_comp_dict.keys():
-                    has_no_ctrl_at_current_idx = len(ctrl_val_comp_dict[idx]) == 0
-                    ctrl_values_match = len(ctrl_val_comp_dict[idx]) == 2 and (ctrl_val_comp_dict[idx]["op1_ctrl_val"] == ctrl_val_comp_dict[idx]["op2_ctrl_val"])
-                    if has_no_ctrl_at_current_idx:
-                        continue
-                    elif ctrl_values_match:
-                        continue
-                    else:
-                        return False
             else:
                 return False
 
     return True
+
+
+def _qubits_acted_on(circuit: QuantumCircuit, instruction: CircuitInstruction) -> tuple:
+    """
+    Return the qubits an instruction of circuit acts on, by index, in a form two instructions can be compared by.
+
+    For a controlled gate, return the set of (control qubit, value that
+    triggers the gate) pairs and the tuple of target qubits; the same
+    controls listed in another order give the same result. For any other
+    instruction, return the tuple of its qubits, in order.
+    """
+    qubit_indices = [circuit.find_bit(qubit).index for qubit in instruction.qubits]
+    if instruction.is_controlled_gate():
+        n_ctrls = instruction.operation.num_ctrl_qubits
+        # Qiskit's ctrl_state integer has the first control as its least significant bit.
+        ctrl_values = f"{instruction.operation.ctrl_state:0{n_ctrls}b}"[::-1]
+        return (frozenset(zip(qubit_indices[:n_ctrls], ctrl_values)), tuple(qubit_indices[n_ctrls:]))
+    return (tuple(qubit_indices),)
 
 
 def _flatten_circuit(original_circuit: QuantumCircuit) -> QuantumCircuit:
