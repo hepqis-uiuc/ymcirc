@@ -69,3 +69,24 @@ See the `run` directory for example usage and logging configuration of ymcirc. T
 python -m run.time_evol
 ```
 Replace `run.time_evol` with the particular desired module in the `run` directory.
+
+## Citations
+If you use this code in a paper, please cite:
+```bibtex
+@article{balaji-2025-perturbat-su,
+  eprinttype = {arXiv},
+  eprintclass = {hep-lat},
+  eprint = {2509.25865},
+  issn = {2470-0029},
+  month = {May},
+  number = {9},
+  volume = {113},
+  journal = {Physical Review D},
+  author = {Balaji, Praveen and Conefrey-Shinozaki, Cianan and Draper, Patrick and Elhaderi, Jason K. and Gupta, Drishti and Hidalgo, Luis and Lytle, Andrew},
+  title = {Perturbation theory, irrep truncations, and state preparation methods for quantum simulations of SU(3) lattice gauge theory},
+  year = {2026},
+  doi = {10.1103/m719-7tdf},
+  url = {http://dx.doi.org/10.1103/m719-7tdf},
+  publisher = {American Physical Society (APS)}
+}
+```
