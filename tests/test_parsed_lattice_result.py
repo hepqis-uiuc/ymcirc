@@ -1050,8 +1050,10 @@ def test_from_partial_measurement_d2_plaquette_control_link_ordering(
     """Verify control link ordering in from_partial_measurement for d=2.
 
     d=2 vertices have 2 control link directions each. This test ensures
-    the canonical ordering from _CONTROL_LINK_DIRS_PER_VERTEX_MAP is used
-    (not dict insertion order from set iteration).
+    that a plaquette rebuilt from a partial measurement has its control
+    links in the same order as the plaquette read from the full
+    measurement: at each vertex, sorted by the lattice's FORDER (see
+    Plaquette.control_links_per_vertex).
     """
     encoder = LatticeStateEncoder(
         T1_link_bitmap,

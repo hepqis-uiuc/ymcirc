@@ -1,7 +1,9 @@
+from itertools import product
 from pathlib import Path
 import pytest
 import numpy as np
 from ymcirc._abstract import LatticeDef, Plaquette
+from ymcirc._abstract.lattice_data import Plane
 from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.conventions import LatticeStateEncoder, ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT, IRREP_TRUNCATIONS, PHYSICAL_PLAQUETTE_STATES, load_magnetic_hamiltonian
 from ymcirc.lattice_registers import LatticeRegisters
@@ -459,70 +461,74 @@ def test_apply_magnetic_trotter_step_d_2_large_lattice():
     # Signature for d=2, plane=(1,2), default forder.
     _sig_2 = ((1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2))
     _plane_12 = (1, 2)
+    # The controls at each vertex are in the default FORDER [1, 2, 3, -1, -2, -3]:
+    # (-1, -2) at v1, (+1, -2) at v2, (+1, +2) at v3, (+2, -1) at v4. v3's two
+    # controls carry different irreps (THREE, ONE), so that swapping them
+    # changes the values the multi-controlled X requires of their qubits.
     dummy_mag_hamiltonian = {
-        ("0000" + "00100000" + "0000000000000010", "0010" + "01010100" + "1001101000000010"): {_plane_12: {_sig_2: 0.33}}  # One matrix element, plaquette has v, a_link, and c_link substrings.
+        ("0000" + "00100000" + "0000000010000010", "0010" + "01010100" + "1001101010000010"): {_plane_12: {_sig_2: 0.33}}  # One matrix element, plaquette has v, a_link, and c_link substrings.
     }
     dummy_phys_states = [
         (  # Matches the first encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (ONE, THREE, ONE, ONE),
-            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, THREE))
+            ((ONE, ONE), (ONE, ONE), (THREE, ONE), (ONE, THREE))
         ),
         (  # Matches the second encoded state in the dummy magnetic hamiltonian.
             (0, 0, 1, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, ONE),
-            ((THREE, THREE_BAR), (THREE, THREE), (ONE, ONE), (ONE, THREE))
+            ((THREE, THREE_BAR), (THREE, THREE), (THREE, ONE), (ONE, THREE))
         )
     ]
     expected_master_circuit = QuantumCircuit(45)
     expected_rotation_gates = {  # Data for constructing the expected circuit.
         "angle": -0.165,
-        "MCU ctrl state": "000000000000000000000000011",  # Little endian per qiskit convention.
+        "MCU ctrl state": "000000000000000000000000111",  # Little endian per qiskit convention.
         "givens rotations": [
             {
                 "pivot": 20,
-                "CX targets": [2, 18, 19, 7, 31, 14, 28, 16],
-                "MCU ctrls": [18, 36] + [0, 15, 5, 1, 2, 19, 6, 7, 3, 4, 31, 32, 13, 14, 28, 29, 16, 17, 21, 22, 23, 24, 8, 9, 37] # on ctrls first, followed by off, with pivot skipped.
+                "CX targets": [2, 18, 19, 7, 31, 14, 16, 28],
+                "MCU ctrls": [18, 36, 21] + [0, 15, 5, 1, 2, 19, 6, 7, 3, 4, 31, 32, 13, 14, 16, 17, 28, 29, 22, 23, 24, 8, 9, 37] # on ctrls first, followed by off, with pivot skipped.
             },
             {
                 "pivot": 25,
-                "CX targets": [7, 23, 24, 12, 36, 4, 18, 21],
-                "MCU ctrls": [23, 41] + [5, 20, 10, 6, 7, 24, 11, 12, 8, 9, 36, 37, 3, 4, 18, 19, 21, 22, 26, 27, 28, 29, 13, 14, 42]
+                "CX targets": [7, 23, 24, 12, 36, 4, 21, 18],
+                "MCU ctrls": [23, 41, 26] + [5, 20, 10, 6, 7, 24, 11, 12, 8, 9, 36, 37, 3, 4, 21, 22, 18, 19, 27, 28, 29, 13, 14, 42]
             },
             {
                 "pivot": 15,
-                "CX targets": [12, 28, 29, 2, 41, 9, 23, 26],
-                "MCU ctrls": [28, 31] + [10, 25, 0, 11, 12, 29, 1, 2, 13, 14, 41, 42, 8, 9, 23, 24, 26, 27, 16, 17, 18, 19, 3, 4, 32]
+                "CX targets": [12, 28, 29, 2, 41, 9, 26, 23],
+                "MCU ctrls": [28, 31, 16] + [10, 25, 0, 11, 12, 29, 1, 2, 13, 14, 41, 42, 8, 9, 26, 27, 23, 24, 17, 18, 19, 3, 4, 32]
             },
             {
                 "pivot": 35,
-                "CX targets": [17, 33, 34, 22, 1, 29, 43, 31],
-                "MCU ctrls": [33, 6] + [15, 30, 20, 16, 17, 34, 21, 22, 18, 19, 1, 2, 28, 29, 43, 44, 31, 32, 36, 37, 38, 39, 23, 24, 7]
+                "CX targets": [17, 33, 34, 22, 1, 29, 31, 43],
+                "MCU ctrls": [33, 6, 36] + [15, 30, 20, 16, 17, 34, 21, 22, 18, 19, 1, 2, 28, 29, 31, 32, 43, 44, 37, 38, 39, 23, 24, 7]
             },
             {
                 "pivot": 40,
-                "CX targets": [22, 38, 39, 27, 6, 19, 33, 36],
-                "MCU ctrls": [38, 11] + [20, 35, 25, 21, 22, 39, 26, 27, 23, 24, 6, 7, 18, 19, 33, 34, 36, 37, 41, 42, 43, 44, 28, 29, 12]
+                "CX targets": [22, 38, 39, 27, 6, 19, 36, 33],
+                "MCU ctrls": [38, 11, 41] + [20, 35, 25, 21, 22, 39, 26, 27, 23, 24, 6, 7, 18, 19, 36, 37, 33, 34, 42, 43, 44, 28, 29, 12]
             },
             {
                 "pivot": 30,
-                "CX targets": [27, 43, 44, 17, 11, 24, 38, 41],
-                "MCU ctrls": [43, 1] + [25, 40, 15, 26, 27, 44, 16, 17, 28, 29, 11, 12, 23, 24, 38, 39, 41, 42, 31, 32, 33, 34, 18, 19, 2]
+                "CX targets": [27, 43, 44, 17, 11, 24, 41, 38],
+                "MCU ctrls": [43, 1, 31] + [25, 40, 15, 26, 27, 44, 16, 17, 28, 29, 11, 12, 23, 24, 41, 42, 38, 39, 32, 33, 34, 18, 19, 2]
             },
             {
                 "pivot": 5,
-                "CX targets": [32, 3, 4, 37, 16, 44, 13, 1],
-                "MCU ctrls": [3, 21] + [30, 0, 35, 31, 32, 4, 36, 37, 33, 34, 16, 17, 43, 44, 13, 14, 1, 2, 6, 7, 8, 9, 38, 39, 22]
+                "CX targets": [32, 3, 4, 37, 16, 44, 1, 13],
+                "MCU ctrls": [3, 21, 6] + [30, 0, 35, 31, 32, 4, 36, 37, 33, 34, 16, 17, 43, 44, 1, 2, 13, 14, 7, 8, 9, 38, 39, 22]
             },
             {
                 "pivot": 10,
-                "CX targets": [37, 8, 9, 42, 21, 34, 3, 6],
-                "MCU ctrls": [8, 26] + [35, 5, 40, 36, 37, 9, 41, 42, 38, 39, 21, 22, 33, 34, 3, 4, 6, 7, 11, 12, 13, 14, 43, 44, 27]
+                "CX targets": [37, 8, 9, 42, 21, 34, 6, 3],
+                "MCU ctrls": [8, 26, 11] + [35, 5, 40, 36, 37, 9, 41, 42, 38, 39, 21, 22, 33, 34, 6, 7, 3, 4, 12, 13, 14, 43, 44, 27]
             },
             {
                 "pivot": 0,
-                "CX targets": [42, 13, 14, 32, 26, 39, 8, 11],
-                "MCU ctrls": [13, 16] + [40, 10, 30, 41, 42, 14, 31, 32, 43, 44, 26, 27, 38, 39, 8, 9, 11, 12, 1, 2, 3, 4, 33, 34, 17]
+                "CX targets": [42, 13, 14, 32, 26, 39, 11, 8],
+                "MCU ctrls": [13, 16, 1] + [40, 10, 30, 41, 42, 14, 31, 32, 43, 44, 26, 27, 38, 39, 11, 12, 8, 9, 2, 3, 4, 33, 34, 17]
             }
         ]
     }
@@ -1935,3 +1941,383 @@ def test_d3_B3_size2_magnetic_trotter_step():
     # Verify expected planes are present.
     expected_planes = {(1, 2), (1, 3), (2, 3)}
     assert set(circ_mgr._mag_hamiltonian.keys()) == expected_planes
+
+
+# Wiring of the d=3 magnetic Trotter step.
+#
+# These tests check which qubits each plaquette's Givens rotation acts on in
+# d=3, on periodic lattices of size 3 and size 2. The expected qubits were
+# derived by hand, as follows. DO NOT CHANGE THE DUMMY DATA BELOW WITHOUT
+# REDERIVING THE EXPECTED QUBITS.
+#
+#   1. Qubit indices of the registers. The circuit holds the registers in
+#      the lattice's traversal order: vertices in lexicographic order of their
+#      coordinates, and at each vertex its vertex register, then its links in
+#      directions 1, 2, 3. With one qubit per vertex and three per link (the
+#      T2 link bitmap), each vertex has 10 qubits. On a lattice of size L, the
+#      vertex (x, y, z) is preceded by r = L^2 x + L y + z vertices in that
+#      order, so its qubits are 10 r to 10 r + 9: its vertex qubit is 10 r,
+#      and its link in direction k starts at 10 r + 1 + 3 (k - 1).
+#   2. The registers of the plaquette at vertex v in plane (e1, e2). Its
+#      vertices are v1 = v, v2 = v + e1, v3 = v + e1 + e2, v4 = v + e2
+#      (mod L). Its active links are (v1, e1), (v2, e2), (v4, e1), (v1, e2).
+#      A vertex has six half-links, one for each direction +k or -k in
+#      which a link leaves it: the half-link at site s in direction +k is
+#      the link (s, k), and in direction -k the link (s - e_k mod L, k).
+#      The controls at a vertex are its four half-links other than the two
+#      that are active links, sorted by the default FORDER
+#      [1, 2, 3, -1, -2, -3].
+#   3. On a periodic lattice of size 2, s + e_k and s - e_k are the same
+#      site, so four controls repeat a control of an earlier vertex and are
+#      dropped: v2's +e1 (v1's -e1), v3's +e2 (v2's -e2), v4's +e2 (v1's -e2)
+#      and v4's -e1 (v3's +e1). The two out-of-plane controls of a vertex
+#      start at different sites, so they never coincide. 12 controls remain.
+#   4. The plaquette circuit acts on the vertex qubits of v1-v4, the qubits
+#      of the active links, then the qubits of the controls, in that order:
+#      position i of the plaquette's bit string is the i-th of these qubits.
+#   5. The rotation between two bit strings has its pivot at the first
+#      position where they differ, CX gates from the pivot to every later
+#      position where they differ, and a multi-controlled X on the pivot,
+#      controlled by every other qubit, with the value that qubit has in the
+#      bit string that has a 0 at the pivot.
+#
+# The dummy data put a different irrep on each of the four controls at a
+# vertex. The T2 link bitmap (IRREP_TRUNCATIONS["T2"]) encodes different
+# irreps as different bit strings, so swapping two controls of one vertex
+# changes the values the multi-controlled X requires of their qubits. On
+# size 2 a control and the earlier control it repeats (step 3) are the same
+# link, so they must carry the same irrep, or the matrix
+# element is discarded, so the irreps are assigned by link: the link shared
+# by v1 and v2 (v1's -e1) is THREE, by v1 and v4 (v1's -e2) THREE_BAR, by v2
+# and v3 (v2's -e2) SIX, by v3 and v4 (v3's +e1) SIX_BAR; every out-of-plane
+# control is EIGHT in the positive direction and ONE in the negative
+# direction. The two states of each matrix element differ only in their
+# active links.
+_D3_WIRING_VERTEX_MULTIPLICITIES = (0, 1, 0, 1)
+# Bit strings in the T2 link bitmap: ONE 000, THREE 100, SIX 110, EIGHT 111.
+_D3_WIRING_INITIAL_ACTIVE_LINKS = (ONE, THREE, SIX, EIGHT)
+# Bit strings in the T2 link bitmap: THREE 100, SIX_BAR 011, ONE 000,
+# THREE_BAR 001.
+_D3_WIRING_FINAL_ACTIVE_LINKS = (THREE, SIX_BAR, ONE, THREE_BAR)
+_D3_WIRING_CONTROLS_BY_PLANE = {
+    (1, 2): (
+        (EIGHT, THREE, THREE_BAR, ONE),  # v1: +3, -1, -2, -3
+        (THREE, EIGHT, SIX, ONE),  # v2: +1, +3, -2, -3
+        (SIX_BAR, SIX, EIGHT, ONE),  # v3: +1, +2, +3, -3
+        (THREE_BAR, EIGHT, SIX_BAR, ONE),  # v4: +2, +3, -1, -3
+    ),
+    (1, 3): (
+        (EIGHT, THREE, ONE, THREE_BAR),  # v1: +2, -1, -2, -3
+        (THREE, EIGHT, ONE, SIX),  # v2: +1, +2, -2, -3
+        (SIX_BAR, EIGHT, SIX, ONE),  # v3: +1, +2, +3, -2
+        (EIGHT, THREE_BAR, SIX_BAR, ONE),  # v4: +2, +3, -1, -2
+    ),
+    (2, 3): (
+        (EIGHT, ONE, THREE, THREE_BAR),  # v1: +1, -1, -2, -3
+        (EIGHT, THREE, ONE, SIX),  # v2: +1, +2, -1, -3
+        (EIGHT, SIX_BAR, SIX, ONE),  # v3: +1, +2, +3, -1
+        (EIGHT, THREE_BAR, ONE, SIX_BAR),  # v4: +1, +3, -1, -2
+    ),
+}
+# A different value per plane, so that a matrix element applied in the wrong
+# plane changes the rotation angle.
+_D3_WIRING_MATRIX_ELEMENT_BY_PLANE = {(1, 2): 0.11, (1, 3): 0.22, (2, 3): 0.33}
+# The signature every plaquette has on a periodic d=3 lattice: all six
+# half-links at every corner (Signature in ymcirc._abstract.lattice_data).
+# The magnetic Hamiltonian is keyed by plane, then signature, so the dummy
+# matrix elements must use it to be applied.
+_D3_WIRING_SIGNATURE = ((1, 2, 3, -1, -2, -3),) * 4
+# The initial and final active links encode to 000 100 110 111 and
+# 100 011 000 001, after the four vertex bits. They first differ at position
+# 4 (the first bit of l1), and then at positions 7, 8, 9 (all of l2), 10, 11
+# (the first two of l3) and 13, 14 (the first two of l4). The initial state
+# has a 0 at the pivot, so its bits are the values the multi-controlled X
+# requires of the other qubits (step 5 above).
+_D3_WIRING_PIVOT_POSITION = 4
+_D3_WIRING_CX_TARGET_POSITIONS = (7, 8, 9, 10, 11, 13, 14)
+# Each rotation: the CX gates, then these gates on the pivot, then the CX
+# gates again (givens.givens and givens._CRXCircuit_with_MCX).
+_D3_WIRING_GATE_TYPES_BETWEEN_CX = [RZGate, RYGate, MCXGate, RYGate, MCXGate, RZGate]
+_D3_WIRING_GATES_PER_ROTATION = 2 * len(_D3_WIRING_CX_TARGET_POSITIONS) + len(_D3_WIRING_GATE_TYPES_BETWEEN_CX)
+_D3_WIRING_QUBITS_PER_LINK = 3
+
+# Expected registers of the plaquettes checked, by (lattice size, bottom-left
+# vertex, plane). Vertex qubits are listed for v1-v4, active links by their
+# first qubit for l1-l4, and controls by their first qubit with the irrep the
+# dummy data put on that link.
+_D3_WIRING_EXPECTED_REGISTERS = {
+    (3, (2, 2, 2), (1, 2)): {
+        # v1 = (2, 2, 2), v2 = (0, 2, 2), v3 = (0, 0, 2), v4 = (2, 0, 2).
+        "vertex qubits": [260, 80, 20, 200],
+        # ((2, 2, 2), 1), ((0, 2, 2), 2), ((2, 0, 2), 1), ((2, 2, 2), 2).
+        "active link first qubits": [261, 84, 201, 264],
+        "controls": [
+            # v1: ((2, 2, 2), 3), ((1, 2, 2), 1), ((2, 1, 2), 2), ((2, 2, 1), 3).
+            (267, EIGHT), (171, THREE), (234, THREE_BAR), (257, ONE),
+            # v2: ((0, 2, 2), 1), ((0, 2, 2), 3), ((0, 1, 2), 2), ((0, 2, 1), 3).
+            (81, THREE), (87, EIGHT), (54, SIX), (77, ONE),
+            # v3: ((0, 0, 2), 1), ((0, 0, 2), 2), ((0, 0, 2), 3), ((0, 0, 1), 3).
+            (21, SIX_BAR), (24, SIX), (27, EIGHT), (17, ONE),
+            # v4: ((2, 0, 2), 2), ((2, 0, 2), 3), ((1, 0, 2), 1), ((2, 0, 1), 3).
+            (204, THREE_BAR), (207, EIGHT), (111, SIX_BAR), (197, ONE),
+        ],
+    },
+    (3, (2, 2, 2), (1, 3)): {
+        # v1 = (2, 2, 2), v2 = (0, 2, 2), v3 = (0, 2, 0), v4 = (2, 2, 0).
+        "vertex qubits": [260, 80, 60, 240],
+        # ((2, 2, 2), 1), ((0, 2, 2), 3), ((2, 2, 0), 1), ((2, 2, 2), 3).
+        "active link first qubits": [261, 87, 241, 267],
+        "controls": [
+            # v1: ((2, 2, 2), 2), ((1, 2, 2), 1), ((2, 1, 2), 2), ((2, 2, 1), 3).
+            (264, EIGHT), (171, THREE), (234, ONE), (257, THREE_BAR),
+            # v2: ((0, 2, 2), 1), ((0, 2, 2), 2), ((0, 1, 2), 2), ((0, 2, 1), 3).
+            (81, THREE), (84, EIGHT), (54, ONE), (77, SIX),
+            # v3: ((0, 2, 0), 1), ((0, 2, 0), 2), ((0, 2, 0), 3), ((0, 1, 0), 2).
+            (61, SIX_BAR), (64, EIGHT), (67, SIX), (34, ONE),
+            # v4: ((2, 2, 0), 2), ((2, 2, 0), 3), ((1, 2, 0), 1), ((2, 1, 0), 2).
+            (244, EIGHT), (247, THREE_BAR), (151, SIX_BAR), (214, ONE),
+        ],
+    },
+    (3, (2, 2, 2), (2, 3)): {
+        # v1 = (2, 2, 2), v2 = (2, 0, 2), v3 = (2, 0, 0), v4 = (2, 2, 0).
+        "vertex qubits": [260, 200, 180, 240],
+        # ((2, 2, 2), 2), ((2, 0, 2), 3), ((2, 2, 0), 2), ((2, 2, 2), 3).
+        "active link first qubits": [264, 207, 244, 267],
+        "controls": [
+            # v1: ((2, 2, 2), 1), ((1, 2, 2), 1), ((2, 1, 2), 2), ((2, 2, 1), 3).
+            (261, EIGHT), (171, ONE), (234, THREE), (257, THREE_BAR),
+            # v2: ((2, 0, 2), 1), ((2, 0, 2), 2), ((1, 0, 2), 1), ((2, 0, 1), 3).
+            (201, EIGHT), (204, THREE), (111, ONE), (197, SIX),
+            # v3: ((2, 0, 0), 1), ((2, 0, 0), 2), ((2, 0, 0), 3), ((1, 0, 0), 1).
+            (181, EIGHT), (184, SIX_BAR), (187, SIX), (91, ONE),
+            # v4: ((2, 2, 0), 1), ((2, 2, 0), 3), ((1, 2, 0), 1), ((2, 1, 0), 2).
+            (241, EIGHT), (247, THREE_BAR), (151, ONE), (214, SIX_BAR),
+        ],
+    },
+    (2, (0, 0, 0), (1, 2)): {
+        # v1 = (0, 0, 0), v2 = (1, 0, 0), v3 = (1, 1, 0), v4 = (0, 1, 0).
+        "vertex qubits": [0, 40, 60, 20],
+        # ((0, 0, 0), 1), ((1, 0, 0), 2), ((0, 1, 0), 1), ((0, 0, 0), 2).
+        "active link first qubits": [1, 44, 21, 4],
+        "controls": [
+            # v1: ((0, 0, 0), 3), ((1, 0, 0), 1), ((0, 1, 0), 2), ((0, 0, 1), 3).
+            (7, EIGHT), (41, THREE), (24, THREE_BAR), (17, ONE),
+            # v2, +1 dropped: ((1, 0, 0), 3), ((1, 1, 0), 2), ((1, 0, 1), 3).
+            (47, EIGHT), (64, SIX), (57, ONE),
+            # v3, +2 dropped: ((1, 1, 0), 1), ((1, 1, 0), 3), ((1, 1, 1), 3).
+            (61, SIX_BAR), (67, EIGHT), (77, ONE),
+            # v4, +2 and -1 dropped: ((0, 1, 0), 3), ((0, 1, 1), 3).
+            (27, EIGHT), (37, ONE),
+        ],
+    },
+    (2, (0, 0, 0), (1, 3)): {
+        # v1 = (0, 0, 0), v2 = (1, 0, 0), v3 = (1, 0, 1), v4 = (0, 0, 1).
+        "vertex qubits": [0, 40, 50, 10],
+        # ((0, 0, 0), 1), ((1, 0, 0), 3), ((0, 0, 1), 1), ((0, 0, 0), 3).
+        "active link first qubits": [1, 47, 11, 7],
+        "controls": [
+            # v1: ((0, 0, 0), 2), ((1, 0, 0), 1), ((0, 1, 0), 2), ((0, 0, 1), 3).
+            (4, EIGHT), (41, THREE), (24, ONE), (17, THREE_BAR),
+            # v2, +1 dropped: ((1, 0, 0), 2), ((1, 1, 0), 2), ((1, 0, 1), 3).
+            (44, EIGHT), (64, ONE), (57, SIX),
+            # v3, +3 dropped: ((1, 0, 1), 1), ((1, 0, 1), 2), ((1, 1, 1), 2).
+            (51, SIX_BAR), (54, EIGHT), (74, ONE),
+            # v4, +3 and -1 dropped: ((0, 0, 1), 2), ((0, 1, 1), 2).
+            (14, EIGHT), (34, ONE),
+        ],
+    },
+    (2, (0, 0, 0), (2, 3)): {
+        # v1 = (0, 0, 0), v2 = (0, 1, 0), v3 = (0, 1, 1), v4 = (0, 0, 1).
+        "vertex qubits": [0, 20, 30, 10],
+        # ((0, 0, 0), 2), ((0, 1, 0), 3), ((0, 0, 1), 2), ((0, 0, 0), 3).
+        "active link first qubits": [4, 27, 14, 7],
+        "controls": [
+            # v1: ((0, 0, 0), 1), ((1, 0, 0), 1), ((0, 1, 0), 2), ((0, 0, 1), 3).
+            (1, EIGHT), (41, ONE), (24, THREE), (17, THREE_BAR),
+            # v2, +2 dropped: ((0, 1, 0), 1), ((1, 1, 0), 1), ((0, 1, 1), 3).
+            (21, EIGHT), (61, ONE), (37, SIX),
+            # v3, +3 dropped: ((0, 1, 1), 1), ((0, 1, 1), 2), ((1, 1, 1), 1).
+            (31, EIGHT), (34, SIX_BAR), (71, ONE),
+            # v4, +3 and -2 dropped: ((0, 0, 1), 1), ((1, 0, 1), 1).
+            (11, EIGHT), (51, ONE),
+        ],
+    },
+    (2, (1, 1, 1), (1, 2)): {
+        # v1 = (1, 1, 1), v2 = (0, 1, 1), v3 = (0, 0, 1), v4 = (1, 0, 1).
+        "vertex qubits": [70, 30, 10, 50],
+        # ((1, 1, 1), 1), ((0, 1, 1), 2), ((1, 0, 1), 1), ((1, 1, 1), 2).
+        "active link first qubits": [71, 34, 51, 74],
+        "controls": [
+            # v1: ((1, 1, 1), 3), ((0, 1, 1), 1), ((1, 0, 1), 2), ((1, 1, 0), 3).
+            (77, EIGHT), (31, THREE), (54, THREE_BAR), (67, ONE),
+            # v2, +1 dropped: ((0, 1, 1), 3), ((0, 0, 1), 2), ((0, 1, 0), 3).
+            (37, EIGHT), (14, SIX), (27, ONE),
+            # v3, +2 dropped: ((0, 0, 1), 1), ((0, 0, 1), 3), ((0, 0, 0), 3).
+            (11, SIX_BAR), (17, EIGHT), (7, ONE),
+            # v4, +2 and -1 dropped: ((1, 0, 1), 3), ((1, 0, 0), 3).
+            (57, EIGHT), (47, ONE),
+        ],
+    },
+    (2, (1, 1, 1), (1, 3)): {
+        # v1 = (1, 1, 1), v2 = (0, 1, 1), v3 = (0, 1, 0), v4 = (1, 1, 0).
+        "vertex qubits": [70, 30, 20, 60],
+        # ((1, 1, 1), 1), ((0, 1, 1), 3), ((1, 1, 0), 1), ((1, 1, 1), 3).
+        "active link first qubits": [71, 37, 61, 77],
+        "controls": [
+            # v1: ((1, 1, 1), 2), ((0, 1, 1), 1), ((1, 0, 1), 2), ((1, 1, 0), 3).
+            (74, EIGHT), (31, THREE), (54, ONE), (67, THREE_BAR),
+            # v2, +1 dropped: ((0, 1, 1), 2), ((0, 0, 1), 2), ((0, 1, 0), 3).
+            (34, EIGHT), (14, ONE), (27, SIX),
+            # v3, +3 dropped: ((0, 1, 0), 1), ((0, 1, 0), 2), ((0, 0, 0), 2).
+            (21, SIX_BAR), (24, EIGHT), (4, ONE),
+            # v4, +3 and -1 dropped: ((1, 1, 0), 2), ((1, 0, 0), 2).
+            (64, EIGHT), (44, ONE),
+        ],
+    },
+    (2, (1, 1, 1), (2, 3)): {
+        # v1 = (1, 1, 1), v2 = (1, 0, 1), v3 = (1, 0, 0), v4 = (1, 1, 0).
+        "vertex qubits": [70, 50, 40, 60],
+        # ((1, 1, 1), 2), ((1, 0, 1), 3), ((1, 1, 0), 2), ((1, 1, 1), 3).
+        "active link first qubits": [74, 57, 64, 77],
+        "controls": [
+            # v1: ((1, 1, 1), 1), ((0, 1, 1), 1), ((1, 0, 1), 2), ((1, 1, 0), 3).
+            (71, EIGHT), (31, ONE), (54, THREE), (67, THREE_BAR),
+            # v2, +2 dropped: ((1, 0, 1), 1), ((0, 0, 1), 1), ((1, 0, 0), 3).
+            (51, EIGHT), (11, ONE), (47, SIX),
+            # v3, +3 dropped: ((1, 0, 0), 1), ((1, 0, 0), 2), ((0, 0, 0), 1).
+            (41, EIGHT), (44, SIX_BAR), (1, ONE),
+            # v4, +3 and -2 dropped: ((1, 1, 0), 1), ((0, 1, 0), 1).
+            (61, EIGHT), (21, ONE),
+        ],
+    },
+}
+
+
+def _d3_wiring_dummy_data() -> tuple[list, dict]:
+    """Return the dummy physical plaquette states and magnetic Hamiltonian of the d=3 wiring tests."""
+    dummy_phys_states = []
+    dummy_mag_hamiltonian = {}
+    for plane, controls in _D3_WIRING_CONTROLS_BY_PLANE.items():
+        initial_state = (_D3_WIRING_VERTEX_MULTIPLICITIES, _D3_WIRING_INITIAL_ACTIVE_LINKS, controls)
+        final_state = (_D3_WIRING_VERTEX_MULTIPLICITIES, _D3_WIRING_FINAL_ACTIVE_LINKS, controls)
+        dummy_phys_states += [initial_state, final_state]
+        dummy_mag_hamiltonian[(final_state, initial_state)] = {
+            plane: {_D3_WIRING_SIGNATURE: _D3_WIRING_MATRIX_ELEMENT_BY_PLANE[plane]}
+        }
+    return dummy_phys_states, dummy_mag_hamiltonian
+
+
+def _d3_wiring_expected_rotation(size: int, vertex: tuple[int, int, int], plane: Plane) -> dict:
+    """
+    Return the expected pivot, CX targets and MCX controls of one plaquette's rotation.
+
+    The qubits come from _D3_WIRING_EXPECTED_REGISTERS, in the order of the
+    plaquette's bit string, and the control values are the bits of the
+    matrix element's initial state.
+    """
+    registers = _D3_WIRING_EXPECTED_REGISTERS[(size, vertex, plane)]
+    link_bitmap = IRREP_TRUNCATIONS["T2"]
+    qubits = list(registers["vertex qubits"])
+    bits = "".join(str(multiplicity) for multiplicity in _D3_WIRING_VERTEX_MULTIPLICITIES)
+    links = list(zip(registers["active link first qubits"], _D3_WIRING_INITIAL_ACTIVE_LINKS)) + registers["controls"]
+    for first_qubit, irrep in links:
+        qubits += range(first_qubit, first_qubit + _D3_WIRING_QUBITS_PER_LINK)
+        bits += link_bitmap[irrep]
+    pivot = qubits[_D3_WIRING_PIVOT_POSITION]
+    return {
+        "pivot": pivot,
+        "CX targets": [qubits[position] for position in _D3_WIRING_CX_TARGET_POSITIONS],
+        "MCX controls": {
+            qubit: bit for position, (qubit, bit) in enumerate(zip(qubits, bits))
+            if position != _D3_WIRING_PIVOT_POSITION
+        },
+        "RY angle": _D3_WIRING_MATRIX_ELEMENT_BY_PLANE[plane],
+    }
+
+
+def _d3_wiring_built_rotation(circuit: QuantumCircuit, rotation_index: int) -> dict:
+    """
+    Return the pivot, CX targets and MCX controls of one rotation in a built circuit.
+
+    The rotation is the rotation_index-th one in the circuit. Checks that its
+    gates have the structure of _D3_WIRING_GATES_PER_ROTATION, and that both
+    copies of its CX gates and of its MCX gate agree.
+    """
+    first_gate = rotation_index * _D3_WIRING_GATES_PER_ROTATION
+    gates = circuit.data[first_gate:first_gate + _D3_WIRING_GATES_PER_ROTATION]
+    n_cx = len(_D3_WIRING_CX_TARGET_POSITIONS)
+    n_core = len(_D3_WIRING_GATE_TYPES_BETWEEN_CX)
+    cx_before, core, cx_after = gates[:n_cx], gates[n_cx:n_cx + n_core], gates[n_cx + n_core:]
+    assert [gate.operation.name for gate in cx_before + cx_after] == ["cx"] * (2 * n_cx)
+    assert all(isinstance(gate.operation, gate_type) for gate, gate_type in zip(core, _D3_WIRING_GATE_TYPES_BETWEEN_CX))
+
+    def index(qubit):
+        return circuit.find_bit(qubit).index
+
+    cx_pairs = [(index(gate.qubits[0]), index(gate.qubits[1])) for gate in cx_before]
+    assert cx_pairs == [(index(gate.qubits[0]), index(gate.qubits[1])) for gate in cx_after]
+    pivot = index(core[0].qubits[0])
+    assert all(control == pivot for control, _ in cx_pairs), "Every CX should be controlled by the pivot."
+
+    def mcx_controls(gate):
+        n_ctrls = gate.operation.num_ctrl_qubits
+        # Qiskit's ctrl_state integer has the first control as its least significant bit.
+        ctrl_values = f"{gate.operation.ctrl_state:0{n_ctrls}b}"[::-1]
+        return {index(qubit): value for qubit, value in zip(gate.qubits[:-1], ctrl_values)}
+
+    first_mcx, second_mcx = core[2], core[4]
+    assert index(first_mcx.qubits[-1]) == pivot and index(second_mcx.qubits[-1]) == pivot
+    assert mcx_controls(first_mcx) == mcx_controls(second_mcx)
+    return {
+        "pivot": pivot,
+        "CX targets": [target for _, target in cx_pairs],
+        "MCX controls": mcx_controls(first_mcx),
+        "RY angle": float(core[1].operation.params[0]),
+    }
+
+
+@pytest.mark.parametrize("size, checked_vertices", [
+    (3, [(2, 2, 2)]),  # Every step in a positive direction from (2, 2, 2) wraps around.
+    (2, [(0, 0, 0), (1, 1, 1)]),  # Repeated controls are dropped.
+])
+def test_apply_magnetic_trotter_step_d_3_wiring(size: int, checked_vertices: list[tuple[int, int, int]]):
+    print(f"Checking the qubits of the d=3 magnetic Trotter step on a size-{size} periodic lattice.")
+    dummy_phys_states, dummy_mag_hamiltonian_by_state = _d3_wiring_dummy_data()
+    lattice_def = LatticeDef(3, size)
+    lattice_encoder = LatticeStateEncoder(IRREP_TRUNCATIONS["T2"], dummy_phys_states, lattice=lattice_def)
+    dummy_mag_hamiltonian = {
+        (lattice_encoder.encode_plaquette_state_as_bit_string(final_state),
+         lattice_encoder.encode_plaquette_state_as_bit_string(initial_state)): value
+        for (final_state, initial_state), value in dummy_mag_hamiltonian_by_state.items()
+    }
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager(lattice_encoder, dummy_mag_hamiltonian)
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
+    circ_mgr.apply_magnetic_trotter_step(
+        master_circuit,
+        lattice_registers,
+        optimize_circuits=False,
+        cache_mag_evol_circuit=True
+    )
+    master_circuit.assign_parameters({"dt_mag__0": 1, "coupling_g_mag__0": 1}, inplace=True)
+
+    # One rotation per plaquette, visited by vertex in lexicographic order,
+    # then by plane.
+    planes = sorted(_D3_WIRING_CONTROLS_BY_PLANE)
+    vertices = sorted(product(range(size), repeat=3))
+    assert len(master_circuit.data) == _D3_WIRING_GATES_PER_ROTATION * len(vertices) * len(planes)
+    for vertex in checked_vertices:
+        for plane_index, plane in enumerate(planes):
+            print(f"Checking the rotation of the plaquette at {vertex} in plane {plane}.")
+            rotation_index = vertices.index(vertex) * len(planes) + plane_index
+            built = _d3_wiring_built_rotation(master_circuit, rotation_index)
+            expected = _d3_wiring_expected_rotation(size, vertex, plane)
+            assert built["pivot"] == expected["pivot"]
+            assert built["CX targets"] == expected["CX targets"]
+            assert built["MCX controls"] == expected["MCX controls"]
+            # The Givens angle is -(matrix element) * dt / g^2, and the first
+            # RY gate's angle is -2/2 times the Givens angle
+            # (givens._CRXCircuit_with_MCX). With dt = g = 1 every factor is
+            # exact in floating point, so the RY angle equals the matrix
+            # element exactly and no tolerance is needed.
+            assert built["RY angle"] == expected["RY angle"]
