@@ -746,7 +746,6 @@ def test_n_plaquettes_whole_lattice():
         assert lattice.n_plaquettes == expected_n_plaquettes, f"Test failed: lattice has {lattice.n_plaquettes} unique plaquettes, expected {expected_n_plaquettes} unique plaquettes."
 
 
-# TODO there need to be tests for control link ordering in higher dimensions.
 def test_control_link_registers_have_correct_ordering():
     print("Checking that the ordering of control link registers matches expectations.\n")
 
@@ -815,6 +814,73 @@ def test_control_link_registers_have_correct_ordering():
         for control_link_register, expected_register_name in zip(result_control_link_registers_ordered, case_data["expected control link names ordered"]):
             print(f"Expected register {expected_register_name}, encountered {control_link_register.name}.")
             assert control_link_register.name == expected_register_name, "Link mismatch occured."
+
+
+def test_control_link_registers_have_correct_ordering_d_3():
+    """
+    Check the control link registers of one plaquette per plane in d=3.
+
+    The plaquettes have bottom-left vertex (0, 2, 1) on a size-3 periodic
+    lattice. There, half-links in direction -1 from x = 0 wrap around to
+    x = 2, and steps in direction +2 from y = 2 wrap around to y = 0.
+
+    The expected registers were derived by hand from these definitions:
+      - A vertex has six half-links, one for each direction +k or -k in
+        which a link leaves it. The half-link at site s in direction +k
+        is the link (s, k); in direction -k it is the link
+        (s - e_k mod 3, k).
+      - In plane (e1, e2), the vertices are v1 = v, v2 = v + e1,
+        v3 = v + e1 + e2, v4 = v + e2 (mod 3), and the half-links that
+        are active links are (+e1, +e2) at v1, (-e1, +e2) at v2,
+        (-e1, -e2) at v3 and (+e1, -e2) at v4.
+      - The controls at a vertex are its other four half-links, sorted
+        by the default FORDER [1, 2, 3, -1, -2, -3]. The controls of v1
+        come first, then those of v2, v3 and v4.
+    """
+    print("Checking that the ordering of control link registers matches expectations in d=3.\n")
+    lattice = LatticeRegisters(3, 3)
+    bottom_left_vertex = (0, 2, 1)
+    expected_control_link_names_by_plane = {
+        (1, 2): [
+            # v1 = (0, 2, 1): directions (+3, -1, -2, -3).
+            "l:((0, 2, 1), 3)", "l:((2, 2, 1), 1)", "l:((0, 1, 1), 2)", "l:((0, 2, 0), 3)",
+            # v2 = (1, 2, 1): directions (+1, +3, -2, -3).
+            "l:((1, 2, 1), 1)", "l:((1, 2, 1), 3)", "l:((1, 1, 1), 2)", "l:((1, 2, 0), 3)",
+            # v3 = (1, 0, 1): directions (+1, +2, +3, -3).
+            "l:((1, 0, 1), 1)", "l:((1, 0, 1), 2)", "l:((1, 0, 1), 3)", "l:((1, 0, 0), 3)",
+            # v4 = (0, 0, 1): directions (+2, +3, -1, -3).
+            "l:((0, 0, 1), 2)", "l:((0, 0, 1), 3)", "l:((2, 0, 1), 1)", "l:((0, 0, 0), 3)",
+        ],
+        (1, 3): [
+            # v1 = (0, 2, 1): directions (+2, -1, -2, -3).
+            "l:((0, 2, 1), 2)", "l:((2, 2, 1), 1)", "l:((0, 1, 1), 2)", "l:((0, 2, 0), 3)",
+            # v2 = (1, 2, 1): directions (+1, +2, -2, -3).
+            "l:((1, 2, 1), 1)", "l:((1, 2, 1), 2)", "l:((1, 1, 1), 2)", "l:((1, 2, 0), 3)",
+            # v3 = (1, 2, 2): directions (+1, +2, +3, -2).
+            "l:((1, 2, 2), 1)", "l:((1, 2, 2), 2)", "l:((1, 2, 2), 3)", "l:((1, 1, 2), 2)",
+            # v4 = (0, 2, 2): directions (+2, +3, -1, -2).
+            "l:((0, 2, 2), 2)", "l:((0, 2, 2), 3)", "l:((2, 2, 2), 1)", "l:((0, 1, 2), 2)",
+        ],
+        (2, 3): [
+            # v1 = (0, 2, 1): directions (+1, -1, -2, -3).
+            "l:((0, 2, 1), 1)", "l:((2, 2, 1), 1)", "l:((0, 1, 1), 2)", "l:((0, 2, 0), 3)",
+            # v2 = (0, 0, 1): directions (+1, +2, -1, -3).
+            "l:((0, 0, 1), 1)", "l:((0, 0, 1), 2)", "l:((2, 0, 1), 1)", "l:((0, 0, 0), 3)",
+            # v3 = (0, 0, 2): directions (+1, +2, +3, -1).
+            "l:((0, 0, 2), 1)", "l:((0, 0, 2), 2)", "l:((0, 0, 2), 3)", "l:((2, 0, 2), 1)",
+            # v4 = (0, 2, 2): directions (+1, +3, -1, -2).
+            "l:((0, 2, 2), 1)", "l:((0, 2, 2), 3)", "l:((2, 2, 2), 1)", "l:((0, 1, 2), 2)",
+        ],
+    }
+
+    for (e1, e2), expected_names in expected_control_link_names_by_plane.items():
+        print(f"Examining plaquette with bottom-left vertex {bottom_left_vertex} in the {(e1, e2)}-plane.")
+        result_plaquette = lattice.get_plaquettes(lattice_vector=bottom_left_vertex, e1=e1, e2=e2)
+        result_names = [register.name for register in result_plaquette.control_links_ordered]
+        assert len(result_names) == len(expected_names), "Length mismatch in number of control link registers."
+        for result_name, expected_name in zip(result_names, expected_names):
+            print(f"Expected register {expected_name}, encountered {result_name}.")
+            assert result_name == expected_name, "Link mismatch occured."
 
 
 def test_bad_forder_raises_value_error():

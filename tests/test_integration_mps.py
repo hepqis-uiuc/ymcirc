@@ -26,7 +26,12 @@ from ymcirc.measurement_results import MeasurementResults
 
 
 def _build_time_evolved_circuit(encoder, mag_ham, dt, g, n_steps=1) -> tuple[QuantumCircuit, LatticeCircuitManager, LatticeRegisters]:
-    """Helper: build a time-evolution circuit with n_steps Trotter steps."""
+    """
+    Helper: build a time-evolution circuit with n_steps Trotter steps.
+
+    Each Trotter step applies the magnetic step, then the electric step, the
+    order used by run/functions.py.
+    """
     lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
     circ_mgr = LatticeCircuitManager(encoder, mag_ham)
     circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
@@ -39,8 +44,8 @@ def _build_time_evolved_circuit(encoder, mag_ham, dt, g, n_steps=1) -> tuple[Qua
     ee_ham = electric_hamiltonian(encoder.link_bitmap)
 
     for _ in range(n_steps):
-        circ_mgr.apply_electric_trotter_step(circuit, lattice, ee_ham)
         circ_mgr.apply_magnetic_trotter_step(circuit, lattice)
+        circ_mgr.apply_electric_trotter_step(circuit, lattice, ee_ham)
 
     # Bind parameters: all dt and g to the same values.
     param_dict = {}
@@ -244,7 +249,12 @@ def test_mps_measure_one_link_at_late_time():
 # --- d=3 integration tests ---
 
 def _build_d3_time_evolved_circuit(encoder, mag_ham, dt, g, n_steps=1) -> tuple[QuantumCircuit, LatticeCircuitManager, LatticeRegisters]:
-    """Helper: build a d=3 time-evolution circuit with n_steps Trotter steps (no ancilla)."""
+    """
+    Helper: build a d=3 time-evolution circuit with n_steps Trotter steps (no ancilla).
+
+    Each Trotter step applies the magnetic step, then the electric step, the
+    order used by run/functions.py.
+    """
     lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
     circ_mgr = LatticeCircuitManager(encoder, mag_ham)
     circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
@@ -252,8 +262,8 @@ def _build_d3_time_evolved_circuit(encoder, mag_ham, dt, g, n_steps=1) -> tuple[
     ee_ham = electric_hamiltonian(encoder.link_bitmap)
 
     for _ in range(n_steps):
-        circ_mgr.apply_electric_trotter_step(circuit, lattice, ee_ham)
         circ_mgr.apply_magnetic_trotter_step(circuit, lattice)
+        circ_mgr.apply_electric_trotter_step(circuit, lattice, ee_ham)
 
     # Bind parameters: all dt and g to the same values.
     param_dict = {}
