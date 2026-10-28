@@ -461,70 +461,74 @@ def test_apply_magnetic_trotter_step_d_2_large_lattice():
     # Signature for d=2, plane=(1,2), default forder.
     _sig_2 = ((1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2))
     _plane_12 = (1, 2)
+    # The controls at each vertex are in the default FORDER [1, 2, 3, -1, -2, -3]:
+    # (-1, -2) at v1, (+1, -2) at v2, (+1, +2) at v3, (+2, -1) at v4. v3's two
+    # controls carry different irreps (THREE, ONE), so that swapping them
+    # changes the values the multi-controlled X requires of their qubits.
     dummy_mag_hamiltonian = {
-        ("0000" + "00100000" + "0000000000000010", "0010" + "01010100" + "1001101000000010"): {_plane_12: {_sig_2: 0.33}}  # One matrix element, plaquette has v, a_link, and c_link substrings.
+        ("0000" + "00100000" + "0000000010000010", "0010" + "01010100" + "1001101010000010"): {_plane_12: {_sig_2: 0.33}}  # One matrix element, plaquette has v, a_link, and c_link substrings.
     }
     dummy_phys_states = [
         (  # Matches the first encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (ONE, THREE, ONE, ONE),
-            ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, THREE))
+            ((ONE, ONE), (ONE, ONE), (THREE, ONE), (ONE, THREE))
         ),
         (  # Matches the second encoded state in the dummy magnetic hamiltonian.
             (0, 0, 1, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, ONE),
-            ((THREE, THREE_BAR), (THREE, THREE), (ONE, ONE), (ONE, THREE))
+            ((THREE, THREE_BAR), (THREE, THREE), (THREE, ONE), (ONE, THREE))
         )
     ]
     expected_master_circuit = QuantumCircuit(45)
     expected_rotation_gates = {  # Data for constructing the expected circuit.
         "angle": -0.165,
-        "MCU ctrl state": "000000000000000000000000011",  # Little endian per qiskit convention.
+        "MCU ctrl state": "000000000000000000000000111",  # Little endian per qiskit convention.
         "givens rotations": [
             {
                 "pivot": 20,
-                "CX targets": [2, 18, 19, 7, 31, 14, 28, 16],
-                "MCU ctrls": [18, 36] + [0, 15, 5, 1, 2, 19, 6, 7, 3, 4, 31, 32, 13, 14, 28, 29, 16, 17, 21, 22, 23, 24, 8, 9, 37] # on ctrls first, followed by off, with pivot skipped.
+                "CX targets": [2, 18, 19, 7, 31, 14, 16, 28],
+                "MCU ctrls": [18, 36, 21] + [0, 15, 5, 1, 2, 19, 6, 7, 3, 4, 31, 32, 13, 14, 16, 17, 28, 29, 22, 23, 24, 8, 9, 37] # on ctrls first, followed by off, with pivot skipped.
             },
             {
                 "pivot": 25,
-                "CX targets": [7, 23, 24, 12, 36, 4, 18, 21],
-                "MCU ctrls": [23, 41] + [5, 20, 10, 6, 7, 24, 11, 12, 8, 9, 36, 37, 3, 4, 18, 19, 21, 22, 26, 27, 28, 29, 13, 14, 42]
+                "CX targets": [7, 23, 24, 12, 36, 4, 21, 18],
+                "MCU ctrls": [23, 41, 26] + [5, 20, 10, 6, 7, 24, 11, 12, 8, 9, 36, 37, 3, 4, 21, 22, 18, 19, 27, 28, 29, 13, 14, 42]
             },
             {
                 "pivot": 15,
-                "CX targets": [12, 28, 29, 2, 41, 9, 23, 26],
-                "MCU ctrls": [28, 31] + [10, 25, 0, 11, 12, 29, 1, 2, 13, 14, 41, 42, 8, 9, 23, 24, 26, 27, 16, 17, 18, 19, 3, 4, 32]
+                "CX targets": [12, 28, 29, 2, 41, 9, 26, 23],
+                "MCU ctrls": [28, 31, 16] + [10, 25, 0, 11, 12, 29, 1, 2, 13, 14, 41, 42, 8, 9, 26, 27, 23, 24, 17, 18, 19, 3, 4, 32]
             },
             {
                 "pivot": 35,
-                "CX targets": [17, 33, 34, 22, 1, 29, 43, 31],
-                "MCU ctrls": [33, 6] + [15, 30, 20, 16, 17, 34, 21, 22, 18, 19, 1, 2, 28, 29, 43, 44, 31, 32, 36, 37, 38, 39, 23, 24, 7]
+                "CX targets": [17, 33, 34, 22, 1, 29, 31, 43],
+                "MCU ctrls": [33, 6, 36] + [15, 30, 20, 16, 17, 34, 21, 22, 18, 19, 1, 2, 28, 29, 31, 32, 43, 44, 37, 38, 39, 23, 24, 7]
             },
             {
                 "pivot": 40,
-                "CX targets": [22, 38, 39, 27, 6, 19, 33, 36],
-                "MCU ctrls": [38, 11] + [20, 35, 25, 21, 22, 39, 26, 27, 23, 24, 6, 7, 18, 19, 33, 34, 36, 37, 41, 42, 43, 44, 28, 29, 12]
+                "CX targets": [22, 38, 39, 27, 6, 19, 36, 33],
+                "MCU ctrls": [38, 11, 41] + [20, 35, 25, 21, 22, 39, 26, 27, 23, 24, 6, 7, 18, 19, 36, 37, 33, 34, 42, 43, 44, 28, 29, 12]
             },
             {
                 "pivot": 30,
-                "CX targets": [27, 43, 44, 17, 11, 24, 38, 41],
-                "MCU ctrls": [43, 1] + [25, 40, 15, 26, 27, 44, 16, 17, 28, 29, 11, 12, 23, 24, 38, 39, 41, 42, 31, 32, 33, 34, 18, 19, 2]
+                "CX targets": [27, 43, 44, 17, 11, 24, 41, 38],
+                "MCU ctrls": [43, 1, 31] + [25, 40, 15, 26, 27, 44, 16, 17, 28, 29, 11, 12, 23, 24, 41, 42, 38, 39, 32, 33, 34, 18, 19, 2]
             },
             {
                 "pivot": 5,
-                "CX targets": [32, 3, 4, 37, 16, 44, 13, 1],
-                "MCU ctrls": [3, 21] + [30, 0, 35, 31, 32, 4, 36, 37, 33, 34, 16, 17, 43, 44, 13, 14, 1, 2, 6, 7, 8, 9, 38, 39, 22]
+                "CX targets": [32, 3, 4, 37, 16, 44, 1, 13],
+                "MCU ctrls": [3, 21, 6] + [30, 0, 35, 31, 32, 4, 36, 37, 33, 34, 16, 17, 43, 44, 1, 2, 13, 14, 7, 8, 9, 38, 39, 22]
             },
             {
                 "pivot": 10,
-                "CX targets": [37, 8, 9, 42, 21, 34, 3, 6],
-                "MCU ctrls": [8, 26] + [35, 5, 40, 36, 37, 9, 41, 42, 38, 39, 21, 22, 33, 34, 3, 4, 6, 7, 11, 12, 13, 14, 43, 44, 27]
+                "CX targets": [37, 8, 9, 42, 21, 34, 6, 3],
+                "MCU ctrls": [8, 26, 11] + [35, 5, 40, 36, 37, 9, 41, 42, 38, 39, 21, 22, 33, 34, 6, 7, 3, 4, 12, 13, 14, 43, 44, 27]
             },
             {
                 "pivot": 0,
-                "CX targets": [42, 13, 14, 32, 26, 39, 8, 11],
-                "MCU ctrls": [13, 16] + [40, 10, 30, 41, 42, 14, 31, 32, 43, 44, 26, 27, 38, 39, 8, 9, 11, 12, 1, 2, 3, 4, 33, 34, 17]
+                "CX targets": [42, 13, 14, 32, 26, 39, 11, 8],
+                "MCU ctrls": [13, 16, 1] + [40, 10, 30, 41, 42, 14, 31, 32, 43, 44, 26, 27, 38, 39, 11, 12, 8, 9, 2, 3, 4, 33, 34, 17]
             }
         ]
     }
