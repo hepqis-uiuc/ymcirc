@@ -24,7 +24,7 @@ from __future__ import annotations
 import copy
 import logging
 from pathlib import Path
-from ymcirc.conventions import (PlaquetteState, LatticeStateEncoder, ONE, THREE, THREE_BAR, MatrixElementValue, HamiltonianData)
+from ymcirc.conventions import (PlaquetteState, LatticeStateEncoder, MatrixElementValue, HamiltonianData)
 from ymcirc._pyclebsch_adapter import box_terms
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import (
@@ -37,11 +37,10 @@ from ymcirc.givens import (
     gray_to_index,
 )
 from ymcirc._abstract.lattice_data import Plaquette, LinkUnitVectorLabel, LinkAddress, LatticeVector, Plane, Signature
-from ymcirc.utilities import _check_circuits_logically_equivalent, _flatten_circuit, eta_update, fmt_td
-from math import ceil
+from ymcirc.utilities import eta_update, fmt_td
 from qiskit import transpile
 from qiskit.circuit import Parameter, ParameterVector, QuantumCircuit, QuantumRegister, AncillaRegister, ClassicalRegister
-from qiskit.circuit.library.standard_gates import RXGate, CXGate
+from qiskit.circuit.library.standard_gates import CXGate
 from qiskit import qasm3, qpy
 from qiskit.transpiler import PassManager
 from qiskit.transpiler.passes import InverseCancellation

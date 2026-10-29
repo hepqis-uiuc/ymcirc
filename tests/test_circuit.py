@@ -2,7 +2,7 @@ from itertools import product
 from pathlib import Path
 import pytest
 import numpy as np
-from ymcirc._abstract import LatticeDef, Plaquette
+from ymcirc._abstract import LatticeDef
 from ymcirc._abstract.lattice_data import Plane
 from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.conventions import LatticeStateEncoder, ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT, physical_plaquette_states
@@ -10,9 +10,8 @@ from ymcirc._pyclebsch_adapter import box_terms
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.utilities import _flatten_circuit, _check_circuits_logically_equivalent
 from qiskit.circuit import Parameter, QuantumCircuit, QuantumRegister, AncillaRegister
-from qiskit.circuit.library.standard_gates import RXGate, RZGate, RYGate, MCXGate
+from qiskit.circuit.library.standard_gates import RZGate, RYGate, MCXGate
 from qiskit.circuit.exceptions import CircuitError
-from qiskit.quantum_info import Operator, Statevector, DensityMatrix, partial_trace
 
 # Link bitmaps for tests with made-up plaquette states: the codes ymcirc
 # registers for the link irreps of the T1 truncation (1, 3, 3bar), and of T2

@@ -10,14 +10,11 @@ two multi-qubit states into each other.
 from __future__ import annotations
 from dataclasses import dataclass
 import logging
-from qiskit import QuantumCircuit, QuantumRegister, AncillaRegister
+from qiskit import QuantumCircuit, AncillaRegister
 from qiskit.circuit import ControlledGate, Parameter, ParameterExpression
 from qiskit.circuit.library.standard_gates import RXGate, RZGate, RYGate
-from qiskit.quantum_info import Operator, Statevector
-from random import random
 from math import isclose
 import numpy as np
-import copy
 
 # Set up module-specific logger
 logger = logging.getLogger(__name__)

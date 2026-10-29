@@ -18,16 +18,15 @@ from matplotlib.figure import Figure
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from qiskit import transpile, qpy
+from qiskit import transpile
 from qiskit_aer import AerSimulator
 from qiskit.circuit import QuantumCircuit
-from qiskit.qasm3 import dumps, load
 from typing import Any
 from ymcirc._abstract import LatticeDef
 from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.conventions import (
     LatticeStateEncoder, physical_plaquette_states)
-from ymcirc.electric_helper import convert_bitstring_to_evalue, electric_hamiltonian
+from ymcirc.electric_helper import electric_hamiltonian
 from ymcirc.lattice_registers import LatticeRegisters
 
 

@@ -6,8 +6,7 @@ from qiskit.circuit import QuantumRegister  # type: ignore
 from ymcirc.conventions import IrrepBitmap, LatticeStateEncoder, VertexMultiplicityBitmap
 from ymcirc._abstract.lattice_data import (
     LatticeData, Plaquette, LatticeVector, LatticeDef,
-    LinkUnitVectorLabel, LinkAddress, DimensionalitySpecifier,
-    VERTICAL_DIR_LABEL, VERTICAL_NUM_VERTICES_D_THREE_HALVES
+    LinkUnitVectorLabel, LinkAddress, DimensionalitySpecifier
 )
 
 # Set up module-specific logger
