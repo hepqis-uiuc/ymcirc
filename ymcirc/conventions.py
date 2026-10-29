@@ -567,9 +567,9 @@ class LatticeStateEncoder:
         in a bit string instead.
 
         Finally, if the argument override_n_c_links_validation is True, then no validation on the total
-        number of control links will be performed. This is useful (for example) when working on small
-        lattices with periodic boundary conditions, where the same physical control link can be
-        connected to more than one vertex in a plaquette.
+        number of control links will be performed. This is useful (for example) for a plaquette state
+        whose duplicate controls have been removed: on a periodic axis of length 2, one link can be a
+        control link at two vertices of a plaquette.
         """
         if len(plaquette) != 3:
             raise ValueError(

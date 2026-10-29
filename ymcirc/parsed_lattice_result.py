@@ -202,7 +202,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
                        get_bit_string: bool = False,
                        ) -> Plaquette[MeasurementData] | list[Plaquette[MeasurementData]]:
         """
-        Return the list of all "positive" Plaquettes associated with the vertex lattice_vector.
+        Return the list of all "positive" Plaquettes associated with the vertex lattice_vector (a single Plaquette in d=3/2 and d=2).
 
         As with get_vertex and get_link methods, get_bit_string controls whether to
         return underlying bit string data for each degree of freedom, or the decoded
@@ -213,9 +213,8 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         Conventionally, the "lower" dimension labels the first element of the tuples
         representing planes, and the plaquettes are sorted.
 
-        Examples:
-          - d = 3 has planes labeled by (1, 2), (1, 3), and (2, 3).
-          - d = 4 has planes labeled by (1, 2), (1, 3), (1, 4), (2, 3), (2, 4), and (3, 4).
+        In d=3/2 and d=2 there is one plane, (1, 2); in d=3 there are three,
+        (1, 2), (1, 3) and (2, 3).
 
         If a particular plaquette is desired, this can be specified by either providing the
         link unit vector directions e1 and e2 to defining a plane. Sign is ignored when

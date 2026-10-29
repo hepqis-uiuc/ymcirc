@@ -129,7 +129,7 @@ def test_create_blank_full_lattice_circuit_has_promised_register_order():
         'l:((2, 0), 1)', 'l:((2, 0), 2)',
         'l:((2, 1), 1)',
     ]
-    # Registers for a lattice ith size 2 (small enough for the same link to control multiple vertices in a single plaquette).
+    # Registers for a lattice with size 2 (small enough for the same link to control multiple vertices in a single plaquette).
     expected_register_order_2d_small_lattice = [
         'v:(0, 0)', 'l:((0, 0), 1)', 'l:((0, 0), 2)',
         'v:(0, 1)', 'l:((0, 1), 1)', 'l:((0, 1), 2)',
@@ -362,12 +362,12 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice():
             (ONE, THREE, ONE, THREE_BAR),
             ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
-        (  # Matches the second encoded state in the dummy magnetic hamiltonian.
+        (  # Matches the second encoded state in the inconsistent magnetic hamiltonian.
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
             ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
         ),
-        (  # Matches the third encoded state in the dummy magnetic hamiltonian.
+        (  # Matches the second encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
             ((THREE,), (THREE,), (ONE,), (ONE,))
@@ -639,12 +639,12 @@ def test_apply_magnetic_trotter_step_d_2_small_lattice():
         ("0000" + "00100000" + "0000000000000010", "0010" + "01010100" + "1001101000000010"): {_plane_12: {_sig_2: 0.33}}
     }
     dummy_phys_states: list[PlaquetteState] = [
-        (  # Matches the first encoded state in the dummy magnetic hamiltonian that isn't discarded.
+        (  # Matches the first encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (ONE, THREE, ONE, ONE),
             ((ONE, ONE), (ONE, ONE), (THREE, ONE), (ONE, THREE))
         ),
-        (  # Matches the second encoded state in the dummy magnetic hamiltonian that isn't discarded.
+        (  # Matches the second encoded state in the dummy magnetic hamiltonian.
             (0, 0, 1, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, ONE),
             ((THREE, THREE_BAR), (THREE, THREE), (ONE, THREE), (THREE_BAR, ONE))
@@ -926,12 +926,12 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice_with_ancillas():
             (ONE, THREE, ONE, THREE_BAR),
             ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
-        (  # Matches the second encoded state in the dummy magnetic hamiltonian.
+        (  # Matches the second encoded state in the inconsistent magnetic hamiltonian.
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
             ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
         ),
-        (  # Matches the third encoded state in the dummy magnetic hamiltonian.
+        (  # Matches the second encoded state in the dummy magnetic hamiltonian.
             (0, 0, 0, 0),
             (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
             ((THREE,), (THREE,), (ONE,), (ONE,))
@@ -1789,7 +1789,7 @@ def test_signature_nonperiodic():
     pass
 
 
-# --- d=3 per-plane filtering unit tests ---
+# --- d=3 unit tests of duplicate controls, plane by plane ---
 
 def _make_d3_size2_circ_mgr():
     """Helper: build a LatticeCircuitManager for d=3 B3 size=2, periodic, where every axis has length 2."""
@@ -1804,7 +1804,7 @@ def _make_d3_size2_circ_mgr():
 _SIG_3_DEFAULT_FORDER = ((1, 2, 3, -1, -2, -3),) * 4
 
 
-def test_per_plane_consistency_check_d3():
+def test_disagreeing_duplicate_controls_detected_d3():
     """For d=3 size=2, a state whose duplicate controls disagree in one plane is refused there."""
     circ_mgr, encoder = _make_d3_size2_circ_mgr()
     duplicate_control_indices = encoder.lattice_def._duplicate_control_indices((1, 2), _SIG_3_DEFAULT_FORDER)
@@ -1827,7 +1827,7 @@ def test_per_plane_consistency_check_d3():
         encoder.encode_plaquette_state_as_bit_string(modified_ps), duplicate_control_indices) is None
 
 
-def test_per_plane_control_trimming_d3():
+def test_duplicate_control_indices_per_vertex_d3():
     """For d=3 size=2, removing duplicates leaves 12 controls per plaquette (4+3+3+2), in every plane."""
     _, encoder = _make_d3_size2_circ_mgr()
     for plane in [(1, 2), (1, 3), (2, 3)]:
@@ -1837,7 +1837,7 @@ def test_per_plane_control_trimming_d3():
         assert removed_per_vertex == [0, 1, 1, 2], f"Plane {plane}."
 
 
-def test_per_plane_strip_redundant_controls_d3():
+def test_pruning_states_lose_duplicate_controls_d3():
     """For d=3 size=2, the states for control pruning lose their 4 duplicate controls in every plane."""
     circ_mgr, encoder = _make_d3_size2_circ_mgr()
     physical_state_bitstrings = {
@@ -1874,7 +1874,7 @@ def _make_d3_encoder_and_circ_mgr(size, threshold=0.3):
 
 @pytest.mark.slow
 def test_d3_B3_size3_magnetic_trotter_step():
-    """d=3 B3 size=3: construct circuit and apply one magnetic Trotter step (no small-lattice logic)."""
+    """d=3 B3 size=3: construct circuit and apply one magnetic Trotter step (no duplicate controls)."""
     encoder, circ_mgr = _make_d3_encoder_and_circ_mgr(size=3)
     lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
     circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
@@ -1996,10 +1996,11 @@ def test_d3_B3_size2_magnetic_trotter_step():
 # irreps as different bit strings, so swapping two controls of one vertex
 # changes the values the multi-controlled X requires of their qubits. On
 # size 2 a control and the earlier control it repeats (step 3) are the same
-# link, so they must carry the same irrep, or the matrix
-# element is discarded, so the irreps are assigned by link: the link shared
-# by v1 and v2 (v1's -e1) is THREE, by v1 and v4 (v1's -e2) THREE_BAR, by v2
-# and v3 (v2's -e2) SIX, by v3 and v4 (v3's +e1) SIX_BAR; every out-of-plane
+# link and must carry the same irrep; otherwise the LatticeCircuitManager
+# constructor raises a ValueError for the matrix element. The irreps are
+# therefore assigned by link: the link shared by v1 and v2 (v1's -e1) is
+# THREE, by v1 and v4 (v1's -e2) THREE_BAR, by v2 and v3 (v2's -e2) SIX, by
+# v3 and v4 (v3's +e1) SIX_BAR; every out-of-plane
 # control is EIGHT in the positive direction and ONE in the negative
 # direction. The two states of each matrix element differ only in their
 # active links.

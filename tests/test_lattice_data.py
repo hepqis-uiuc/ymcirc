@@ -17,16 +17,19 @@ _NON_DEFAULT_FORDER = [-1, -2, 1, 2, 3, -3]
 
 # (dimensions, size) of every lattice shape the tests below check: the
 # periodic lattices ymcirc supported before it took its geometry from
-# pyclebsch (d=3/2, d=2 and d=3 at sizes 2 and 3), and rectangular ones.
+# pyclebsch (d=3/2, d=2 and d=3 at sizes 2 and 3), and rectangular ones,
+# with and without an axis of length 2.
 _PERIODIC_LATTICES = [
     (1.5, 2),
     (1.5, 3),
     (2, 2),
     (2, 3),
     (2, (4, 3)),
+    (2, (3, 2)),
     (3, 2),
     (3, 3),
     (3, (3, 3, 4)),
+    (3, (3, 3, 2)),
 ]
 
 
@@ -201,16 +204,30 @@ def test_size_recreates_lattice(dimensions, size, expected):
     assert LatticeDef(lattice.dim, lattice.size) == lattice
 
 
-def test_rectangular_lattice_counts():
-    """Links and plaquettes of d=2 4x3 and d=3 3x3x4 periodic lattices."""
-    assert (LatticeDef(2, (4, 3)).n_links, LatticeDef(2, (4, 3)).n_plaquettes) == (
-        24,
-        12,
+@pytest.mark.parametrize(
+    ("dimensions", "size", "expected_n_links", "expected_n_plaquettes"),
+    [
+        (2, (4, 3), 24, 12),
+        (2, (3, 2), 12, 6),
+        (3, (3, 3, 4), 108, 108),
+        (3, (3, 3, 2), 54, 54),
+    ],
+)
+def test_rectangular_lattice_counts(
+    dimensions, size, expected_n_links, expected_n_plaquettes
+):
+    """
+    Links and plaquettes of rectangular periodic lattices.
+
+    A periodic lattice has d links and d(d-1)/2 plaquettes per site, also
+    along an axis of length 2, where the two links joining a pair of sites
+    are distinct.
+    """
+    lattice = LatticeDef(dimensions, size)
+    assert (lattice.n_links, lattice.n_plaquettes) == (
+        expected_n_links,
+        expected_n_plaquettes,
     )
-    assert (
-        LatticeDef(3, (3, 3, 4)).n_links,
-        LatticeDef(3, (3, 3, 4)).n_plaquettes,
-    ) == (108, 108)
 
 
 def test_more_than_three_dimensions_not_supported():

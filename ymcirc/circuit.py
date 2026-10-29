@@ -146,17 +146,18 @@ class LatticeCircuitManager:
                 plane_data = plane_keyed_hamiltonian_data.setdefault(plane, {})
                 for signature, value in sig_dict.items():
                     duplicate_control_indices = lattice_def._duplicate_control_indices(plane, signature)
-                    key = (
-                        self._bit_string_without_duplicate_controls(final_bs, duplicate_control_indices),
-                        self._bit_string_without_duplicate_controls(initial_bs, duplicate_control_indices),
-                    )
-                    if key[0] is None or key[1] is None:
+                    final_bs_without_duplicates = self._bit_string_without_duplicate_controls(
+                        final_bs, duplicate_control_indices)
+                    initial_bs_without_duplicates = self._bit_string_without_duplicate_controls(
+                        initial_bs, duplicate_control_indices)
+                    if final_bs_without_duplicates is None or initial_bs_without_duplicates is None:
                         raise ValueError(
                             f"The matrix element between {final_bs} and {initial_bs} in plane {plane}, "
                             f"signature {signature}, has a control link whose link state differs from "
                             "that of another control link of the plaquette that is the same link."
                         )
-                    plane_data.setdefault(cast(tuple[str, str], key), {})[signature] = value
+                    key = (final_bs_without_duplicates, initial_bs_without_duplicates)
+                    plane_data.setdefault(key, {})[signature] = value
         self._mag_hamiltonian = plane_keyed_hamiltonian_data
 
     @classmethod
@@ -860,13 +861,13 @@ class LatticeCircuitManager:
         """
         if not duplicate_control_indices:
             return physical_states_for_control_pruning
-        without_duplicates = {
+        bit_strings_or_none = (
             self._bit_string_without_duplicate_controls(plaquette_string, duplicate_control_indices)
             for plaquette_string in physical_states_for_control_pruning
-        }
-        without_duplicates.discard(None)
+        )
+        without_duplicates = {bit_string for bit_string in bit_strings_or_none if bit_string is not None}
         logger.info(f"{len(without_duplicates)} plaquette states for control pruning without duplicate controls.")
-        return cast(set[str], without_duplicates) or None
+        return without_duplicates or None
 
     @staticmethod
     def _resolve_hamiltonian_for_plaquette(
@@ -1026,6 +1027,8 @@ class LatticeCircuitManager:
                   if (vertex_idx, control_idx) not in duplicate_control_indices)
             for vertex_idx, vertex_controls in enumerate(controls)
         )
+        # controls_without_duplicates has one tuple per vertex, four in all,
+        # as controls does.
         return self._encoder.encode_plaquette_state_as_bit_string(
             cast(PlaquetteState, (vertices, active_links, controls_without_duplicates)),
             override_n_c_links_validation=True)
