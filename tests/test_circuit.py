@@ -1699,7 +1699,7 @@ def test_forder_aware_duplicate_control_removal_d_2():
 def test_resolve_hamiltonian_for_plaquette():
     """Test _resolve_hamiltonian_for_plaquette filters by plane and signature.
 
-    Uses the per-plane-first ResolvedHamiltonianData format:
+    Uses the per-plane-first PlaneKeyedHamiltonianData format:
         plane -> (bs1, bs2) -> signature -> float
     """
     plane_a = (1, 2)
@@ -1707,7 +1707,7 @@ def test_resolve_hamiltonian_for_plaquette():
     sig_a = ((-1,), (1,), (1,), (-1,))
     sig_b = ((1,), (-1,), (-1,), (1,))
 
-    # ResolvedHamiltonianData: per-plane-first format.
+    # PlaneKeyedHamiltonianData: per-plane-first format.
     hamiltonian = {
         plane_a: {
             ("00", "11"): {sig_a: 0.5, sig_b: 0.3},
