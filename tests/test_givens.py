@@ -350,7 +350,7 @@ def test_MCRX_with_ancillas_fails_with_less_ancillas():
     actual_ctrls, actual_ctrl_state = _compute_ctrls_and_state_for_givens_MCRX(
         bs1, bs2, target=control_qubit
     )
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         _CRXCircuit_with_MCX([actual_ctrl_state, actual_ctrls], angle, control_qubit, 6, num_ancillas)
 
 
@@ -375,7 +375,7 @@ def test_compute_LP_family_fails_on_bad_input():
     bs2 = "00"
     print(f"Checking that computing LP family of {bs1} and {bs2} raises IndexError.")
 
-    with pytest.raises(IndexError) as e_info:
+    with pytest.raises(IndexError):
         compute_LP_family(bs1, bs2)
 
 
@@ -385,7 +385,7 @@ def test_compute_LP_family_fails_for_non_bitstrings():
     bs2 = "1011"
     print(f"Checking that expected_LP_family({bs1}, {bs2}) raises a ValueError.")
 
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         compute_LP_family(bs1, bs2)
 
 
@@ -556,7 +556,7 @@ def test_eliminate_phys_states_that_differ_from_rep_at_Q_idx():
 def test_control_fusion_fails_for_inconsistent_lp_bin():
     bin_value = "10110101"
     bitstring_list = [("0000", "1111", 1.0)]
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         fuse_controls(bin_value, bitstring_list)
 
 
@@ -741,12 +741,12 @@ def test_LPOperator_works():
         assert LPOperator(val).value == val
 
     print(f"Check that {incorrect_val} causes a ValueError.")
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         LPOperator(incorrect_val)
 
     print("Check that LPOperator is immutable.")
     lp_op = LPOperator("L")
-    with pytest.raises(FrozenInstanceError) as e_info:
+    with pytest.raises(FrozenInstanceError):
         lp_op.value = "P"
 
 
@@ -836,11 +836,11 @@ def test_LPFamily_works():
     # Test that creation with bad strings fails.
     bad_lp_family = ("L", "Q")
     print(f"Checking {bad_lp_family} causes ValueError.")
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         LPFamily(bad_lp_family)
 
     # Test immutability.
     print("Checking that LPFamily instances are immutable.")
     lp_fam = LPFamily(lp_family_str)
-    with pytest.raises(FrozenInstanceError) as e_info:
+    with pytest.raises(FrozenInstanceError):
         lp_fam.value = LPFamily(("P", "L"))

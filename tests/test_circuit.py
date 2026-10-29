@@ -945,7 +945,6 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice_with_ancillas():
         pivot_qubit = [rotation_data["pivot"]]
         angle = expected_rotation_gates["angle"]
         ctrls = rotation_data["MCU ctrls"]
-        num_ctrls = len(rotation_data["MCU ctrls"])
         ctrl_state = expected_rotation_gates["MCU ctrl state"]
         ancilla_register = AncillaRegister(9)
 
@@ -1046,7 +1045,6 @@ def test_num_ancillas_setter_works_nonnegative_ints():
         _T1_LINK_BITMAP,
         dummy_phys_states,
         lattice=lattice_def)
-    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
     circ_mgr = LatticeCircuitManager(lattice_encoder,
                                      dummy_mag_hamiltonian)
 
@@ -1090,11 +1088,10 @@ def test_num_ancillas_setter_fails_for_non_int():
         _T1_LINK_BITMAP,
         dummy_phys_states,
         lattice=lattice_def)
-    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
     circ_mgr = LatticeCircuitManager(lattice_encoder,
                                      dummy_mag_hamiltonian)
 
-    with pytest.raises(TypeError) as e_info:
+    with pytest.raises(TypeError):
         circ_mgr.num_ancillas = 1.0
 
 
@@ -1128,11 +1125,10 @@ def test_num_ancillas_setter_fails_for_negative_int():
         _T1_LINK_BITMAP,
         dummy_phys_states,
         lattice=lattice_def)
-    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
     circ_mgr = LatticeCircuitManager(lattice_encoder,
                                      dummy_mag_hamiltonian)
 
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         circ_mgr.num_ancillas = -1
 
 
@@ -1166,7 +1162,6 @@ def test_adding_ancilla_register_fails_if_already_exists():
         _T1_LINK_BITMAP,
         dummy_phys_states,
         lattice=lattice_def)
-    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
     circ_mgr = LatticeCircuitManager(lattice_encoder,
                                      dummy_mag_hamiltonian)
 
@@ -1180,7 +1175,7 @@ def test_adding_ancilla_register_fails_if_already_exists():
     assert len(master_circuit.ancillas) == 10
 
     # Adding an ancillas again should fail.
-    with pytest.raises(CircuitError) as e_info:
+    with pytest.raises(CircuitError):
         circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit)
 
 def test_apply_mag_trotter_step_independent_params_for_givens_rotations():
@@ -1420,14 +1415,14 @@ class TestCircuitSaveAndLoad:
         raise AssertionError("Test not yet written.")
 
     def test_saving_unknown_filetype_raises_value_error(self, sample_circuit_no_ancillas, tmp_path):
-        with pytest.raises(ValueError) as e_info:
+        with pytest.raises(ValueError):
             LatticeCircuitManager.save_circuit(sample_circuit_no_ancillas, tmp_path / "bad_filetype.txt")
 
     def test_loading_unknown_filetype_raises_value_error(self, tmp_path):
         test_file_bad_filetype = tmp_path / Path("bad_filetype.txt")
         with open(test_file_bad_filetype, "w") as file:
             file.write("Test file.")
-        with pytest.raises(ValueError) as e_info:
+        with pytest.raises(ValueError):
             LatticeCircuitManager.load_circuit(test_file_bad_filetype)
 
     def test_save_and_reload_circuit_with_parameter_qasm(self, sample_circuit_with_parameter_and_parameter_expression, tmp_path):

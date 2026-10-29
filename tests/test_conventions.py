@@ -189,7 +189,7 @@ def test_lattice_encoder_type_error_for_bad_lattice_arg():
         )
     ]
     bad_lattice_arg = None
-    with pytest.raises(TypeError) as e_info:
+    with pytest.raises(TypeError):
         LatticeStateEncoder(
             link_bitmap=link_bitmap,
             physical_plaquette_states=physical_states,
@@ -226,7 +226,7 @@ def test_lattice_encoder_fails_if_plaquette_states_have_wrong_number_of_controls
     lattice_d_2 = LatticeDef(2, 3)
     assert lattice_d_2.n_control_links_per_plaquette == 8
 
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         LatticeStateEncoder(link_bitmap, physical_states, lattice_d_2)
 
 
@@ -675,7 +675,7 @@ def test_lattice_encoder_fails_on_bad_creation_args():
         )
     ]
     lattice_d_3_2 = LatticeDef(1.5, 2)
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         LatticeStateEncoder(good_link_bitmap, physical_states_inconsistent_control_lengths, lattice_d_3_2)
 
 
@@ -697,7 +697,7 @@ def test_lattice_encoder_fails_on_bad_creation_args():
             ((ONE,), (ONE,), (ONE,), (ONE,))
         )
     ]
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         LatticeStateEncoder(
             link_bitmap=good_link_bitmap,
             physical_plaquette_states=non_unique_physical_states,
@@ -727,7 +727,7 @@ def test_lattice_encoder_fails_on_bad_creation_args():
             ((ONE,), (ONE,), (ONE,), (ONE,))
         )
     ]
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         LatticeStateEncoder(non_unique_link_bitmap, good_physical_states, lattice_d_3_2)
 
     print("Checking that a link bitmap with bit strings of different lengths causes ValueError.")
@@ -736,7 +736,7 @@ def test_lattice_encoder_fails_on_bad_creation_args():
         THREE: "10",
         THREE_BAR: "010"
     }
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         LatticeStateEncoder(link_bitmap_different_string_lengths, good_physical_states, lattice_d_3_2)
 
 
@@ -842,7 +842,7 @@ def test_encoding_malformed_plaquette_fails():
         ((ONE,), (ONE,), (ONE,), (ONE,)),
         ((ONE,), (ONE,), (ONE,), (SIX,))
     )
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_wrong_length)
 
     print("Checking that encoding a plaquette with the wrong data types for vertices, active links, or control links fails.")
@@ -867,7 +867,7 @@ def test_encoding_malformed_plaquette_fails():
         "Control link test": plaquette_bad_c_link_data
     }
     for test_name, test_data in cases.items():
-        with pytest.raises(ValueError) as e_info:
+        with pytest.raises(ValueError):
             lattice_encoder.encode_plaquette_state_as_bit_string(test_data)
 
     print("Checking that encoding a plaquette which has too many vertices, active links, or control links fails.")
@@ -892,7 +892,7 @@ def test_encoding_malformed_plaquette_fails():
         "Control link test": plaquette_too_many_c_links
     }
     for test_name, test_data in cases.items():
-        with pytest.raises(ValueError) as e_info:
+        with pytest.raises(ValueError):
             lattice_encoder.encode_plaquette_state_as_bit_string(test_data)
 
 
@@ -1181,15 +1181,15 @@ def test_decoding_fails_when_len_bit_string_doesnt_match_bitmaps():
     assert len(bad_length_plaquette_bit_string) != expected_plaquette_bit_string_length
 
     print(f"Checking link bit string {bad_length_link_bit_string} fails to decode.")
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         lattice_encoder.decode_bit_string_to_link_state(bad_length_link_bit_string)
 
     print(f"Checking vertex bit string {bad_length_vertex_bit_string} fails to decode.")
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         lattice_encoder.decode_bit_string_to_vertex_state(bad_length_vertex_bit_string)
 
     print(f"Checking plaquette bit string {bad_length_plaquette_bit_string} fails to decode.")
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         lattice_encoder.decode_bit_string_to_plaquette_state(bad_length_plaquette_bit_string)
 
 

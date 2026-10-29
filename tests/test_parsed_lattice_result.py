@@ -536,7 +536,7 @@ def test_global_bit_string_too_short_for_lattice_size(
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
     global_meas_bit_string = "10"  # This is too short.
 
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         ParsedLatticeResult(
         dimensions=1.5,
         size=4,
@@ -556,7 +556,7 @@ def test_inconsistent_dim_arg(
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
     global_meas_bit_string = "110001101000"
 
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         ParsedLatticeResult(
             dimensions=2,
             size=2,
@@ -570,7 +570,7 @@ def test_inconsistent_dim_arg(
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
     global_meas_bit_string = "1100011010001100"
 
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         ParsedLatticeResult(
             dimensions=1.5,
             size=2,
@@ -589,7 +589,7 @@ def test_inconsistent_size_arg(
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
     global_meas_bit_string = "110001101000000011110000"
 
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         ParsedLatticeResult(
             dimensions=1.5,
             size=4,
@@ -603,7 +603,7 @@ def test_inconsistent_size_arg(
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
     global_meas_bit_string = "110001101000"
 
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         ParsedLatticeResult(
             dimensions=1.5,
             size=2,
@@ -624,7 +624,7 @@ def test_inconsistent_boundary_conds_arg(
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
     global_meas_bit_string = "110001101000"
 
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         ParsedLatticeResult(
             dimensions=1.5,
             size=2,
@@ -638,7 +638,7 @@ def test_inconsistent_boundary_conds_arg(
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
     global_meas_bit_string = "110001101000"
 
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         ParsedLatticeResult(
             dimensions=1.5,
             size=2,
@@ -658,7 +658,7 @@ def test_global_bit_string_has_bad_chars(
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
     global_meas_bit_string = "1100011a1000"
 
-    with pytest.raises(TypeError) as e_info:
+    with pytest.raises(TypeError):
         ParsedLatticeResult(
             dimensions=1.5,
             size=2,

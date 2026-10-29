@@ -298,7 +298,6 @@ class LatticeCircuitManager:
                 f"<{n_entries} Hamiltonian entries across {n_planes} plane(s)>)")
 
     def __str__(self):
-        class_name = type(self).__name__
         return f"Circuit manager for lattices of type {self._encoder.lattice_def}.\nAncillas: {self.num_ancillas}\nLink bitmap:{self._encoder.link_bitmap}\nVertex bitmap: {self._encoder.vertex_bitmap}"
 
     @staticmethod

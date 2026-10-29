@@ -216,7 +216,7 @@ def test_convert_bitstring_to_evalue_raise_error_on_unphysical_links():
     vertex_three_bar = "0" + "01"
     global_lattice_state_bit_string = vertex_one_unphysical + vertex_three + vertex_one_one + vertex_three_bar
 
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         convert_bitstring_to_evalue(global_lattice_state_bit_string, lattice_encoder, error_on_unphysical_links=True)
 
 
