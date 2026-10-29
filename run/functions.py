@@ -34,7 +34,7 @@ def configure_script_options(
         dimensionality_string: str,
         truncation_mode: str,
         cutoff: int,
-        lattice_size: int,
+        lattice_size: int | tuple[int, ...],
         sim_times: np.ndarray | list,
         n_trotter_steps: int,
         n_shots: int | None,
@@ -83,9 +83,10 @@ def configure_script_options(
               the physical plaquette states and magnetic matrix elements for it,
               and validates it.
         - lattice_size:
-              For 2 or more dimensions, the number of vertices in
-              each direction for a (hypercubic) lattice. For d=3/2, how many
-              vertices long the chain is.
+              The size argument of LatticeDef. For d=2 and d=3, either one
+              int, the number of vertices along every direction, or a tuple
+              of the number of vertices along each direction, such as (4, 3).
+              For d=3/2, one int: how many vertices long the chain is.
         - sim_times:
               A list of durations to generate simulation circuits for.
               n_trotter_steps will be used for each one.
@@ -460,7 +461,7 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
             if big_endian_state not in plr_cache:
                 plr_cache[big_endian_state] = ParsedLatticeResult(
                     lattice_encoder.lattice_def.dim,
-                    lattice_encoder.lattice_def.shape[0],
+                    lattice_encoder.lattice_def.size,
                     big_endian_state,
                     lattice_encoder,
                     lattice_encoder.lattice_def.periodic_boundary_conds,

@@ -5,7 +5,7 @@ import logging
 import warnings
 from ymcirc._abstract.lattice_data import (
     LatticeData, LatticeDef, Plaquette, DimensionalitySpecifier, LatticeVector,
-    LinkUnitVectorLabel, LinkAddress)
+    LinkAddress)
 from pyclebsch.matrix_elements.lattice_data import SiteMultiplicityIndex
 from pyclebsch.su_n_operators import IrrepWeight
 from ymcirc.conventions import LatticeStateEncoder
@@ -106,8 +106,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
 
     def __repr__(self):
         class_name = type(self).__name__
-        size = self.shape[0]
-        return f"{class_name}(dimensions={self.dim}, size={size}, global_lattice_measurement_bit_string={self.global_lattice_measurement_bit_string}, lattice_encoder={self._encoder!r}, periodic_boundary_conds={self.periodic_boundary_conds})"
+        return f"{class_name}(dimensions={self.dim}, size={self.size}, global_lattice_measurement_bit_string={self.global_lattice_measurement_bit_string}, lattice_encoder={self._encoder!r}, periodic_boundary_conds={self.periodic_boundary_conds})"
 
     def __str__(self):
         link_measurements = {link_address: self.get_link(link_address) for link_address in self.link_addresses}
@@ -198,12 +197,12 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
 
     def get_plaquettes(self,
                        lattice_vector: LatticeVector,
-                       e1: LinkUnitVectorLabel | None = None,
-                       e2: LinkUnitVectorLabel | None = None,
+                       e1: int | None = None,
+                       e2: int | None = None,
                        get_bit_string: bool = False,
                        ) -> Plaquette[MeasurementData] | list[Plaquette[MeasurementData]]:
         """
-        Return the list of all "positive" Plaquettes associated with the vertex lattice_vector.
+        Return the list of all "positive" Plaquettes associated with the vertex lattice_vector (a single Plaquette in d=3/2 and d=2).
 
         As with get_vertex and get_link methods, get_bit_string controls whether to
         return underlying bit string data for each degree of freedom, or the decoded
@@ -214,9 +213,8 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         Conventionally, the "lower" dimension labels the first element of the tuples
         representing planes, and the plaquettes are sorted.
 
-        Examples:
-          - d = 3 has planes labeled by (1, 2), (1, 3), and (2, 3).
-          - d = 4 has planes labeled by (1, 2), (1, 3), (1, 4), (2, 3), (2, 4), and (3, 4).
+        In d=3/2 and d=2 there is one plane, (1, 2); in d=3 there are three,
+        (1, 2), (1, 3) and (2, 3).
 
         If a particular plaquette is desired, this can be specified by either providing the
         link unit vector directions e1 and e2 to defining a plane. Sign is ignored when
@@ -265,9 +263,8 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         entries for measured degrees of freedom.
         """
         lattice_def = encoder.lattice_def
-        size = lattice_def.shape[0]
         instance = cls.__new__(cls)
-        LatticeDef.__init__(instance, lattice_def.dim, size, lattice_def.periodic_boundary_conds, forder=lattice_def.forder)
+        LatticeDef.__init__(instance, lattice_def.dim, lattice_def.size, lattice_def.periodic_boundary_conds, forder=lattice_def.forder)
 
         instance._decoded_links = {}
         instance._decoded_vertices = {}
@@ -325,7 +322,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
 
     @staticmethod
     def from_partial_measurement(
-        measurements: list[tuple[LatticeVector, str] | tuple[LinkAddress, str] | tuple[tuple[LinkAddress, LinkUnitVectorLabel, LinkUnitVectorLabel], str]],
+        measurements: list[tuple[LatticeVector, str] | tuple[LinkAddress, str] | tuple[tuple[LatticeVector, int, int], str]],
         encoder: LatticeStateEncoder,
     ) -> ParsedLatticeResult:
         """

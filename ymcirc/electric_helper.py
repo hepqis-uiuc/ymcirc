@@ -78,16 +78,9 @@ def convert_bitstring_to_evalue(
     them and assign 0.0 energy. This can by logged with warn_on_unphysical_links,
     or a ValueError can be raised with error_on_unphysical_links.
     """
-    # Hacky way to infer size from shape.
-    # Don't do this long term because it breaks for non-hypercubic lattice
-    # when d >= 2.
-    is_lattice_hypercubic = len(set(lattice_encoder.lattice_def.shape)) == 1
-    if lattice_encoder.lattice_def.dim >= 2 and is_lattice_hypercubic is False:
-        raise NotImplementedError("Electric energy computation for non-hypercubic lattices with dim >= 2 not yet implemented.")
-    lattice_size = lattice_encoder.lattice_def.shape[0]
     parsed_global_lattice_bit_string = ParsedLatticeResult(
         dimensions=lattice_encoder.lattice_def.dim,
-        size=lattice_size,
+        size=lattice_encoder.lattice_def.size,
         global_lattice_measurement_bit_string=global_lattice_bit_string,
         lattice_encoder=lattice_encoder)
 

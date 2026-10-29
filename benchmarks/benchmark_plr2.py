@@ -65,7 +65,7 @@ def profile_components(dim_string, truncation_mode, cutoff, lattice_size, n_iter
 
     # 3. Time super().__init__ (LatticeDef init)
     def do_latticedef_init():
-        LatticeDef(lattice_def.dim, lattice_def.shape[0], lattice_def.periodic_boundary_conds, forder=lattice_def.forder)
+        LatticeDef(lattice_def.dim, lattice_def.size, lattice_def.periodic_boundary_conds, forder=lattice_def.forder)
     times = timeit.repeat(do_latticedef_init, number=1, repeat=n_iterations)
     avg = (sum(times)/len(times))*1000
     print(f"  LatticeDef.__init__():         {avg:.3f} ms")
@@ -103,7 +103,7 @@ def profile_components(dim_string, truncation_mode, cutoff, lattice_size, n_iter
 
     # 6. Time full PLR construction
     def full_construct():
-        ParsedLatticeResult(lattice_def.dim, lattice_def.shape[0], bitstring, encoder, lattice_def.periodic_boundary_conds)
+        ParsedLatticeResult(lattice_def.dim, lattice_def.size, bitstring, encoder, lattice_def.periodic_boundary_conds)
     times = timeit.repeat(full_construct, number=1, repeat=n_iterations)
     avg = (sum(times)/len(times))*1000
     print(f"  Full PLR construction:        {avg:.3f} ms")

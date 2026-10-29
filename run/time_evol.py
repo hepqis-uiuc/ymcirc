@@ -34,10 +34,10 @@ if __name__ == "__main__":
     # NOTE for QPY files: Read/write for circuits WITH ANCILLAS broken
     # due to parse error in Qiskit's QPY serializer (see https://github.com/Qiskit/qiskit/issues/11619).
     script_options = configure_script_options(
-        dimensionality_string="d=3",
+        dimensionality_string="d=2",
         truncation_mode="B",
         cutoff=3,
-        lattice_size=2,
+        lattice_size=(2, 2),
         sim_times=np.linspace(0.0, 2.5, num=20),
         n_trotter_steps=2,
         n_shots=10000,  # Set to None to skip circuit execution.
@@ -61,7 +61,7 @@ if __name__ == "__main__":
     )
 
     # Generate a descriptive prefix for all filenames based on simulation params.
-    simulation_category_str_prefix = f"{script_options['lattice_def'].n_plaquettes}-plaquettes-in-d={script_options['lattice_def'].dim}-irrep_trunc={script_options['truncation_mode']}{script_options['cutoff']}-n_trotter_steps={script_options['n_trotter_steps']}-mat_elem_cut={script_options['mag_hamiltonian_matrix_element_threshold']}-vac_connected_only={script_options['mag_hamiltonian_use_electric_vacuum_transitions_only']}-vchain={script_options['use_ancillas']}-control_fusion={script_options['control_fusion']}-prune_controls={script_options['prune_controls']}"
+    simulation_category_str_prefix = f"{script_options['lattice_def'].n_plaquettes}-plaquettes-in-d={script_options['lattice_def'].dim}-shape={'x'.join(str(length) for length in script_options['lattice_def'].shape)}-irrep_trunc={script_options['truncation_mode']}{script_options['cutoff']}-n_trotter_steps={script_options['n_trotter_steps']}-mat_elem_cut={script_options['mag_hamiltonian_matrix_element_threshold']}-vac_connected_only={script_options['mag_hamiltonian_use_electric_vacuum_transitions_only']}-vchain={script_options['use_ancillas']}-control_fusion={script_options['control_fusion']}-prune_controls={script_options['prune_controls']}"
 
     # Create or load circuit to simulate, optionally save to disk.
     # Note that if we don't transpile the circuit,

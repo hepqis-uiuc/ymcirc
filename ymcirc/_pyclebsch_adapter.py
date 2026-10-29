@@ -3,9 +3,9 @@ Physical plaquette states and magnetic matrix elements, computed by pyclebsch.
 
 This module is the one place where pyclebsch's formats for plaquette states
 and matrix elements enter ymcirc (https://github.com/hepqis-uiuc/pyclebsch). It
-translates a ymcirc LatticeDef into a pyclebsch LatticeDef, calls pyclebsch's
-functions that compute the physical plaquette states and the matrix elements
-once per plaquette signature, and converts their results to ymcirc's formats.
+calls pyclebsch's functions that compute the physical plaquette states and the
+matrix elements once per plaquette signature, on the pyclebsch LatticeDef that
+a ymcirc LatticeDef wraps, and converts their results to ymcirc's formats.
 
 pyclebsch keeps the physical plaquette states and the matrix elements it
 computes in memory for the lifetime of the process, so a repeated call with
@@ -27,21 +27,16 @@ truncation, evicting the least recently used.
 
 from __future__ import annotations
 
-from math import isclose
 from typing import cast
 
 from pyclebsch.cgc import EPS
 from pyclebsch.matrix_elements.lattice_data import (
-    LatticeDef as PyclebschLatticeDef,
+    PlaquetteState as PyclebschPlaquetteState,
 )
 from pyclebsch.matrix_elements.lattice_data import (
-    LinkDirection,
     SiteControlLinks,
     SiteMultiplicityIndex,
     physical_plaquette_states_by_signature,
-)
-from pyclebsch.matrix_elements.lattice_data import (
-    PlaquetteState as PyclebschPlaquetteState,
 )
 from pyclebsch.matrix_elements.plaquette_matrix_elements import (
     plaquette_matrix_elements_by_signature,
@@ -81,15 +76,6 @@ PRES = 10
 
 # The number of corners of a plaquette.
 _N_PLAQUETTE_CORNERS = 4
-# On a periodic axis of length 2, two of a plaquette's control links are the
-# same link; from length 3 up, they are all distinct. When ymcirc builds
-# circuits for a periodic lattice only 2 sites long in some direction, the
-# adapter asks pyclebsch for the plaquette states and matrix elements of the
-# same lattice made this many sites long in that direction.
-# LatticeCircuitManager then throws away the ones that cannot occur on the
-# 2-site lattice, where links that are distinct on the longer lattice become
-# the same link, as ymcirc's former data files were used.
-_SHORTEST_PERIODIC_LENGTH_WITHOUT_REPEATED_CONTROLS = 3
 
 # Matrix element value: a nested dict keyed by plane, then signature.
 type MatrixElementValue = dict[Plane, dict[Signature, float]]
@@ -150,46 +136,6 @@ def plaq_state_ymcirc_to_pyclebsch_format(
     return cast(PyclebschPlaquetteState, (*a_links, *c_links, *vertices))
 
 
-def _pyclebsch_lattice(lattice_def: LatticeDef) -> PyclebschLatticeDef:
-    """
-    Return the pyclebsch lattice on which lattice_def's physical plaquette states and matrix elements are computed.
-
-    The lattice has lattice_def's shape, boundary conditions and F-order, in
-    pyclebsch's form of three axes, except that a periodic axis of length 2 is
-    lengthened to 3 (see _SHORTEST_PERIODIC_LENGTH_WITHOUT_REPEATED_CONTROLS). A
-    d=3/2 lattice of size L is L sites long and periodic in x, and two sites
-    tall and open in y.
-
-    Raises a NotImplementedError for lattices that are not periodic, which
-    ymcirc does not support yet. (LatticeDef itself refuses lattices with
-    different lengths along different directions.)
-    """
-    if not lattice_def.all_boundary_conds_periodic:
-        raise NotImplementedError(
-            "Lattices with nonperiodic or mixed boundary conditions not yet supported."
-        )
-
-    size = max(
-        lattice_def.shape[0], _SHORTEST_PERIODIC_LENGTH_WITHOUT_REPEATED_CONTROLS
-    )
-    if isclose(lattice_def.dim, 1.5):
-        num_sites = (size, lattice_def.shape[1], 1)
-        pbcs = (True, False, False)
-    elif lattice_def.dim == 2:
-        num_sites = (size, size, 1)
-        pbcs = (True, True, False)
-    elif lattice_def.dim == 3:
-        num_sites = (size, size, size)
-        pbcs = (True, True, True)
-    else:
-        raise NotImplementedError(f"Dim {lattice_def.dim} lattice not yet supported.")
-
-    # LatticeDef has checked that its F-order is a permutation of pyclebsch's
-    # link directions.
-    forder = cast(list[LinkDirection], lattice_def.forder)
-    return PyclebschLatticeDef(num_sites, pbcs, forder)
-
-
 def physical_plaquette_states(
     lattice_def: LatticeDef, truncation_mode: str, cutoff: int
 ) -> list[PlaquetteState]:
@@ -197,8 +143,10 @@ def physical_plaquette_states(
     Return the physical (gauge-invariant) plaquette states of a lattice, in ymcirc's format.
 
     Arguments:
-        lattice_def: the lattice. Its physical plaquette states are
-            computed on the lattice _pyclebsch_lattice describes.
+        lattice_def: a ymcirc LatticeDef. pyclebsch computes the physical
+            plaquette states on the pyclebsch LatticeDef that lattice_def
+            wraps (lattice_def._pyclebsch_lattice), which has the same sites,
+            links and plaquettes.
         truncation_mode, cutoff: the irrep truncation, as pyclebsch's
             irreps_and_singlets takes it, for example ("T", 1) or ("B", 3).
             pyclebsch validates them.
@@ -207,7 +155,7 @@ def physical_plaquette_states(
     together, each state once. The caller owns the returned list.
     """
     states_by_signature = physical_plaquette_states_by_signature(
-        _pyclebsch_lattice(lattice_def), N_COLORS, truncation_mode, cutoff
+        lattice_def._pyclebsch_lattice, N_COLORS, truncation_mode, cutoff
     )
     return list(
         {
@@ -222,7 +170,14 @@ def box_terms(lattice_def: LatticeDef, truncation_mode: str, cutoff: int) -> Box
     """
     Return the matrix elements of the plaquette operator (the box term) of a lattice.
 
-    Arguments are as for physical_plaquette_states.
+    Arguments:
+        lattice_def: a ymcirc LatticeDef. pyclebsch computes the matrix
+            elements on the pyclebsch LatticeDef that lattice_def wraps
+            (lattice_def._pyclebsch_lattice), which has the same sites,
+            links and plaquettes.
+        truncation_mode, cutoff: the irrep truncation, as pyclebsch's
+            irreps_and_singlets takes it, for example ("T", 1) or ("B", 3).
+            pyclebsch validates them.
 
     Returns {(final state, initial state): {plane: {signature: value}}}, with
     states in ymcirc's format, where signature is the F-ordered half-link
@@ -231,7 +186,7 @@ def box_terms(lattice_def: LatticeDef, truncation_mode: str, cutoff: int) -> Box
     than EPS are dropped. The caller owns the returned dict.
     """
     elements_by_signature = plaquette_matrix_elements_by_signature(
-        _pyclebsch_lattice(lattice_def), N_COLORS, truncation_mode, cutoff, EPS, PRES
+        lattice_def._pyclebsch_lattice, N_COLORS, truncation_mode, cutoff, EPS, PRES
     )
     result: BoxTerms = {}
     for (plane, site_half_links), elements in elements_by_signature.items():
