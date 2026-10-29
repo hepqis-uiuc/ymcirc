@@ -8,6 +8,7 @@ from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.conventions import LatticeStateEncoder, ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT, physical_plaquette_states
 from ymcirc._pyclebsch_adapter import box_terms
 from ymcirc.lattice_registers import LatticeRegisters
+from ymcirc.givens import bitstring_value_of_LP_family, compute_LP_family
 from ymcirc.utilities import _flatten_circuit, _check_circuits_logically_equivalent
 from qiskit.circuit import Parameter, QuantumCircuit, QuantumRegister, AncillaRegister
 from qiskit.circuit.library.standard_gates import RZGate, RYGate, MCXGate
@@ -1264,6 +1265,42 @@ def test_apply_mag_trotter_step_independent_params_multiple_lp_families():
     assert len(master_circuit.parameters) == 7
     for idx, parameter in enumerate(master_circuit.parameters):
         assert parameter.name == f'theta[{idx}]'
+
+
+def test_magnetic_trotter_step_does_not_depend_on_matrix_element_order():
+    """
+    With control fusion off, the magnetic Trotter step is the same whatever the order of the matrix elements.
+
+    The LP bins are visited in Gray-code order, not in the order the matrix
+    elements arrive in. Checked on a d=3/2 periodic lattice of size 3 at T1,
+    where each LP bin holds a single Givens rotation, so the gate lists must
+    be equal.
+    """
+    lattice_def = LatticeDef(1.5, 3)
+    lattice_encoder = LatticeStateEncoder.for_truncation(lattice_def, "T", 1)
+    mag_hamiltonian = {
+        (lattice_encoder.encode_plaquette_state_as_bit_string(final_state),
+         lattice_encoder.encode_plaquette_state_as_bit_string(initial_state)): value
+        for (final_state, initial_state), value in box_terms(lattice_def, "T", 1).items()
+    }
+    lp_families = {bitstring_value_of_LP_family(compute_LP_family(*bit_strings)) for bit_strings in mag_hamiltonian}
+    assert len(lp_families) > 1, "With a single LP bin, the order of the bins cannot be checked."
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+
+    def gate_list(mag_hamiltonian_in_some_order):
+        circ_mgr = LatticeCircuitManager(lattice_encoder, mag_hamiltonian_in_some_order)
+        master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
+        circ_mgr.apply_magnetic_trotter_step(
+            master_circuit, lattice_registers, optimize_circuits=False, control_fusion=False)
+        master_circuit.assign_parameters({"dt_mag__0": 1, "coupling_g_mag__0": 1}, inplace=True)
+        return [
+            (gate.operation, [master_circuit.find_bit(qubit).index for qubit in gate.qubits])
+            for gate in master_circuit.data
+        ]
+
+    reversed_mag_hamiltonian = dict(reversed(mag_hamiltonian.items()))
+    assert gate_list(reversed_mag_hamiltonian) == gate_list(mag_hamiltonian)
+
 
 @pytest.fixture
 def sample_circuit_no_ancillas() -> QuantumCircuit:

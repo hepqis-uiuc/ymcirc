@@ -352,8 +352,8 @@ class LatticeCircuitManager:
           - lattice: a LatticeRegisters instance which keeps track of all the
                      QuantumRegisters.
           - control_fusion: Optional boolian argument with the default set to False. If it's set
-                            to be True, then LP families of givens rotations are first Gray code ordered,
-                            then redundant controls are removed.
+                            to be True, then redundant controls are removed from the Givens rotations
+                            of each LP family. LP families are visited in Gray-code order either way.
           - physical_states_for_control_pruning: The set of all physical states encoded as bitstrings.
                                                  If provided, control pruning of multi-control rotation
                                                  gate inside Givens rotation subcircuits will be attempted.
@@ -648,8 +648,8 @@ class LatticeCircuitManager:
                                                  out first.
                                                  If None, no control pruning is attempted.
           - control_fusion: Optional boolean argument with the default set to False. If it's set
-                            to be True, then LP families of givens rotations are first Gray code ordered,
-                            then redundant controls are removed.
+                            to be True, then redundant controls are removed from the Givens rotations
+                            of each LP family. LP families are visited in Gray-code order either way.
           - cache_mag_evol_circuit: Optional boolean argument to cache the magnetic Hamiltonian
                                     evolution circuit(s) once generated, and forevermore use the cache.
           - givens_have_independent_params: Optional boolean argument with the default set to False.
@@ -988,15 +988,16 @@ class LatticeCircuitManager:
                          for (bit_string_1, bit_string_2, old_angle) in lp_bin[lp_fam]]
                 for lp_fam in lp_bin.keys()
             }
-        # Sort according to Gray-order if performing control fusion.
-        if control_fusion is True:
-            lp_bin = {
-                k: lp_bin[k]
-                for k in sorted(
-                    lp_bin.keys(),
-                    key=lambda x: gray_to_index(bitstring_value_of_LP_family(x)),
-                )
-            }
+        # Visit the LP bins in Gray order, whether or not control fusion is on.
+        # Rotations in one LP bin commute, so with the bin order fixed, the
+        # circuit's unitary does not depend on the order of the input data.
+        lp_bin = {
+            k: lp_bin[k]
+            for k in sorted(
+                lp_bin.keys(),
+                key=lambda x: gray_to_index(bitstring_value_of_LP_family(x)),
+            )
+        }
 
         # Iterate over all LP bins and apply givens rotation.
         # Also logs progress of circuit construction at INFO level.
