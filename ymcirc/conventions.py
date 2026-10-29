@@ -484,11 +484,6 @@ class LatticeStateEncoder:
         return self._expected_vertex_bit_string_length
 
     @property
-    def forder(self) -> list[int]:
-        """Return the half-link ordering convention (FORDER), inherited from the lattice argument."""
-        return self._lattice.forder
-
-    @property
     def lattice_def(self) -> LatticeDef:
         """Return copy of the LatticeDef instance used to create the encoder instance."""
         return copy.deepcopy(self._lattice)

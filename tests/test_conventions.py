@@ -1058,7 +1058,7 @@ def test_non_default_forder_plaquette_encode_decode_round_trip():
     produces a different bit string when represented in a different forder convention,
     because the within-vertex control link ordering changes.
     """
-    print("Checking forder property and encode/decode round-trip with non-default forder.")
+    print("Checking the encoder's forder and encode/decode round-trip with non-default forder.")
     alt_forder = [-1, -2, 1, 2, 3, -3]
 
     # Create encoders with default and alt forder.
@@ -1068,9 +1068,9 @@ def test_non_default_forder_plaquette_encode_decode_round_trip():
     default_encoder = LatticeStateEncoder.for_truncation(default_lattice_def, "T", 1)
     alt_encoder = LatticeStateEncoder.for_truncation(alt_lattice_def, "T", 1)
 
-    # Verify forder property.
-    assert default_encoder.forder == [1, 2, 3, -1, -2, -3], "Default forder property incorrect."
-    assert alt_encoder.forder == alt_forder, "Alt forder property incorrect."
+    # Verify that each encoder keeps its lattice's forder.
+    assert default_encoder.lattice_def.forder == [1, 2, 3, -1, -2, -3], "Default forder incorrect."
+    assert alt_encoder.lattice_def.forder == alt_forder, "Alt forder incorrect."
 
     # A test plaquette state where v2 has distinct ctrl link irreps.
     # Default forder v2 ctrl dirs: (+1, -2) → tuple position 0 = dir+1, position 1 = dir-2.
