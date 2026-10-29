@@ -329,6 +329,17 @@ wheels = [
 ]
 
 [[package]]
+name = "pyclebsch"
+version = "0.3.0"
+source = { git = "https://github.com/hepqis-uiuc/pyclebsch.git?rev=v0.3.0#ad2d671f59e748e3b8aeebf6e73a3570b82e943e" }
+dependencies = [
+    { name = "more-itertools" },
+    { name = "numpy" },
+    { name = "scipy" },
+    { name = "tqdm" },
+]
+
+[[package]]
 name = "pygments"
 version = "2.19.2"
 source = { registry = "https://pypi.org/simple" }
@@ -510,6 +521,18 @@ wheels = [
 ]
 
 [[package]]
+name = "tqdm"
+version = "4.70.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0d/ea/b2a5bd54b28a324dae8211928b2d730b6547500342c7e6c6dea08bd0a485/tqdm-4.70.1.tar.gz", hash = "sha256:cefd0eca11b2a37a3aee776544d4f4ae913f02688135b5556b8788dfa474afc4", size = 171846, upload-time = "2026-09-11T07:25:16.601Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a7/03/921a3d3c75785aca9ebfbfcabfbc3a1be12e2ab5265deb026d55a5a3f83e/tqdm-4.70.1-py3-none-any.whl", hash = "sha256:c293e525e6fef9c20e8728fd4612df02a0aa31bb5fe91ecd93e123b1b7bffa73", size = 80199, upload-time = "2026-09-11T07:25:14.599Z" },
+]
+
+[[package]]
 name = "typing-extensions"
 version = "4.15.0"
 source = { registry = "https://pypi.org/simple" }
@@ -536,6 +559,7 @@ dependencies = [
     { name = "matplotlib-label-lines" },
     { name = "numpy" },
     { name = "pandas" },
+    { name = "pyclebsch" },
     { name = "pylatexenc" },
     { name = "qiskit" },
     { name = "qiskit-aer" },
@@ -554,6 +578,7 @@ requires-dist = [
     { name = "matplotlib-label-lines", specifier = "~=0.7.0" },
     { name = "numpy", specifier = "~=2.1" },
     { name = "pandas", specifier = "~=3.0" },
+    { name = "pyclebsch", git = "https://github.com/hepqis-uiuc/pyclebsch.git?rev=v0.3.0" },
     { name = "pylatexenc", specifier = "~=2.10" },
     { name = "qiskit", specifier = "~=2.1" },
     { name = "qiskit-aer", specifier = "~=0.17" },

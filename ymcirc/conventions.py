@@ -170,8 +170,16 @@ import logging
 from pathlib import Path
 import numpy as np
 from typing import Tuple, Dict, Union, List
+from pyclebsch.matrix_elements.lattice_data import SiteMultiplicityIndex
+from pyclebsch.su_n_operators import IrrepWeight
 from ymcirc._abstract import LatticeDef, Plane, Signature
 from ymcirc.utilities import LazyDict, json_loader
+from ymcirc._pyclebsch_adapter import (
+    BoxTerms,
+    MatrixElementValue,
+    PlaquetteState,
+    physical_plaquette_states,
+)
 
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
@@ -228,28 +236,12 @@ _PLAQUETTE_STATES_DATA_FILE_PATHS: Dict[str, Dict[str, Path]] = {
     }
 }
 
-# Useful type aliases.
-IrrepWeight = Tuple[int, int, int]
-LinkState = IrrepWeight  # A useful semantic alias
+# Useful type aliases. IrrepWeight and SiteMultiplicityIndex are pyclebsch's,
+# and PlaquetteState, MatrixElementValue and BoxTerms are defined in
+# ymcirc._pyclebsch_adapter, which produces data in those formats.
 BitString = str
-MultiplicityIndex = int
 IrrepBitmap = Dict[IrrepWeight, BitString]
-VertexMultiplicityBitmap = Dict[MultiplicityIndex, BitString]
-VertexControlLinks = Tuple[LinkState, ...]  # Variable-length tuple of i-weights at one vertex
-# Matrix element value: a nested dict keyed by plane, then signature.
-MatrixElementValue = Dict[Plane, Dict[Signature, float]]
-# Tuple of 4 vertex multiplicites, tuple of 4 "active links", tuple of 4 per-vertex control tuples.
-PlaquetteState = Union[
-    Tuple[
-        Tuple[MultiplicityIndex, MultiplicityIndex, MultiplicityIndex, MultiplicityIndex],
-        Tuple[LinkState, LinkState, LinkState, LinkState],
-        Tuple[VertexControlLinks, VertexControlLinks, VertexControlLinks, VertexControlLinks]
-    ],
-    Tuple[
-        Tuple[None, None, None, None],
-        Tuple[LinkState, LinkState, LinkState, LinkState],
-        Tuple[VertexControlLinks, VertexControlLinks, VertexControlLinks, VertexControlLinks]]
-]
+VertexMultiplicityBitmap = Dict[SiteMultiplicityIndex, BitString]
 # Encoded plaquette state pair used as dict key in HamiltonianData.
 EncodedPlaquetteTransition = Tuple[str, str]
 # Dict mapping encoded state pairs to matrix element values (nested dict).
@@ -266,9 +258,53 @@ EIGHT: IrrepWeight = (2, 1, 0)
 FIFTEEN: IrrepWeight = (3, 1, 0)
 FIFTEEN_BAR: IrrepWeight = (3, 2, 0)
 
-# Irrep encoding bitmaps.
-# TODO: refactor to make this depend on separate dimension and truncation keys.
-IRREP_TRUNCATIONS: Dict[str, IrrepBitmap] = {
+# Irrep encoding bitmaps, keyed by the set of irreps on a lattice's links.
+# The codes are chosen by hand: they decide which Givens rotations share an LP
+# family. LatticeStateEncoder.for_truncation looks up the entry for a lattice
+# and truncation.
+#
+# Each entry is the set of link irreps that some supported truncation produces.
+# On periodic lattices of size 3:
+# - {1, 3, 3bar}: T1 and B3 in d=3/2 and d=2; B5 in d=3/2; B3 and B4 in d=3;
+#   B4 in d=2.
+# - {1, 3, 3bar, 6, 6bar, 8}: T2 and B6-B9 in d=3/2; B7 in d=2.
+# - the same plus 15 and 15bar: B10 in d=3/2.
+# A B truncation with cutoff c keeps the singlets at a site whose links'
+# quadratic Casimirs sum to at most c (with C2(3) = 4/3, so C2(15) = 16/3 and
+# C2(10) = 6). In d=3/2 every site has three links, and the cheapest singlet
+# there that contains a 10 is 10 x 6bar x 3bar, whose Casimirs sum to 32/3. So
+# at B10, 10 and 10bar appear on no link, and the third entry needs no codes
+# for them; it fills all eight codes of three bits. They first appear at
+# B11, whose set has no entry: LatticeStateEncoder.for_truncation raises a
+# ValueError for it unless given codes to use as link_bitmap, and making codes
+# the default means adding an entry here, with codes chosen by hand.
+#
+# The entries keyed by truncation names are being replaced by those keyed by
+# sets of irreps.
+IRREP_TRUNCATIONS: dict[str | frozenset[IrrepWeight], IrrepBitmap] = {
+    frozenset({ONE, THREE, THREE_BAR}): {
+        ONE: "00",
+        THREE: "10",
+        THREE_BAR: "01"
+    },
+    frozenset({ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT}): {
+        ONE: "000",
+        THREE: "100",
+        THREE_BAR: "001",
+        SIX: "110",
+        SIX_BAR: "011",
+        EIGHT: "111"
+    },
+    frozenset({ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT, FIFTEEN, FIFTEEN_BAR}): {
+        ONE: "000",
+        THREE: "100",
+        THREE_BAR: "001",
+        SIX: "110",
+        SIX_BAR: "011",
+        EIGHT: "111",
+        FIFTEEN: "101",
+        FIFTEEN_BAR: "010"
+    },
     "T1": {
         ONE: "00",
         THREE: "10",
@@ -343,6 +379,16 @@ IRREP_TRUNCATIONS: Dict[str, IrrepBitmap] = {
         FIFTEEN_BAR: "010"
     }
 }
+
+
+def _link_irreps(physical_plaquette_states: List[PlaquetteState]) -> frozenset[IrrepWeight]:
+    """Return the irreps that appear on any link, active or control, of any of the plaquette states."""
+    return frozenset(
+        link
+        for _, a_links, c_links in physical_plaquette_states
+        for link in (*a_links, *(c_link for corner in c_links for c_link in corner))
+    )
+
 
 # Module-level metadata cache, populated when data is first loaded.
 _DATA_METADATA: Dict[Tuple[str, str], dict] = {}
@@ -535,8 +581,8 @@ def _sum_matrix_element_values(a: MatrixElementValue, b: MatrixElementValue) -> 
 
 
 def compute_all_rotations_from_just_box_terms(
-        box_terms: Dict[Tuple[PlaquetteState, PlaquetteState], MatrixElementValue]
-) -> Dict[Tuple[PlaquetteState, PlaquetteState], MatrixElementValue]:
+        box_terms: BoxTerms
+) -> BoxTerms:
     """
     Compute the set of Givens rotations needed to simulate a magnetic Hamiltonian.
 
@@ -603,9 +649,17 @@ class LatticeStateEncoder:
         Control links in plaquette states use a per-vertex nested format:
         c_links = ((c_at_v1, ...), (c_at_v2, ...), (c_at_v3, ...), (c_at_v4, ...))
 
-        ValueError raised if there are inconsistent length bit strings among the values
-        of the link bitmap dictionary, or there are duplicate entries in the
-        list of physical plaquette states.
+        A ValueError is raised if there are inconsistent length bit strings among the values
+        of the link bitmap dictionary, if there are duplicate entries in the
+        list of physical plaquette states, or if an irrep on a link of a
+        physical plaquette state has no code in the link bitmap (the error
+        names those irreps). The link bitmap may have codes for irreps that
+        appear on no link.
+
+        LatticeStateEncoder.for_truncation creates the encoder for a lattice
+        at an irrep truncation, using pyclebsch to either compute
+        the physical plaquette states or read them from memory if already
+        computed.
         """
         # Validation of input.
         # Check link bitmaps for uniqueness of bit string encodings.
@@ -630,6 +684,11 @@ class LatticeStateEncoder:
             raise TypeError(f"The lattice argument must be an instance of {LatticeDef.__name__}. Received: {type(lattice)}.")
         if consistent_num_controls_in_plaquette_states is not True:
             raise ValueError("All physical plaquette states must have the same number of controls.")
+        irreps_without_code = _link_irreps(physical_plaquette_states) - link_bitmap.keys()
+        if irreps_without_code:
+            raise ValueError(
+                f"Argument link_bitmap has no code for the irreps {sorted(irreps_without_code)}, which appear on "
+                "the links of physical plaquette states.")
 
         # Now construct the vertex multiplicity bitmap, and infer qubit counts per DoFs.
         max_zero_indexed_multiplicity = max([current_vertex for vertices, a_links, c_links in physical_plaquette_states for current_vertex in vertices])
@@ -671,19 +730,73 @@ class LatticeStateEncoder:
         else:
             self._lattice = LatticeDef(lattice.dim, lattice.shape[0], lattice.periodic_boundary_conds, forder=lattice.forder)
 
-        # Retain plaquettes states used to create for repr method.
-        self.__physical_plaquette_states = copy.deepcopy(physical_plaquette_states)
-
-        # Cache for __repr__ string (computed lazily on first access).
-        self._repr_cache: str | None = None
+        # The repr gives the number of physical plaquette states, not the
+        # states, of which there can be millions.
+        self._n_physical_plaquette_states = len(physical_plaquette_states)
 
         logger.info(f"Created {self}.")
 
+    @classmethod
+    def for_truncation(
+            cls,
+            lattice: LatticeDef,
+            truncation_mode: str,
+            cutoff: int,
+            link_bitmap: IrrepBitmap | None = None,
+    ) -> LatticeStateEncoder:
+        """
+        Create the encoder for lattice at an irrep truncation.
+
+        Arguments:
+        - lattice: as for LatticeStateEncoder.
+        - truncation_mode, cutoff: the irrep truncation, as pyclebsch's
+            irreps_and_singlets takes it, for example ("T", 1) or ("B", 3).
+            pyclebsch validates them.
+        - link_bitmap: optional. The codes of the link irreps. By default,
+            the entry of IRREP_TRUNCATIONS for exactly the set of irreps that
+            appear on the links of the lattice's physical plaquette states;
+            provide this argument if working with a set of irreps
+            not present in IRREP_TRUNCATIONS.
+
+        The physical plaquette states are computed/cached in memory by pyclebsch
+        (physical_plaquette_states). The link bitmap in use is the encoder's
+        link_bitmap.
+
+        There are two scenarios where a ValueError is raised to aid the user:
+          1. link_bitmap is not provided, and IRREP_TRUNCATIONS has no entry for
+             the set of irreps occurring on the links of lattice with the given
+             truncation_mode and cutoff. In this case, the error message states
+             what the set of irreps appearing on the links is, and a custom
+             link_bitmap which contains them as a subset may be used.
+          2. link_bitmap is provided, but is missing an irrep which appears
+             on the provided lattice with the given truncation_mode and cutoff.
+             The irrep(s) missing from link_bitmap appear(s) in the error message.
+        """
+        states = physical_plaquette_states(lattice, truncation_mode, cutoff)
+        if link_bitmap is None:
+            link_irreps = _link_irreps(states)
+            if link_irreps not in IRREP_TRUNCATIONS:
+                raise ValueError(
+                    f"No link bitmap is registered for the irreps {sorted(link_irreps)}, which appear on the links of "
+                    f"{lattice} at truncation mode {truncation_mode!r} and cutoff {cutoff}. Pass your own bitmap codes as "
+                    "link_bitmap."
+                )
+            link_bitmap = IRREP_TRUNCATIONS[link_irreps]
+        return cls(link_bitmap, states, lattice)
+
     def __repr__(self):
-        if self._repr_cache is None:
-            class_name = type(self).__name__
-            self._repr_cache = f"{class_name}({self.link_bitmap}, {self.__physical_plaquette_states}, {self._lattice.__repr__()})"
-        return self._repr_cache
+        """
+        Return a summary of the encoder, not an expression that recreates it.
+
+        It gives the link bitmap, the lattice and the number of physical
+        plaquette states, because the number of physical plaquette states
+        can be extremely large.
+        """
+        class_name = type(self).__name__
+        return (
+            f"<{class_name} link_bitmap={self._link_bitmap!r}, lattice={self._lattice!r}, "
+            f"{self._n_physical_plaquette_states} physical plaquette states>"
+        )
 
     def __str__(self):
         return f"Lattice encoder:\nlink bitmap = {self.link_bitmap}\nvertex bitmap = {self.vertex_bitmap}\nlattice geometry = {self._lattice}"
@@ -743,7 +856,7 @@ class LatticeStateEncoder:
         except KeyError:
             return None
 
-    def encode_vertex_state_as_bit_string(self, vertex: MultiplicityIndex) -> str:
+    def encode_vertex_state_as_bit_string(self, vertex: SiteMultiplicityIndex) -> str:
         """Encode a vertex multiplicity integer as a bit string."""
         return self._vertex_bitmap[vertex]
 

@@ -9,6 +9,7 @@ dependencies = [
     "matplotlib-label-lines~=0.7.0",
     "numpy~=2.1",
     "pandas~=3.0",
+    "pyclebsch @ git+https://github.com/hepqis-uiuc/pyclebsch.git@v0.3.0",
     "pylatexenc~=2.10",
     "qiskit~=2.1",
     "qiskit-aer~=0.17",

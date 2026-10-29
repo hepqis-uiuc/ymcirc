@@ -9,6 +9,12 @@ from ymcirc.conventions import (
     _filter_matrix_element_value, _sum_matrix_element_values,
     IrrepBitmap, PlaquetteState, FIFTEEN, FIFTEEN_BAR
 )
+from ymcirc._pyclebsch_adapter import (
+    N_COLORS, plaq_state_pyclebsch_to_ymcirc_format, plaq_state_ymcirc_to_pyclebsch_format
+)
+from pyclebsch.matrix_elements.lattice_data import (
+    LatticeDef as PyclebschLatticeDef, physical_plaquette_states_by_signature
+)
 
 
 @pytest.mark.parametrize("dim_string,trunc_string", [
@@ -833,15 +839,16 @@ def test_encode_decode_various_links():
         EIGHT: "11"
     }
     # Test data, not physically meaningful but has right format for creating creating an encoder.
+    # Its links carry only irreps that link_bitmap has codes for.
     physical_plaquette_states = [
         (
             (0, 0, 0, 0),
-            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, THREE, EIGHT, EIGHT),
             ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
-            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, THREE, EIGHT, EIGHT),
             ((ONE,), (THREE,), (ONE,), (ONE,))
         )
     ]
@@ -867,26 +874,27 @@ def test_encode_decode_various_vertices():
         THREE: "10",
         EIGHT: "11"
     }
-    # Should generate a bitmap to length-2 bitstrings for vertices.
+    # Should generate a bitmap to length-2 bitstrings for vertices. The links
+    # carry only irreps that link_bitmap has codes for.
     physical_plaquette_states = [
         (
             (0, 0, 0, 0),
-            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, THREE, EIGHT, EIGHT),
             ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 1, 0),
-            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, THREE, EIGHT, EIGHT),
             ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 2, 0),
-            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, THREE, EIGHT, EIGHT),
             ((ONE,), (ONE,), (ONE,), (ONE,))
         ),
         (
             (0, 0, 0, 0),
-            (ONE, THREE, THREE_BAR, THREE_BAR),
+            (ONE, THREE, EIGHT, EIGHT),
             ((ONE,), (THREE,), (ONE,), (ONE,))
         )
     ]
@@ -1389,3 +1397,115 @@ def test_sum_matrix_element_values():
     assert _sum_matrix_element_values({}, a) == a
     assert _sum_matrix_element_values(a, {}) == a
     assert _sum_matrix_element_values({}, {}) == {}
+
+
+# The link bitmaps that ymcirc used for the truncations its data files
+# covered, under the names "T1", "T2" and "B10_d=3/2" before the bitmaps were
+# keyed by sets of irreps. Each data file was computed on the lattice in its
+# metadata: d=3/2 of size 3, d=2 3x3 and d=3 3x3x3, all periodic.
+_T1_LINK_BITMAP = {ONE: "00", THREE: "10", THREE_BAR: "01"}
+_T2_LINK_BITMAP = {ONE: "000", THREE: "100", THREE_BAR: "001", SIX: "110", SIX_BAR: "011", EIGHT: "111"}
+_B10_LINK_BITMAP = _T2_LINK_BITMAP | {FIFTEEN: "101", FIFTEEN_BAR: "010"}
+
+
+@pytest.mark.parametrize("dims,truncation_mode,cutoff,expected_link_bitmap", [
+    (1.5, "T", 1, _T1_LINK_BITMAP),
+    (1.5, "T", 2, _T2_LINK_BITMAP),
+    (1.5, "B", 3, _T1_LINK_BITMAP),
+    (1.5, "B", 5, _T1_LINK_BITMAP),
+    (1.5, "B", 6, _T2_LINK_BITMAP),
+    (1.5, "B", 7, _T2_LINK_BITMAP),
+    (1.5, "B", 8, _T2_LINK_BITMAP),
+    (1.5, "B", 9, _T2_LINK_BITMAP),
+    (1.5, "B", 10, _B10_LINK_BITMAP),
+    (2, "T", 1, _T1_LINK_BITMAP),
+    (2, "B", 3, _T1_LINK_BITMAP),
+    (2, "B", 4, _T1_LINK_BITMAP),
+    (2, "B", 7, _T2_LINK_BITMAP),
+    (3, "B", 3, _T1_LINK_BITMAP),
+    (3, "B", 4, _T1_LINK_BITMAP),
+])
+def test_for_truncation_uses_registered_bitmap(dims, truncation_mode, cutoff, expected_link_bitmap):
+    """On each data file's lattice, the encoder uses the bitmap ymcirc used for that truncation."""
+    lattice = LatticeDef(dims, 3)
+    encoder = LatticeStateEncoder.for_truncation(lattice, truncation_mode, cutoff)
+    assert encoder.link_bitmap == expected_link_bitmap
+
+
+def test_for_truncation_unregistered_irrep_set_raises_value_error():
+    """d=3/2 at B11 has 10 and 10bar on its links, for which no bitmap is registered."""
+    lattice = LatticeDef(1.5, 3)
+    with pytest.raises(ValueError, match=r"\(3, 0, 0\)") as e_info:
+        LatticeStateEncoder.for_truncation(lattice, "B", 11)
+    assert "(3, 3, 0)" in str(e_info.value)
+    assert "link_bitmap" in str(e_info.value)
+
+
+def test_for_truncation_with_explicit_bitmap():
+    """An explicit bitmap is used if it has a code for every link irrep; codes for other irreps are allowed."""
+    lattice = LatticeDef(1.5, 3)
+    t1_bitmap = {ONE: "00", THREE: "10", THREE_BAR: "01"}
+    encoder = LatticeStateEncoder.for_truncation(lattice, "T", 1, link_bitmap=t1_bitmap)
+    assert encoder.link_bitmap == t1_bitmap
+
+    extra_six = {ONE: "00", THREE: "10", THREE_BAR: "01", SIX: "11"}
+    encoder = LatticeStateEncoder.for_truncation(lattice, "T", 1, link_bitmap=extra_six)
+    assert encoder.link_bitmap == extra_six
+
+    missing_three_bar = {ONE: "00", THREE: "10"}
+    with pytest.raises(ValueError, match=r"no code for the irreps \[\(1, 1, 0\)\]"):
+        LatticeStateEncoder.for_truncation(lattice, "T", 1, link_bitmap=missing_three_bar)
+
+
+def test_lattice_encoder_raises_value_error_for_irrep_without_code():
+    """The encoder refuses a bitmap without a code for an irrep on a link of its plaquette states."""
+    physical_states: list[PlaquetteState] = [
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, THREE, THREE_BAR),
+            ((ONE,), (ONE,), (ONE,), (ONE,))
+        ),
+        (
+            (0, 0, 0, 0),
+            (ONE, ONE, ONE, ONE),
+            ((ONE,), (SIX,), (ONE,), (ONE,))
+        ),
+    ]
+    link_bitmap_without_six = {ONE: "00", THREE: "10", THREE_BAR: "01"}
+    with pytest.raises(ValueError, match=r"no code for the irreps \[\(2, 0, 0\)\]"):
+        LatticeStateEncoder(link_bitmap_without_six, physical_states, LatticeDef(1.5, 3))
+
+
+def test_plaquette_state_format_conversion_on_a_hand_written_state():
+    """The conversion regroups pyclebsch's flat state into ymcirc's (multiplicities, active links, controls).
+
+    Every entry differs from every other, so exchanging any two positions or
+    groups changes the result. The state need not be physical.
+    """
+    pyclebsch_state = (
+        THREE, THREE_BAR, ONE, EIGHT,  # active links at the four corners
+        (ONE,), (THREE,), (SIX, SIX_BAR), (FIFTEEN,),  # each corner's control links
+        0, 1, 3, 2,  # each corner's singlet multiplicity index
+    )
+    ymcirc_state = (
+        (0, 1, 3, 2),
+        (THREE, THREE_BAR, ONE, EIGHT),
+        ((ONE,), (THREE,), (SIX, SIX_BAR), (FIFTEEN,)),
+    )
+    assert plaq_state_pyclebsch_to_ymcirc_format(pyclebsch_state) == ymcirc_state
+    assert plaq_state_ymcirc_to_pyclebsch_format(ymcirc_state) == pyclebsch_state
+
+
+@pytest.mark.parametrize("pyclebsch_lattice,truncation_mode,cutoff", [
+    (((3, 3, 3), (True, True, True)), "B", 3),
+    (((3, 2, 1), (True, False, False)), "T", 2),
+])
+def test_plaquette_state_format_conversion_round_trips(pyclebsch_lattice, truncation_mode, cutoff):
+    """pyclebsch's plaquette-state format to ymcirc's and back is the identity on every physical state."""
+    num_sites, pbcs = pyclebsch_lattice
+    states_by_signature = physical_plaquette_states_by_signature(
+        PyclebschLatticeDef(num_sites, pbcs, (1, 2, 3, -1, -2, -3)), N_COLORS, truncation_mode, cutoff)
+    for signature_states in states_by_signature.values():
+        for state in signature_states:
+            ymcirc_state = plaq_state_pyclebsch_to_ymcirc_format(state)
+            assert plaq_state_ymcirc_to_pyclebsch_format(ymcirc_state) == tuple(state)

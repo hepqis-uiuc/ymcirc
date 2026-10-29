@@ -7,7 +7,9 @@ from typing import Dict, List, Union, Optional
 from ymcirc._abstract.lattice_data import (
     LatticeData, LatticeDef, Plaquette, DimensionalitySpecifier, LatticeVector,
     LinkUnitVectorLabel, LinkAddress)
-from ymcirc.conventions import LatticeStateEncoder, IrrepWeight, MultiplicityIndex
+from pyclebsch.matrix_elements.lattice_data import SiteMultiplicityIndex
+from pyclebsch.su_n_operators import IrrepWeight
+from ymcirc.conventions import LatticeStateEncoder
 from ymcirc.lattice_registers import LatticeRegisters
 
 # Set up module-specific logger
@@ -18,7 +20,7 @@ logger = logging.getLogger(__name__)
 # are bit strings, and parsed measurement results are either IrrepWeight
 # instances or None depending on whether the bit string decodes succesfully
 # or is garbage.
-MeasurementData = Union[str, IrrepWeight, MultiplicityIndex, None]
+MeasurementData = Union[str, IrrepWeight, SiteMultiplicityIndex, None]
 
 
 class ParsedLatticeResult(LatticeData[MeasurementData]):
@@ -66,7 +68,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
 
         # Initialize dicts to hold measurement data.
         self._decoded_links: Dict[LinkAddress, IrrepWeight | None] = {}
-        self._decoded_vertices: Dict[LatticeVector, MultiplicityIndex | None] = {}
+        self._decoded_vertices: Dict[LatticeVector, SiteMultiplicityIndex | None] = {}
         self._bit_strings_links: Dict[LinkAddress, str] = {}
         self._bit_strings_vertices: Dict[LatticeVector, str] = {}
 
@@ -102,12 +104,11 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         self._global_lattice_measurement_bit_string = global_lattice_measurement_bit_string
         self._lattice_def = lattice_encoder._lattice
         self._encoder = lattice_encoder
-        self._lattice_encoder_repr = lattice_encoder.__repr__()
 
     def __repr__(self):
         class_name = type(self).__name__
         size = self.shape[0]
-        return f"{class_name}(dimensions={self.dim}, size={size}, global_lattice_measurement_bit_string={self.global_lattice_measurement_bit_string}, lattice_encoder={self._lattice_encoder_repr}, periodic_boundary_conds={self.periodic_boundary_conds})"
+        return f"{class_name}(dimensions={self.dim}, size={size}, global_lattice_measurement_bit_string={self.global_lattice_measurement_bit_string}, lattice_encoder={self._encoder!r}, periodic_boundary_conds={self.periodic_boundary_conds})"
 
     def __str__(self):
         link_measurements = {link_address: self.get_link(link_address) for link_address in self.link_addresses}
@@ -146,9 +147,9 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         Return the measurement result for the vertex specified by lattice_vector.
 
         If get_bit_string is True, then the underlying bit string is returned instead
-        of the decoded MultiplicityIndex for the vertex.
+        of the decoded SiteMultiplicityIndex for the vertex.
 
-        If get_bit_string is False, then returns either a MultiplicityIndex labeling
+        If get_bit_string is False, then returns either a SiteMultiplicityIndex labeling
         the multiplicity of the singlet at that vertex, or None if the bit string
         at the vertex fails to decode.
         """
@@ -287,14 +288,13 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         instance._global_lattice_measurement_bit_string = None
         instance._lattice_def = encoder._lattice
         instance._encoder = encoder
-        instance._lattice_encoder_repr = encoder.__repr__()
 
         return instance
 
     @staticmethod
     def from_links_and_vertices(
         links_dict: Dict[LinkAddress, IrrepWeight],
-        vertices_dict: Union[Dict[LatticeVector, MultiplicityIndex], None] = None,
+        vertices_dict: Union[Dict[LatticeVector, SiteMultiplicityIndex], None] = None,
         *,
         encoder: LatticeStateEncoder,
     ) -> ParsedLatticeResult:
@@ -306,7 +306,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
 
         Arguments:
             - links_dict: Maps LinkAddress -> IrrepWeight (decoded link state).
-            - vertices_dict: Optional. Maps LatticeVector -> MultiplicityIndex.
+            - vertices_dict: Optional. Maps LatticeVector -> SiteMultiplicityIndex.
             - encoder: LatticeStateEncoder for encoding/decoding and lattice geometry.
         """
         instance = ParsedLatticeResult._create_partial(encoder)
