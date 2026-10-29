@@ -1,29 +1,45 @@
 """
-This module is a canonical source for project conventions, including:
+This module holds the encoding of lattice states as bit strings.
 
-- Bit string encodings.
-- Magnetic Hamiltonian box term data.
-
-This module loads data for both of these from package-local json.gz files.
-The module also provides the class LatticeStateEncoder for converting
-link, vertex multiplicity, and plaquette states to and from bit string encodings.
-See the documentation on the class itself for more information.
+It provides the irreps' i-weights, the link bitmaps (IRREP_TRUNCATIONS), and
+the class LatticeStateEncoder for converting link, vertex multiplicity, and
+plaquette states to and from bit string encodings. See the documentation on
+the class itself for more information. It also provides
+physical_plaquette_states, which computes a lattice's physical plaquette
+states with pyclebsch (https://github.com/hepqis-uiuc/pyclebsch).
 
 ########## Irrep link state bit string encodings ##########
 
-The constant IRREP_TRUNCATIONS is a dict of possible choices of link irrep states
-to include in a simulation. A particular choice of such states is referred to
-as a truncation throughout this codebase. The keys of IRREP_TRUNCATIONS correspond
-to particular choices of truncation, and the values are the actual bit string encodings.
-Example truncations:
+A truncation is a choice of which link irrep states to include in a
+simulation. Like pyclebsch, ymcirc specifies a truncation by a truncation
+mode and a cutoff c. The modes are pyclebsch's:
 
-- T1: contains 1, 3, 3bar
-- T2: contains T1 along with 6, 6bar, and 8
-- B3 (d=3/2, 2, 3): Limits total E^2 Casimir value at a vertex to 3.
+- "T": a link can carry any irrep with Dynkin labels (p, q) such that
+  p + q <= c, and every singlet of those irreps is allowed at a vertex. T1
+  (mode "T", cutoff 1) has 1, 3 and 3bar; T2 adds 6, 6bar and 8.
+- "C": a link can carry any irrep whose quadratic Casimir is at most c, and
+  every singlet of those irreps is allowed at a vertex.
+- "B": a singlet is allowed at a vertex only if the quadratic Casimirs of its
+  links sum to at most c. B3 (mode "B", cutoff 3), for example, has 1, 3 and
+  3bar on its links.
 
-Consult IRREP_TRUNCATIONS for a complete list of currently supported irrep truncations.
+Quadratic Casimirs are normalized so that the Casimir of the 3 is 4/3.
 
-Each truncation is a dictionary which map length-3 tuples to unique bit strings.
+The constant IRREP_TRUNCATIONS holds the link bitmaps: the bit string
+encodings of the irreps on a lattice's links. It is keyed by the set of those
+irreps, as a frozenset (a plain set cannot be a dict key). For example, the
+bitmap for 1, 3 and 3bar (whose constants are defined below) is
+
+IRREP_TRUNCATIONS[frozenset({ONE, THREE, THREE_BAR})]
+
+LatticeStateEncoder.for_truncation(lattice, truncation_mode, cutoff) computes
+the lattice's physical plaquette states, and uses the bitmap for the set of
+irreps on their links. The comment above
+IRREP_TRUNCATIONS lists which truncations each entry covers. A truncation
+whose set of irreps has no entry needs a link bitmap passed to
+for_truncation.
+
+Each link bitmap is a dictionary which maps length-3 tuples to unique bit strings.
 The tuples represent "i-Weights", which are a way of uniquely labeling
 SU(N) irreps which come from working with the Gelfand-Tsetlin pattern calculus.
 See Arne et al for more details (https://doi.org/10.1063/1.3521562).
@@ -41,8 +57,7 @@ i-Weight values:
 
 There are generically "leftover" states when encoding a particular truncation
 into a set of qubits (i.e. the state space of a link in a particular truncation
-is usually not of dimension 2^n). These are omitted from the irrep truncation
-dicts.
+is usually not of dimension 2^n). These are omitted from the link bitmaps.
 
 There is also generically a multiplicity index associated with each lattice vertex
 denoting which singlet state the vertex is in. The multiplicity index is needed because
@@ -52,29 +67,14 @@ which yield various "multiplicites" of singlets.
 
 ########## Physical plaquette states, and singlet multiplicities ##########
 
-The dict of (lazy-loaded) dicts PHYSICAL_PLAQUETTE_STATES consists of all the single-plaquette
-gauge-invariant states in a particular lattice geometry and truncation. For example, the dict
-contains data for (among other cases, see below):
+The function physical_plaquette_states(lattice_def, truncation_mode, cutoff)
+returns a list of all the single-plaquette gauge-invariant states of a
+lattice at a truncation, computed by pyclebsch. For example, for a periodic
+d=2 lattice of size 3 at T1:
 
-- d=3/2, T1 or T2
-- d=3, B3
+physical_plaquette_states(LatticeDef(2, 3), "T", 1)
 
-T1 refers to the ONE, THREE, THREE_BAR truncation, while T2 includes the
-additional states SIX, SIX_BAR, and EIGHT. B-truncations instead limit
-the maximum sum of electric Casimirs meeting at a given vertex.
-To get the physical states for a particular case, use the following syntax:
-
-PHYSICAL_PLAQUETTE_STATES["d=2"]["T2"]
-
-Since the key in this dict is a string, spacing and capitalization is
-necessary. NOTE: "d=3/2" works but "d=1.5" will cause a KeyError.
-Additionally, some truncations depend on dimension; in such cases, there
-is a string postfix to the truncation key which lists applicable dimensions.
-See PHYSICAL_PLAQUETTE_STATES in this module for a current list of cases.
-
-The entries in the physical states dict consist of lists of all the
-single-plaquete gauge-invariant states in that particular dimensionality and truncation.
-The plaquette data takes the form a tuple of tuples:
+Each plaquette state takes the form of a tuple of tuples:
 
 plaquette = (
     vertex_multiplicities,
@@ -123,38 +123,9 @@ c_v1_dir-1 ---- v1 ----l1--- v2 ---- c_v2_dir+1
                    |            |
               c_v1_dir-2   c_v2_dir-2
 
-Finally, it is a special quirk of d=3/2, T1 that there are no nontrivial singlet multiplicities,
-and those data can be ignored.
-
-########## Magnetic Hamiltonian box term data ##########
-
-Data on the box term of the magnetic Hamiltonian is (lazy) loaded into the dict
-HAMILTONIAN_BOX_TERMS. This dict follows an indexing pattern similar to
-that of PHYSICAL_PLAQUETTE_STATES, and contains the same cases.
-
-Once a particular case of dimension and truncation has been chosen,
-the actual matrix element data takes the form of a
-dictionary whose keys are tuples (final_plaquette_state, initial_plaquette_state)
-and whose values are themselves dicts (see the type alias MatrixElementValue, defined in this module).
-As an example of the data shape for d=3:
-
-HAMILTONIAN_BOX_TERMS["d=3"][trunc_string] = {
-    (plaq_1, plaq_2): {
-        (1, 2): {sig_1: 0.9, ...},
-        (1, 3): {sig_2: 0.3, ...},
-        (2, 3): {sig_3: 0.5, ...},
-    },
-    ...
-}
-
-plaq_1 and plaq_2 taking the form described above for plaquette states.
-The lower dict level of nested plane tuples is present even for d=3/2 and d=2,
-and the lowest level of dictionary has keys which are Signature-valued (see the
-relevant type alias in this module).
-
-See the definition of HAMILTONIAN_BOX_TERMS below for a complete listing of all available
-combinations of dimension and truncation data. NOTE AGAIN: "d=3/2" works but
-"d=1.5" will cause a KeyError.
+For some lattices and truncations (d=3/2 at T1, for example), no vertex has a
+singlet multiplicity greater than one, so every multiplicity index is 0 and
+those data can be ignored; the encoder's vertex bitmap is then empty.
 
 For small, periodic lattices, the same physical lattice link can be a control on
 distinct vertices in the same plaquette. For example, a periodic d=3/2 lattice
@@ -162,98 +133,58 @@ with size 2 (2 plaquettes) will have c1 == c2 and c3 == c4. When circuits are co
 all plaquette states and magnetic Hamiltonian terms for which the control links do
 not satisfy these equality constraints will be discarded. This logic is handled in
 the ymcirc.circuit module.
+
+The matrix elements of the magnetic Hamiltonian between these states are
+computed, for the same lattice and truncation, by
+LatticeCircuitManager.for_truncation in ymcirc.circuit, whose constructor
+documents their format.
 """
 from __future__ import annotations
-import ast
 import copy
 import logging
-from pathlib import Path
 import numpy as np
-from typing import Tuple, Dict, Union, List
-from ymcirc._abstract import LatticeDef, Plane, Signature
-from ymcirc.utilities import LazyDict, json_loader
+from pyclebsch.matrix_elements.lattice_data import SiteMultiplicityIndex
+from pyclebsch.su_n_operators import IrrepWeight
+from ymcirc._abstract import LatticeDef
+from ymcirc._pyclebsch_adapter import (
+    MatrixElementValue,
+    PlaquetteState,
+    physical_plaquette_states,
+)
+
+# IrrepWeight (pyclebsch's), MatrixElementValue, PlaquetteState and
+# physical_plaquette_states (ymcirc._pyclebsch_adapter's) are defined
+# elsewhere and available from here.
+__all__ = [
+    "EIGHT",
+    "FIFTEEN",
+    "FIFTEEN_BAR",
+    "IRREP_TRUNCATIONS",
+    "ONE",
+    "SIX",
+    "SIX_BAR",
+    "THREE",
+    "THREE_BAR",
+    "BitString",
+    "IrrepBitmap",
+    "IrrepWeight",
+    "LatticeStateEncoder",
+    "MatrixElementValue",
+    "PlaquetteState",
+    "VertexMultiplicityBitmap",
+    "physical_plaquette_states",
+]
 
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
 
 
-# Filesystem stuff.
-_PROJECT_ROOT = Path(__file__).parent
-_HAMILTONIAN_DATA_DIR = _PROJECT_ROOT / "_ymcirc_data/magnetic-hamiltonian-box-term-matrix-elements/"
-_PLAQUETTE_STATES_DATA_DIR = _PROJECT_ROOT / "_ymcirc_data/plaquette-states/"
-_HAMILTONIAN_DATA_FILE_PATHS: Dict[str, Dict[str, Path]] = {
-    "d=3/2": {
-        "T1": _HAMILTONIAN_DATA_DIR / "T1_dim(3_2)_magnetic_hamiltonian.json.gz",
-        "T2": _HAMILTONIAN_DATA_DIR / "T2_dim(3_2)_magnetic_hamiltonian.json.gz",
-        "B3": _HAMILTONIAN_DATA_DIR / "B3_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
-        "B5": _HAMILTONIAN_DATA_DIR / "B5_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
-        "B6": _HAMILTONIAN_DATA_DIR / "B6_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
-        "B7": _HAMILTONIAN_DATA_DIR / "B7_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
-        "B8": _HAMILTONIAN_DATA_DIR / "B8_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
-        "B9": _HAMILTONIAN_DATA_DIR / "B9_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
-        "B10": _HAMILTONIAN_DATA_DIR / "B10_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
-    },
-    "d=2": {
-        "T1": _HAMILTONIAN_DATA_DIR / "T1_dim(2)_magnetic_hamiltonian.json.gz",
-        "B3": _HAMILTONIAN_DATA_DIR / "B3_dim(2)_PBC_magnetic_hamiltonian.json.gz",
-        "B4": _HAMILTONIAN_DATA_DIR / "B4_dim(2)_PBC_magnetic_hamiltonian.json.gz",
-        "B7": _HAMILTONIAN_DATA_DIR / "B7_dim(2)_PBC_magnetic_hamiltonian.json.gz",
-    },
-    "d=3": {
-        "B3": _HAMILTONIAN_DATA_DIR / "B3_dim(3)_PBC_magnetic_hamiltonian.json.gz",
-        "B4": _HAMILTONIAN_DATA_DIR / "B4_dim(3)_PBC_magnetic_hamiltonian.json.gz",
-    }
-}
-_PLAQUETTE_STATES_DATA_FILE_PATHS: Dict[str, Dict[str, Path]] = {
-    "d=3/2": {
-        "T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(3_2)_plaquette_states.json.gz",
-        "T2": _PLAQUETTE_STATES_DATA_DIR / "T2_dim(3_2)_plaquette_states.json.gz",
-        "B3": _PLAQUETTE_STATES_DATA_DIR / "B3_dim(3_2)_PBC_plaquette_states.json.gz",
-        "B5": _PLAQUETTE_STATES_DATA_DIR / "B5_dim(3_2)_PBC_plaquette_states.json.gz",
-        "B6": _PLAQUETTE_STATES_DATA_DIR / "B6_dim(3_2)_PBC_plaquette_states.json.gz",
-        "B7": _PLAQUETTE_STATES_DATA_DIR / "B7_dim(3_2)_PBC_plaquette_states.json.gz",
-        "B8": _PLAQUETTE_STATES_DATA_DIR / "B8_dim(3_2)_PBC_plaquette_states.json.gz",
-        "B9": _PLAQUETTE_STATES_DATA_DIR / "B9_dim(3_2)_PBC_plaquette_states.json.gz",
-        "B10": _PLAQUETTE_STATES_DATA_DIR / "B10_dim(3_2)_PBC_plaquette_states.json.gz",
-    },
-    "d=2": {
-        "T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(2)_plaquette_states.json.gz",
-        "B3": _PLAQUETTE_STATES_DATA_DIR / "B3_dim(2)_PBC_plaquette_states.json.gz",
-        "B4": _PLAQUETTE_STATES_DATA_DIR / "B4_dim(2)_PBC_plaquette_states.json.gz",
-        "B7": _PLAQUETTE_STATES_DATA_DIR / "B7_dim(2)_PBC_plaquette_states.json.gz",
-    },
-    "d=3": {
-        "B3": _PLAQUETTE_STATES_DATA_DIR / "B3_dim(3)_PBC_plaquette_states.json.gz",
-        "B4": _PLAQUETTE_STATES_DATA_DIR / "B4_dim(3)_PBC_plaquette_states.json.gz",
-    }
-}
-
-# Useful type aliases.
-IrrepWeight = Tuple[int, int, int]
-LinkState = IrrepWeight  # A useful semantic alias
-BitString = str
-MultiplicityIndex = int
-IrrepBitmap = Dict[IrrepWeight, BitString]
-VertexMultiplicityBitmap = Dict[MultiplicityIndex, BitString]
-VertexControlLinks = Tuple[LinkState, ...]  # Variable-length tuple of i-weights at one vertex
-# Matrix element value: a nested dict keyed by plane, then signature.
-MatrixElementValue = Dict[Plane, Dict[Signature, float]]
-# Tuple of 4 vertex multiplicites, tuple of 4 "active links", tuple of 4 per-vertex control tuples.
-PlaquetteState = Union[
-    Tuple[
-        Tuple[MultiplicityIndex, MultiplicityIndex, MultiplicityIndex, MultiplicityIndex],
-        Tuple[LinkState, LinkState, LinkState, LinkState],
-        Tuple[VertexControlLinks, VertexControlLinks, VertexControlLinks, VertexControlLinks]
-    ],
-    Tuple[
-        Tuple[None, None, None, None],
-        Tuple[LinkState, LinkState, LinkState, LinkState],
-        Tuple[VertexControlLinks, VertexControlLinks, VertexControlLinks, VertexControlLinks]]
-]
-# Encoded plaquette state pair used as dict key in HamiltonianData.
-EncodedPlaquetteTransition = Tuple[str, str]
-# Dict mapping encoded state pairs to matrix element values (nested dict).
-HamiltonianData = Dict[EncodedPlaquetteTransition, MatrixElementValue]
+# Useful type aliases. IrrepWeight and SiteMultiplicityIndex are pyclebsch's,
+# and PlaquetteState and MatrixElementValue are defined in
+# ymcirc._pyclebsch_adapter, which produces data in those formats.
+type BitString = str
+type IrrepBitmap = dict[IrrepWeight, BitString]
+type VertexMultiplicityBitmap = dict[SiteMultiplicityIndex, BitString]
 
 # Irrep iweights (top row of GT pattern).
 # Note: related to (p, q) scheme via (p + q, q, 0).
@@ -266,15 +197,33 @@ EIGHT: IrrepWeight = (2, 1, 0)
 FIFTEEN: IrrepWeight = (3, 1, 0)
 FIFTEEN_BAR: IrrepWeight = (3, 2, 0)
 
-# Irrep encoding bitmaps.
-# TODO: refactor to make this depend on separate dimension and truncation keys.
-IRREP_TRUNCATIONS: Dict[str, IrrepBitmap] = {
-    "T1": {
+# Irrep encoding bitmaps, keyed by the set of irreps on a lattice's links.
+# The codes are chosen by hand: they decide which Givens rotations share an LP
+# family. LatticeStateEncoder.for_truncation looks up the entry for a lattice
+# and truncation.
+#
+# Each entry is the set of link irreps that some supported truncation produces.
+# On periodic lattices of size 3:
+# - {1, 3, 3bar}: T1 and B3 in d=3/2 and d=2; B5 in d=3/2; B3 and B4 in d=3;
+#   B4 in d=2.
+# - {1, 3, 3bar, 6, 6bar, 8}: T2 and B6-B9 in d=3/2; B7 in d=2.
+# - the same plus 15 and 15bar: B10 in d=3/2.
+# A B truncation with cutoff c keeps the singlets at a site whose links'
+# quadratic Casimirs sum to at most c (with C2(3) = 4/3, so C2(15) = 16/3 and
+# C2(10) = 6). In d=3/2 every site has three links, and the cheapest singlet
+# there that contains a 10 is 10 x 6bar x 3bar, whose Casimirs sum to 32/3. So
+# at B10, 10 and 10bar appear on no link, and the third entry needs no codes
+# for them; it fills all eight codes of three bits. They first appear at
+# B11, whose set has no entry: LatticeStateEncoder.for_truncation raises a
+# ValueError for it unless given codes to use as link_bitmap, and making codes
+# the default means adding an entry here, with codes chosen by hand.
+IRREP_TRUNCATIONS: dict[frozenset[IrrepWeight], IrrepBitmap] = {
+    frozenset({ONE, THREE, THREE_BAR}): {
         ONE: "00",
         THREE: "10",
         THREE_BAR: "01"
     },
-    "T2": {
+    frozenset({ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT}): {
         ONE: "000",
         THREE: "100",
         THREE_BAR: "001",
@@ -282,57 +231,7 @@ IRREP_TRUNCATIONS: Dict[str, IrrepBitmap] = {
         SIX_BAR: "011",
         EIGHT: "111"
     },
-    # B-series truncations from pyclebsch (distinct from T-series).
-    # When there is a difference between dimensions, key includes dimensional suffix
-    # Constituting a list of dimensions for which the irrep content applies.
-    "B3": {
-        ONE: "00",
-        THREE: "10",
-        THREE_BAR: "01"
-    },
-    "B4_d=2,d=3": {
-        ONE: "00",
-        THREE: "10",
-        THREE_BAR: "01"
-    },
-    "B5_d=3/2": {
-        ONE: "00",
-        THREE: "10",
-        THREE_BAR: "01"
-    },
-    "B6_d=3/2": {
-        ONE: "000",
-        THREE: "100",
-        THREE_BAR: "001",
-        SIX: "110",
-        SIX_BAR: "011",
-        EIGHT: "111"
-    },
-    "B7_d=3/2,d=2": {
-        ONE: "000",
-        THREE: "100",
-        THREE_BAR: "001",
-        SIX: "110",
-        SIX_BAR: "011",
-        EIGHT: "111"
-    },
-    "B8_d=3/2": {
-        ONE: "000",
-        THREE: "100",
-        THREE_BAR: "001",
-        SIX: "110",
-        SIX_BAR: "011",
-        EIGHT: "111"
-    },
-    "B9_d=3/2": {
-        ONE: "000",
-        THREE: "100",
-        THREE_BAR: "001",
-        SIX: "110",
-        SIX_BAR: "011",
-        EIGHT: "111"
-    },
-    "B10_d=3/2": {
+    frozenset({ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT, FIFTEEN, FIFTEEN_BAR}): {
         ONE: "000",
         THREE: "100",
         THREE_BAR: "001",
@@ -341,232 +240,17 @@ IRREP_TRUNCATIONS: Dict[str, IrrepBitmap] = {
         EIGHT: "111",
         FIFTEEN: "101",
         FIFTEEN_BAR: "010"
-    }
-}
-
-# Module-level metadata cache, populated when data is first loaded.
-_DATA_METADATA: Dict[Tuple[str, str], dict] = {}
-
-
-def _load_plaquette_states(path: Path) -> List:
-    """Load plaquette states from a .json.gz file, caching metadata."""
-    data, metadata = json_loader(path)
-    # Determine the (dim_string, trunc_string) key from metadata.
-    dim_string = metadata.get("dim", "")
-    trunc_string = f"{metadata['truncation_mode']}{metadata['cutoff']}"
-    _DATA_METADATA[(dim_string, trunc_string)] = metadata
-    return data
-
-
-def _load_hamiltonian(path: Path) -> Dict:
-    """Load Hamiltonian matrix elements from a .json.gz file and cache metadata.
-
-    Every value is expected to be a nested dict: ``{Plane: {Signature: float}}``.
-    JSON encodes all dict keys as strings; this function converts the nested
-    plane and signature keys to tuples via ``ast.literal_eval`` so downstream
-    lookups work with native Python tuples.
-    """
-    data, metadata = json_loader(path)
-    dim_string = metadata.get("dim", "")
-    trunc_string = f"{metadata['truncation_mode']}{metadata['cutoff']}"
-    _DATA_METADATA[(dim_string, trunc_string)] = metadata
-    result = {}
-    for key, value in data.items():
-        converted_value = {}
-        for plane_str, plane_val in value.items():
-            plane_key = ast.literal_eval(plane_str) if isinstance(plane_str, str) else plane_str
-            converted_sigs = {}
-            for sig_str, sig_val in plane_val.items():
-                sig_key = ast.literal_eval(sig_str) if isinstance(sig_str, str) else sig_str
-                converted_sigs[sig_key] = sig_val
-            converted_value[plane_key] = converted_sigs
-        result[key] = converted_value
-    return result
-
-
-def get_data_metadata(dim_string: str, trunc_string: str, refresh: bool = False) -> dict:
-    """Return the metadata dict for the given dimension and truncation.
-
-    Uses _DATA_METADATA as a cache layer. On the first call for a given
-    (dim_string, trunc_string) pair, data is loaded from disk via the
-    PHYSICAL_PLAQUETTE_STATES LazyDict, which populates _DATA_METADATA as a
-    side effect. Subsequent calls return the cached value without disk access.
-
-    Note: LazyDict does not cache its loaded values internally — it re-reads
-    from disk on every __getitem__ call. The caching here is handled entirely
-    by _DATA_METADATA.
-
-    If refresh is True, a disk reload is forced regardless of whether metadata
-    is already cached, and _DATA_METADATA is updated with the fresh result.
-    """
-    key = (dim_string, trunc_string)
-    if key not in _DATA_METADATA or refresh:
-        # Force load by accessing the lazy dict.
-        _ = PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string]
-    return _DATA_METADATA[key]
-
-
-# Lazy-load vertex physical plaquette states from precomputed json.gz files.
-# Entries has the format s, a, c,
-# where s is a tuple of 4 site multiplicity indices,
-# a is a tuple of 4 "active link" iweights,
-# and c is a tuple of 4 per-vertex control link tuples.
-PHYSICAL_PLAQUETTE_STATES: Dict[str, LazyDict] = {
-    dim_string: LazyDict({trunc_string: (_load_plaquette_states, file_path) for trunc_string, file_path in _PLAQUETTE_STATES_DATA_FILE_PATHS[dim_string].items()})
-    for dim_string in _PLAQUETTE_STATES_DATA_FILE_PATHS.keys()
-}
-
-# Lazy-load magnetic Hamiltonian box terms from precomputed json.gz files.
-# The following magnetic Hamiltonian box term data is available:
-# d=3/2, T1
-# d=3/2, T2
-# d=2, T1
-HAMILTONIAN_BOX_TERMS:  Dict[str, LazyDict] = {
-    dim_string: LazyDict({trunc_string: (_load_hamiltonian, file_path) for trunc_string, file_path in _HAMILTONIAN_DATA_FILE_PATHS[dim_string].items()})
-    for dim_string in _HAMILTONIAN_DATA_FILE_PATHS.keys()
+    },
 }
 
 
-def _filter_matrix_element_value(
-        value: MatrixElementValue,
-        threshold: float
-) -> MatrixElementValue | None:
-    """Apply a threshold filter to a MatrixElementValue.
-
-    Drops leaf floats if abs value is below threshold, prunes plane keys whose values become
-    empty after filtering, and returns None if all plane keys are pruned.
-    """
-    filtered: Dict[Plane, Dict[Signature, float]] = {}
-    for plane_key, plane_val in value.items():
-        filtered_sigs = {
-            sig: float(sig_val)
-            for sig, sig_val in plane_val.items()
-            if abs(sig_val) >= threshold
-        }
-        if filtered_sigs:
-            filtered[plane_key] = filtered_sigs
-    return filtered if filtered else None
-
-
-def load_magnetic_hamiltonian(
-        dim_string: str,
-        trunc_string: str,
-        lattice_encoder: LatticeStateEncoder,
-        mag_hamiltonian_matrix_element_threshold: float = 0,
-        only_include_elems_connected_to_electric_vacuum: bool = False,
-) -> Dict[Tuple[str, str], MatrixElementValue]:
-    """
-    Compute box + box^dagger as a dict keyed by encoded plaquette state pairs.
-
-    This is a convenience method to obtain the magnetic Hamiltonian terms in a
-    format which facilitates the construction of rotation circuits. The returned
-    dict maps (encoded_state_1, encoded_state_2) bit-string pairs to
-    MatrixElementValues (``Dict[Plane, Dict[Signature, float]]``).
-
-    Necessary arguments:
-      - dim_string: a string of the form "d=3/2" which specifies what
-        dimensionality lattice to assume when loading magnetic Hamiltonian data. See
-        the module docstring on ymcirc.conventions for more information.
-      - trunc_string: a string of the form "T1" which specifies
-        the particular link irrep truncation type to assume when loading magnetic Hamiltonian data. See
-        the module docstring on ymcirc.conventions for more information.
-      - lattice_encoder: A LatticeStateEncoder instance that allows en/decoding lattices states
-        as bit strings.
-
-    Optional arguments:
-      - mag_hamiltonian_matrix_element_threshold: Only include matrix elements
-        whose absolute value (or leaf absolute values, for dict-valued entries)
-        is at least this value.
-      - only_include_elems_connected_to_electric_vacuum: Drop any matrix elements
-        which aren't connected to the electric vacuum state.
-    """
-    rotations = compute_all_rotations_from_just_box_terms(
-        HAMILTONIAN_BOX_TERMS[dim_string][trunc_string]
+def _link_irreps(physical_plaquette_states: list[PlaquetteState]) -> frozenset[IrrepWeight]:
+    """Return the irreps that appear on any link, active or control, of any of the plaquette states."""
+    return frozenset(
+        link
+        for _, a_links, c_links in physical_plaquette_states
+        for link in (*a_links, *(c_link for corner in c_links for c_link in corner))
     )
-
-    mag_hamiltonian: Dict[Tuple[str, str], MatrixElementValue] = {}
-    for (plaquette_state_1, plaquette_state_2), matrix_elem in rotations.items():
-        # Apply threshold filter.
-        if mag_hamiltonian_matrix_element_threshold > 0:
-            filtered = _filter_matrix_element_value(matrix_elem, mag_hamiltonian_matrix_element_threshold)
-            if filtered is None:
-                continue
-            matrix_elem = filtered
-
-        state_1_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state_1)
-        state_2_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state_2)
-        if only_include_elems_connected_to_electric_vacuum and ('1' in state_1_bitstring) and ('1' in state_2_bitstring):
-            continue
-        mag_hamiltonian[(state_1_bitstring, state_2_bitstring)] = matrix_elem
-
-    logger.info(f"Loaded pre-computed magnetic Hamiltonian data from disk for {dim_string}, {trunc_string}. There are {len(mag_hamiltonian)} encoded state-pair entries (not yet resolved per plaquette via plane+signature filtering).")
-    n_matrix_elems = len([val for plane_dict in mag_hamiltonian.values() for sig_dict in plane_dict.values() for val in sig_dict.values()])
-    logger.info(f"Loaded {n_matrix_elems} floats.")
-
-    return mag_hamiltonian
-
-
-def _sum_matrix_element_values(a: MatrixElementValue, b: MatrixElementValue) -> MatrixElementValue:
-    """Sum two MatrixElementValues by merging their nested dict structures.
-
-    Both operands must be ``Dict[Plane, Dict[Signature, float]]``.
-    An empty dict ``{}`` acts as the identity element.
-
-    For matching plane keys, signature sub-dicts are merged: matching signature
-    keys have their float values summed; non-overlapping keys are preserved.
-    """
-    if not a:
-        return dict(b)
-    if not b:
-        return dict(a)
-
-    merged: Dict[Plane, Dict[Signature, float]] = {}
-    for plane_key in set(a) | set(b):
-        a_sigs = a.get(plane_key, {})
-        b_sigs = b.get(plane_key, {})
-        inner_merged: Dict[Signature, float] = dict(a_sigs)
-        for sig_key, sig_b_val in b_sigs.items():
-            if sig_key in inner_merged: # sig_a match, add sig_b_val to it
-                inner_merged[sig_key] = float(inner_merged[sig_key]) + float(sig_b_val)
-            else:               # no sig_a match, nothing to add to
-                inner_merged[sig_key] = sig_b_val
-        merged[plane_key] = inner_merged
-    return merged
-
-
-def compute_all_rotations_from_just_box_terms(
-        box_terms: Dict[Tuple[PlaquetteState, PlaquetteState], MatrixElementValue]
-) -> Dict[Tuple[PlaquetteState, PlaquetteState], MatrixElementValue]:
-    """
-    Compute the set of Givens rotations needed to simulate a magnetic Hamiltonian.
-
-    Note that box^dagger is automatically computed internally, do not input box + box^dagger!
-    Additionally assumes a convention has been chosen where box has no complex elements.
-
-    Returns a dict whose keys are (final_state, initial_state) tuples and whose
-    values are MatrixElementValues (``Dict[Plane, Dict[Signature, float]]``).
-    The dict structures are merged via _sum_matrix_element_values, which effectively
-    computes box + box^dagger.
-    """
-    # Get list of all state transitions appearing in box and box dagger, with no repetition for ordering.
-    seen_pairs: set = set()
-    all_transitions_unordered = []
-    for f, i in box_terms.keys():
-        pair = frozenset((f, i))  # frozenset in membership test is O(1) vs. O(n) for a regular set.
-        if pair not in seen_pairs:
-            seen_pairs.add(pair)
-            all_transitions_unordered.append((f, i))
-
-    # Use state transitions to sum the box and box^dagger amplitudes for
-    # transitions between states.
-    box_plus_box_dagger_rotations: Dict[Tuple[PlaquetteState, PlaquetteState], MatrixElementValue] = {}
-    for state_1, state_2 in all_transitions_unordered:
-        box_amplitude = box_terms.get((state_1, state_2), {})
-        box_dagger_amplitude = box_terms.get((state_2, state_1), {})
-        summed = _sum_matrix_element_values(box_amplitude, box_dagger_amplitude)
-        box_plus_box_dagger_rotations[(state_1, state_2)] = summed
-
-    return box_plus_box_dagger_rotations
 
 
 class LatticeStateEncoder:
@@ -580,7 +264,7 @@ class LatticeStateEncoder:
     def __init__(
             self,
             link_bitmap: IrrepBitmap,
-            physical_plaquette_states: List[PlaquetteState],
+            physical_plaquette_states: list[PlaquetteState],
             lattice: LatticeDef,
     ):
         """
@@ -603,9 +287,18 @@ class LatticeStateEncoder:
         Control links in plaquette states use a per-vertex nested format:
         c_links = ((c_at_v1, ...), (c_at_v2, ...), (c_at_v3, ...), (c_at_v4, ...))
 
-        ValueError raised if there are inconsistent length bit strings among the values
-        of the link bitmap dictionary, or there are duplicate entries in the
-        list of physical plaquette states.
+        A ValueError is raised if there are inconsistent length bit strings among the values
+        of the link bitmap dictionary, if there are duplicate entries in the
+        list of physical plaquette states, or if an irrep on a link of a
+        physical plaquette state has no code in the link bitmap (the error
+        names those irreps). The link bitmap may have codes for irreps that
+        appear on no link.
+
+        LatticeStateEncoder.for_truncation creates the encoder for a lattice
+        at an irrep truncation, using pyclebsch to either compute
+        the physical plaquette states or read them from memory if already
+        computed. An encoder created from the constructor has no truncation
+        (its truncation property is None).
         """
         # Validation of input.
         # Check link bitmaps for uniqueness of bit string encodings.
@@ -630,6 +323,11 @@ class LatticeStateEncoder:
             raise TypeError(f"The lattice argument must be an instance of {LatticeDef.__name__}. Received: {type(lattice)}.")
         if consistent_num_controls_in_plaquette_states is not True:
             raise ValueError("All physical plaquette states must have the same number of controls.")
+        irreps_without_code = _link_irreps(physical_plaquette_states) - link_bitmap.keys()
+        if irreps_without_code:
+            raise ValueError(
+                f"Argument link_bitmap has no code for the irreps {sorted(irreps_without_code)}, which appear on "
+                "the links of physical plaquette states.")
 
         # Now construct the vertex multiplicity bitmap, and infer qubit counts per DoFs.
         max_zero_indexed_multiplicity = max([current_vertex for vertices, a_links, c_links in physical_plaquette_states for current_vertex in vertices])
@@ -671,19 +369,80 @@ class LatticeStateEncoder:
         else:
             self._lattice = LatticeDef(lattice.dim, lattice.shape[0], lattice.periodic_boundary_conds, forder=lattice.forder)
 
-        # Retain plaquettes states used to create for repr method.
-        self.__physical_plaquette_states = copy.deepcopy(physical_plaquette_states)
-
-        # Cache for __repr__ string (computed lazily on first access).
-        self._repr_cache: str | None = None
+        # The repr gives the number of physical plaquette states, not the
+        # states, of which there can be millions.
+        self._n_physical_plaquette_states = len(physical_plaquette_states)
+        # Set by for_truncation; an encoder created from its constructor was
+        # given its physical plaquette states directly, for no truncation.
+        self._truncation: tuple[str, int] | None = None
 
         logger.info(f"Created {self}.")
 
+    @classmethod
+    def for_truncation(
+            cls,
+            lattice: LatticeDef,
+            truncation_mode: str,
+            cutoff: int,
+            link_bitmap: IrrepBitmap | None = None,
+    ) -> LatticeStateEncoder:
+        """
+        Create the encoder for lattice at an irrep truncation.
+
+        Arguments:
+        - lattice: as for LatticeStateEncoder.
+        - truncation_mode, cutoff: the irrep truncation, as pyclebsch's
+            irreps_and_singlets takes it, for example ("T", 1) or ("B", 3).
+            pyclebsch validates them.
+        - link_bitmap: optional. The codes of the link irreps. By default,
+            the entry of IRREP_TRUNCATIONS for exactly the set of irreps that
+            appear on the links of the lattice's physical plaquette states;
+            provide this argument if working with a set of irreps
+            not present in IRREP_TRUNCATIONS.
+
+        The physical plaquette states are computed/cached in memory by pyclebsch
+        (physical_plaquette_states). The link bitmap in use can be read from
+        the encoder's link_bitmap. The encoder records truncation_mode and
+        cutoff, readable as its truncation property, which
+        LatticeCircuitManager.for_truncation uses.
+
+        There are two scenarios where a ValueError is raised to aid the user:
+          1. link_bitmap is not provided, and IRREP_TRUNCATIONS has no entry for
+             the set of irreps occurring on the links of lattice with the given
+             truncation_mode and cutoff. In this case, the error message states
+             what the set of irreps appearing on the links is, and a custom
+             link_bitmap which contains them as a subset may be used.
+          2. link_bitmap is provided, but is missing an irrep which appears
+             on the provided lattice with the given truncation_mode and cutoff.
+             The irrep(s) missing from link_bitmap appear(s) in the error message.
+        """
+        states = physical_plaquette_states(lattice, truncation_mode, cutoff)
+        if link_bitmap is None:
+            link_irreps = _link_irreps(states)
+            if link_irreps not in IRREP_TRUNCATIONS:
+                raise ValueError(
+                    f"No link bitmap is registered for the irreps {sorted(link_irreps)}, which appear on the links of "
+                    f"{lattice} at truncation mode {truncation_mode!r} and cutoff {cutoff}. Pass your own bitmap codes as "
+                    "link_bitmap."
+                )
+            link_bitmap = IRREP_TRUNCATIONS[link_irreps]
+        encoder = cls(link_bitmap, states, lattice)
+        encoder._truncation = (truncation_mode, cutoff)
+        return encoder
+
     def __repr__(self):
-        if self._repr_cache is None:
-            class_name = type(self).__name__
-            self._repr_cache = f"{class_name}({self.link_bitmap}, {self.__physical_plaquette_states}, {self._lattice.__repr__()})"
-        return self._repr_cache
+        """
+        Return a summary of the encoder, not an expression that recreates it.
+
+        It gives the link bitmap, the lattice and the number of physical
+        plaquette states, because the number of physical plaquette states
+        can be extremely large.
+        """
+        class_name = type(self).__name__
+        return (
+            f"<{class_name} link_bitmap={self._link_bitmap!r}, lattice={self._lattice!r}, "
+            f"{self._n_physical_plaquette_states} physical plaquette states>"
+        )
 
     def __str__(self):
         return f"Lattice encoder:\nlink bitmap = {self.link_bitmap}\nvertex bitmap = {self.vertex_bitmap}\nlattice geometry = {self._lattice}"
@@ -692,6 +451,17 @@ class LatticeStateEncoder:
     def vertex_bitmap(self) -> VertexMultiplicityBitmap:
         """Return a copy of the vertex multiplicity bitmap in use."""
         return copy.deepcopy(self._vertex_bitmap)
+
+    @property
+    def truncation(self) -> tuple[str, int] | None:
+        """
+        Return the irrep truncation the encoder was created for, as (truncation_mode, cutoff).
+
+        None if the encoder was created from its constructor, with physical
+        plaquette states given directly; LatticeStateEncoder.for_truncation
+        records the truncation. It cannot be reassigned.
+        """
+        return self._truncation
 
     @property
     def link_bitmap(self) -> IrrepBitmap:
@@ -714,11 +484,6 @@ class LatticeStateEncoder:
         return self._expected_vertex_bit_string_length
 
     @property
-    def forder(self) -> List[int]:
-        """Return the half-link ordering convention (FORDER), inherited from the lattice argument."""
-        return self._lattice.forder
-
-    @property
     def lattice_def(self) -> LatticeDef:
         """Return copy of the LatticeDef instance used to create the encoder instance."""
         return copy.deepcopy(self._lattice)
@@ -727,7 +492,7 @@ class LatticeStateEncoder:
         """Encode an i-Weight tuple as a bit string."""
         return self._link_bitmap[link]
 
-    def decode_bit_string_to_link_state(self, encoded_link: str) -> Union[IrrepWeight, None]:
+    def decode_bit_string_to_link_state(self, encoded_link: str) -> IrrepWeight | None:
         """
         Decode a bit string to a linke state i-Weight tuple.
 
@@ -743,11 +508,11 @@ class LatticeStateEncoder:
         except KeyError:
             return None
 
-    def encode_vertex_state_as_bit_string(self, vertex: MultiplicityIndex) -> str:
+    def encode_vertex_state_as_bit_string(self, vertex: SiteMultiplicityIndex) -> str:
         """Encode a vertex multiplicity integer as a bit string."""
         return self._vertex_bitmap[vertex]
 
-    def decode_bit_string_to_vertex_state(self, encoded_vertex: str) -> Union[VertexBag, None]:
+    def decode_bit_string_to_vertex_state(self, encoded_vertex: str) -> SiteMultiplicityIndex | None:
         """
         Decode a bit string to a vertex multiplicity index.
 
@@ -924,6 +689,6 @@ class LatticeStateEncoder:
         return decoded_plaquette
 
     @staticmethod
-    def _split_string_evenly(string, split_length) -> List[str]:
+    def _split_string_evenly(string, split_length) -> list[str]:
         """Break up a string into parts of equal length."""
         return [string[i:i+split_length] for i in range(0, len(string), split_length)]

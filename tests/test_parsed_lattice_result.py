@@ -1,6 +1,5 @@
 import warnings
 import pytest
-from typing import Dict, List
 from ymcirc._abstract import LatticeDef
 from ymcirc.parsed_lattice_result import ParsedLatticeResult
 from ymcirc.conventions import LatticeStateEncoder, IrrepWeight, PlaquetteState, ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT
@@ -8,7 +7,7 @@ from ymcirc.conventions import LatticeStateEncoder, IrrepWeight, PlaquetteState,
 
 # Create some test data.
 @pytest.fixture
-def T1_link_bitmap() -> Dict[IrrepWeight, str]:
+def T1_link_bitmap() -> dict[IrrepWeight, str]:
     return {
         ONE: "00",
         THREE: "10",
@@ -17,7 +16,7 @@ def T1_link_bitmap() -> Dict[IrrepWeight, str]:
 
 
 @pytest.fixture
-def T2_link_bitmap() -> Dict[IrrepWeight, str]:
+def T2_link_bitmap() -> dict[IrrepWeight, str]:
     return {
         ONE: "000",
         THREE: "100",
@@ -29,7 +28,7 @@ def T2_link_bitmap() -> Dict[IrrepWeight, str]:
 
 
 @pytest.fixture
-def good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed() -> List[PlaquetteState]:
+def good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed() -> list[PlaquetteState]:
     return [
         (
             (0, 0, 0, 0),
@@ -50,7 +49,7 @@ def good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed() -> List[Plaq
 
 
 @pytest.fixture
-def good_physical_plaquette_states_d_3_2_T1_vertex_data_needed() -> List[PlaquetteState]:
+def good_physical_plaquette_states_d_3_2_T1_vertex_data_needed() -> list[PlaquetteState]:
     return [
         (
             (0, 0, 0, 0),
@@ -76,7 +75,7 @@ def good_physical_plaquette_states_d_3_2_T1_vertex_data_needed() -> List[Plaquet
 
 
 @pytest.fixture
-def good_physical_plaquette_states_d_3_2_T2_two_vertex_qubits_needed() -> List[PlaquetteState]:
+def good_physical_plaquette_states_d_3_2_T2_two_vertex_qubits_needed() -> list[PlaquetteState]:
     return [
         (
             (0, 0, 0, 0),
@@ -112,7 +111,7 @@ def good_physical_plaquette_states_d_3_2_T2_two_vertex_qubits_needed() -> List[P
 
 
 @pytest.fixture
-def good_physical_plaquette_states_d_2_T1_one_vertex_qubit() -> List[PlaquetteState]:
+def good_physical_plaquette_states_d_2_T1_one_vertex_qubit() -> list[PlaquetteState]:
     return [
         (
             (0, 0, 0, 0),
@@ -537,7 +536,7 @@ def test_global_bit_string_too_short_for_lattice_size(
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
     global_meas_bit_string = "10"  # This is too short.
 
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         ParsedLatticeResult(
         dimensions=1.5,
         size=4,
@@ -557,7 +556,7 @@ def test_inconsistent_dim_arg(
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
     global_meas_bit_string = "110001101000"
 
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         ParsedLatticeResult(
             dimensions=2,
             size=2,
@@ -571,7 +570,7 @@ def test_inconsistent_dim_arg(
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
     global_meas_bit_string = "1100011010001100"
 
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         ParsedLatticeResult(
             dimensions=1.5,
             size=2,
@@ -590,7 +589,7 @@ def test_inconsistent_size_arg(
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
     global_meas_bit_string = "110001101000000011110000"
 
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         ParsedLatticeResult(
             dimensions=1.5,
             size=4,
@@ -604,7 +603,7 @@ def test_inconsistent_size_arg(
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
     global_meas_bit_string = "110001101000"
 
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         ParsedLatticeResult(
             dimensions=1.5,
             size=2,
@@ -625,7 +624,7 @@ def test_inconsistent_boundary_conds_arg(
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
     global_meas_bit_string = "110001101000"
 
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         ParsedLatticeResult(
             dimensions=1.5,
             size=2,
@@ -639,7 +638,7 @@ def test_inconsistent_boundary_conds_arg(
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
     global_meas_bit_string = "110001101000"
 
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         ParsedLatticeResult(
             dimensions=1.5,
             size=2,
@@ -659,7 +658,7 @@ def test_global_bit_string_has_bad_chars(
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
     global_meas_bit_string = "1100011a1000"
 
-    with pytest.raises(TypeError) as e_info:
+    with pytest.raises(TypeError):
         ParsedLatticeResult(
             dimensions=1.5,
             size=2,
@@ -1125,3 +1124,25 @@ def test_from_partial_measurement_wrong_vertex_bitstring_length(
         ParsedLatticeResult.from_partial_measurement(
             [((0, 0), "010")], encoder
         )
+
+
+def test_reprs_summarize_physical_plaquette_states(
+        T1_link_bitmap,
+        good_physical_plaquette_states_d_3_2_T1_vertex_data_needed):
+    """The encoder's repr, and a parsed result's, give the number of physical plaquette states, not the states."""
+    physical_plaquette_states = good_physical_plaquette_states_d_3_2_T1_vertex_data_needed
+    lattice_encoder = LatticeStateEncoder(T1_link_bitmap, physical_plaquette_states, LatticeDef(1.5, 4))
+    global_meas_bit_string = "0" + "1100" + "1" + "01" + "0" + "1000" + "0" + "00" + "1" + "1111" + "1" + "11" + "0" + "0000" + "0" + "00"
+    parsed_lattice_meas = ParsedLatticeResult(
+        dimensions=1.5,
+        size=4,
+        global_lattice_measurement_bit_string=global_meas_bit_string,
+        lattice_encoder=lattice_encoder)
+
+    # The fixture has four physical plaquette states.
+    assert len(physical_plaquette_states) == 4
+    encoder_repr = repr(lattice_encoder)
+    assert "4 physical plaquette states" in encoder_repr
+    assert repr(T1_link_bitmap) in encoder_repr
+    assert all(repr(state) not in encoder_repr for state in physical_plaquette_states)
+    assert encoder_repr in repr(parsed_lattice_meas)

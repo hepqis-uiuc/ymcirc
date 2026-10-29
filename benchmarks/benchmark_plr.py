@@ -12,25 +12,18 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import timeit
 from ymcirc._abstract import LatticeDef
-from ymcirc.conventions import (
-    IRREP_TRUNCATIONS, LatticeStateEncoder, PHYSICAL_PLAQUETTE_STATES,
-    get_data_metadata, ONE
-)
+from ymcirc.conventions import LatticeStateEncoder, ONE
 from ymcirc.parsed_lattice_result import ParsedLatticeResult
 
 
-def make_encoder(dim_string, trunc_string, lattice_size):
+def make_encoder(dim_string, truncation_mode, cutoff, lattice_size):
     """Create a LatticeStateEncoder for the given config."""
     if dim_string == "d=3/2":
         dim = 1.5
     else:
         dim = int(dim_string[2:])
-    link_bitmap = IRREP_TRUNCATIONS[trunc_string]
-    plaquette_states = PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string]
-    metadata = get_data_metadata(dim_string, trunc_string)
-    forder = metadata.get("f_order", None)
-    lattice_def = LatticeDef(dim, lattice_size, True, forder=forder)
-    return LatticeStateEncoder(link_bitmap, plaquette_states, lattice_def)
+    lattice_def = LatticeDef(dim, lattice_size, True)
+    return LatticeStateEncoder.for_truncation(lattice_def, truncation_mode, cutoff)
 
 
 def make_vacuum_bitstring(encoder):
@@ -45,13 +38,13 @@ def make_vacuum_bitstring(encoder):
     return bitstring
 
 
-def benchmark_config(dim_string, trunc_string, lattice_size, n_iterations=100):
+def benchmark_config(dim_string, truncation_mode, cutoff, lattice_size, n_iterations=100):
     """Benchmark PLR construction for a given config."""
-    encoder = make_encoder(dim_string, trunc_string, lattice_size)
+    encoder = make_encoder(dim_string, truncation_mode, cutoff, lattice_size)
     bitstring = make_vacuum_bitstring(encoder)
     lattice_def = encoder.lattice_def
 
-    print(f"\n--- {dim_string}, {trunc_string}, size={lattice_size} ---")
+    print(f"\n--- {dim_string}, {truncation_mode}{cutoff}, size={lattice_size} ---")
     print(f"  Bitstring length: {len(bitstring)}")
     print(f"  Vertices: {lattice_def.n_vertices}, Links: {lattice_def.n_links}")
 
@@ -76,16 +69,16 @@ if __name__ == "__main__":
     print("=" * 60)
 
     # Small: d=3/2, T1, size=2 (fewest vertices/links)
-    t_small = benchmark_config("d=3/2", "T1", 2, n_iterations=200)
+    t_small = benchmark_config("d=3/2", "T", 1, 2, n_iterations=200)
 
     # Medium: d=2, T1, size=2 (the case from the issue)
-    t_medium = benchmark_config("d=2", "T1", 2, n_iterations=200)
+    t_medium = benchmark_config("d=2", "T", 1, 2, n_iterations=200)
 
     # Large: d=2, T1, size=4
-    t_large = benchmark_config("d=2", "T1", 4, n_iterations=200)
+    t_large = benchmark_config("d=2", "T", 1, 4, n_iterations=200)
 
     # Even larger: d=3/2, T2, size=4
-    t_xlarge = benchmark_config("d=3/2", "T2", 4, n_iterations=200)
+    t_xlarge = benchmark_config("d=3/2", "T", 2, 4, n_iterations=200)
 
     print("\n" + "=" * 60)
     print("Summary")

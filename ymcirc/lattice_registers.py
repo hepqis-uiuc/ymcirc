@@ -3,12 +3,10 @@ from __future__ import annotations
 import copy
 import logging
 from qiskit.circuit import QuantumRegister  # type: ignore
-from typing import List, Dict, Union
 from ymcirc.conventions import IrrepBitmap, LatticeStateEncoder, VertexMultiplicityBitmap
 from ymcirc._abstract.lattice_data import (
     LatticeData, Plaquette, LatticeVector, LatticeDef,
-    LinkUnitVectorLabel, LinkAddress, DimensionalitySpecifier,
-    VERTICAL_DIR_LABEL, VERTICAL_NUM_VERTICES_D_THREE_HALVES
+    LinkUnitVectorLabel, LinkAddress, DimensionalitySpecifier
 )
 
 # Set up module-specific logger
@@ -53,8 +51,8 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
             periodic_boundary_conds: bool | tuple[bool, ...] = True,
             n_qubits_per_link: int = 1,
             n_qubits_per_vertex: int = 0,
-            link_bitmap: Union[IrrepBitmap, None] = None,
-            vertex_bitmap: Union[VertexMultiplicityBitmap, None] = None,
+            link_bitmap: IrrepBitmap | None = None,
+            vertex_bitmap: VertexMultiplicityBitmap | None = None,
             forder: list[int] | None = None):
         """Initialize all registers needed to simulate the lattice."""
         super().__init__(dimensions, size, periodic_boundary_conds, forder=forder)
@@ -136,8 +134,8 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
     def _initialize_qubit_registers(self, n_qubits_per_link: int, n_qubits_per_vertex: int):
         self._n_qubits_per_link = n_qubits_per_link
         self._n_qubits_per_vertex = n_qubits_per_vertex
-        self._vertex_registers: Dict[LatticeVector, QuantumRegister] = {}
-        self._link_registers: Dict[LinkAddress, QuantumRegister] = {}
+        self._vertex_registers: dict[LatticeVector, QuantumRegister] = {}
+        self._link_registers: dict[LinkAddress, QuantumRegister] = {}
         for vertex_vector in self.vertex_addresses:
             self._vertex_registers[vertex_vector] = QuantumRegister(self._n_qubits_per_vertex, name=f"v:{vertex_vector}")
         for link_address in self.link_addresses:
@@ -190,7 +188,7 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
             lattice_vector: LatticeVector,
             e1: LinkUnitVectorLabel,
             e2: LinkUnitVectorLabel
-    ) -> List[QuantumRegister]:
+    ) -> list[QuantumRegister]:
         """
         Return the link and vertex registers from a plaquette in a list ordered according to the local Hamiltonian.
 
@@ -234,7 +232,7 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
             + len(self._link_registers)*self.n_qubits_per_link
 
     @property
-    def link_bitmap(self) -> Union[IrrepBitmap, None]:
+    def link_bitmap(self) -> IrrepBitmap | None:
         """
         Return a copy of the link truncation dictionary to bitstrings.
 
@@ -243,7 +241,7 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
         return copy.deepcopy(self._link_bitmap)
 
     @property
-    def vertex_bitmap(self) -> Union[VertexMultiplicityBitmap, None]:
+    def vertex_bitmap(self) -> VertexMultiplicityBitmap | None:
         """
         Return a copy of the vertex singlet dictionary map to bitstrings.
 

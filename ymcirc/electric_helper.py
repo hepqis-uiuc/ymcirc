@@ -10,7 +10,6 @@ import logging
 from ymcirc.conventions import (IrrepWeight, BitString, IrrepBitmap,
                                 LatticeStateEncoder)
 from ymcirc.parsed_lattice_result import ParsedLatticeResult
-from typing import List
 
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
@@ -24,7 +23,7 @@ def _bitwise_addition(bit_string_1: str | BitString,
 
 
 def _diagonal_pauli_string(bit_string: str, N: int,
-                           casimir: float) -> List[int]:
+                           casimir: float) -> list[int]:
     """
     Generate a Pauli decomposition.
 
@@ -56,7 +55,7 @@ def gt_pattern_iweight_to_casimir(gt_tuple: IrrepWeight) -> float:
     return (p**2 + q**2 + p * q + 3 * p + 3 * q) / 3.0
 
 
-def casimirs(link_bitmap: IrrepBitmap) -> List[float]:
+def casimirs(link_bitmap: IrrepBitmap) -> list[float]:
     """Generate a list of Casimir eigenvalues from link bitmap i-Weights."""
     return [
         gt_pattern_iweight_to_casimir(irrep)
@@ -114,7 +113,7 @@ def convert_bitstring_to_evalue(
     return evalue
 
 
-def electric_hamiltonian(link_bitmap: IrrepBitmap) -> List[float]:
+def electric_hamiltonian(link_bitmap: IrrepBitmap) -> list[float]:
     """Give the total Pauli decomposition."""
     N = len(list(link_bitmap.values())[0])
     casimir_values = [
