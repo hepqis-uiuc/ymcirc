@@ -486,7 +486,7 @@ def test_lattice_encoder_infers_correct_plaquette_length():
     ]
     lattice_d_3_2 = LatticeDef(1.5, 3)
     # N_qubits_per_link * (N_control links + N active links) + 4*N_qubits_per_vertex
-    expected_qubits_per_plaquette = (2 * (4 + 4)) + (4 * 0)
+    expected_qubits_per_plaquette = (2 * (expected_num_controls_dict["d=3/2"] + 4)) + (4 * 0)
 
     plaquette_states_str_rep = "\n\t".join(f"{item}" for item in physical_states)
     print("\nCase:\n"
@@ -531,7 +531,7 @@ def test_lattice_encoder_infers_correct_plaquette_length():
         )
     ]
     # N_qubits_per_link * (N_control links + N active links) + 4*N_qubits_per_vertex
-    expected_qubits_per_plaquette = (2 * (4 + 4)) + (4 * 2)
+    expected_qubits_per_plaquette = (2 * (expected_num_controls_dict["d=3/2"] + 4)) + (4 * 2)
 
     plaquette_states_str_rep = "\n\t".join(f"{item}" for item in physical_states)
     print("\nCase:\n"
@@ -587,7 +587,7 @@ def test_lattice_encoder_infers_correct_plaquette_length():
     ]
     lattice_d_2 = LatticeDef(2, 3)
     # N_qubits_per_link * (N_control links + N active links) + 4*N_qubits_per_vertex
-    expected_qubits_per_plaquette = (2 * (8 + 4)) + (4 * 3)
+    expected_qubits_per_plaquette = (2 * (expected_num_controls_dict["d=2"] + 4)) + (4 * 3)
 
     plaquette_states_str_rep = "\n\t".join(f"{item}" for item in physical_states)
     print("\nCase:\n"
@@ -643,7 +643,7 @@ def test_lattice_encoder_infers_correct_plaquette_length():
     ]
     lattice_d_3 = LatticeDef(3, 3)
     # N_qubits_per_link * (N_control links + N active links) + 4*N_qubits_per_vertex
-    expected_qubits_per_plaquette = (2 * (16 + 4)) + (4 * 3)
+    expected_qubits_per_plaquette = (2 * (expected_num_controls_dict["d=3"] + 4)) + (4 * 3)
 
     plaquette_states_str_rep = "\n\t".join(f"{item}" for item in physical_states)
     print("\nCase:\n"

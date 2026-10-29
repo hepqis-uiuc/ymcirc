@@ -341,8 +341,6 @@ def test_MCRX_with_ancillas_fails_with_less_ancillas():
     bs2 = "011011"
     control_qubit = 2
     angle = 0.5
-    expected_ctrls = [0, 1, 3, 4, 5]
-    expected_ctrl_state = "11010"
     num_ancillas = 2 # technically should be 3 ancillas
     print(
         f"Case incorrect ancillas: bs1 = {bs1}, bs2 = {bs2}, ctrl_qubit = {control_qubit}, angle = {angle}, ancillas = {num_ancillas}"
