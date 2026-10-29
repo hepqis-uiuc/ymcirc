@@ -22,7 +22,7 @@ from qiskit import transpile, qpy
 from qiskit_aer import AerSimulator
 from qiskit.circuit import QuantumCircuit
 from qiskit.qasm3 import dumps, load
-from typing import Any, Set
+from typing import Any
 from ymcirc._abstract import LatticeDef
 from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.conventions import (
@@ -232,7 +232,7 @@ def configure_script_options(
 
 
 def initialize_lattice_tools(script_options: dict[str, Any]) -> tuple[
-        LatticeStateEncoder, Set[str], LatticeRegisters, LatticeCircuitManager, QuantumCircuit]:
+        LatticeStateEncoder, set[str], LatticeRegisters, LatticeCircuitManager, QuantumCircuit]:
     """
     Initialize some tools for creating a new lattice circuit.
 
@@ -264,7 +264,7 @@ def initialize_lattice_tools(script_options: dict[str, Any]) -> tuple[
     # Figure out physical states needed for control pruning. pyclebsch has
     # them in memory from building the encoder.
     if script_options["prune_controls"] is True:
-        physical_states_for_control_pruning: Set[str] | None = set(
+        physical_states_for_control_pruning: set[str] | None = set(
             lattice_encoder.encode_plaquette_state_as_bit_string(plaquette)
             for plaquette in physical_plaquette_states(
                 script_options["lattice_def"], script_options["truncation_mode"], script_options["cutoff"]))

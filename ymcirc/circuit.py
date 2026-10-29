@@ -45,7 +45,7 @@ from qiskit.circuit.library.standard_gates import RXGate, CXGate
 from qiskit import qasm3, qpy
 from qiskit.transpiler import PassManager
 from qiskit.transpiler.passes import InverseCancellation
-from typing import List, Tuple, Set, Union, Dict
+from typing import Union
 import numpy as np
 
 # Set up module-specific logger
@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 # we re-index when doing circuit construction.
 # A dict with key hierarchy: plane -> (bs1, bs2) -> signature -> float.
 # Bitstring keys are already trimmed on small periodic lattices.
-PlaneKeyedHamiltonianData = Dict[Plane, Dict[Tuple[str, str], Dict[Signature, float]]]
+PlaneKeyedHamiltonianData = dict[Plane, dict[tuple[str, str], dict[Signature, float]]]
 
 
 class LatticeCircuitManager:
@@ -116,7 +116,7 @@ class LatticeCircuitManager:
         # LatticeCircuitManager instance.
         self._encoder = copy.deepcopy(lattice_encoder)
         _input_hamiltonian: HamiltonianData = copy.deepcopy(mag_hamiltonian)
-        self._cached_mag_evol_circuits: Dict[Tuple[Plane, Signature], QuantumCircuit] = {}
+        self._cached_mag_evol_circuits: dict[tuple[Plane, Signature], QuantumCircuit] = {}
         self._cached_mag_evol_params = {
             "physical_states_for_control_pruning": None,
             "optimize_circuits": None,
@@ -151,7 +151,7 @@ class LatticeCircuitManager:
         self._lattice_is_small = True if lattice_size <= lattice_size_threshold_for_smallness else False
 
         # Cache control link dirs per plane for small periodic lattices (used by consistency/discard methods).
-        self._cached_ctrl_dirs_small_and_periodic: Dict[Plane, tuple] = {}
+        self._cached_ctrl_dirs_small_and_periodic: dict[Plane, tuple] = {}
         if self._lattice_is_small and self._lattice_is_periodic:
             _temp_lattice = LatticeRegisters.from_lattice_state_encoder(self._encoder)
             dim = self._encoder.lattice_def.dim
@@ -330,7 +330,7 @@ class LatticeCircuitManager:
         a parent class of LatticeRegisters. See the documentation on LatticeData
         for details.
         """
-        all_lattice_registers: List[QuantumRegister] = [reg for reg in lattice]
+        all_lattice_registers: list[QuantumRegister] = [reg for reg in lattice]
 
         return QuantumCircuit(*all_lattice_registers)
 
@@ -339,7 +339,7 @@ class LatticeCircuitManager:
             master_circuit: QuantumCircuit,
             lattice: LatticeRegisters,
             control_fusion: bool = False,
-            physical_states_for_control_pruning: Union[None | Set[str]] = None,
+            physical_states_for_control_pruning: Union[None | set[str]] = None,
             optimize_circuits: bool = False) -> int:
         """
         Computes the number of ancilla qubits needed to perform v-chain synthesis in the master_circuit
@@ -601,7 +601,7 @@ class LatticeCircuitManager:
         master_circuit: QuantumCircuit,
         lattice: LatticeRegisters,
         optimize_circuits: bool = True,
-        physical_states_for_control_pruning: Union[None | Set[str]] = None,
+        physical_states_for_control_pruning: Union[None | set[str]] = None,
         control_fusion: bool = False,
         cache_mag_evol_circuit: bool = False,
         givens_have_independent_params: bool = False
@@ -693,7 +693,7 @@ class LatticeCircuitManager:
 
         # Pre-compute per-plane skip indices for small periodic lattices.
         # Maps (plane, vertex_idx) -> set of ctrl_idx values to skip.
-        _skip_indices: Dict[Tuple[Plane, int], set[int]] = {}
+        _skip_indices: dict[tuple[Plane, int], set[int]] = {}
         if self._lattice_is_small and self._lattice_is_periodic:
             dim = self._encoder.lattice_def.dim
             if dim == 1.5:
@@ -711,7 +711,7 @@ class LatticeCircuitManager:
         # Local cache for Hamiltonian data per (plane, signature).
         # On periodic lattices, all plaquettes share the same key, so this
         # avoids re-iterating over self._mag_hamiltonian for every plaquette.
-        _per_plane_and_signature_hamiltonian_cache: Dict[Tuple[Plane, Signature], List] = {}
+        _per_plane_and_signature_hamiltonian_cache: dict[tuple[Plane, Signature], list] = {}
 
         # Stitch magnetic Hamiltonian evolution circuit onto LatticeRegisters.
         # Vertex iteration loop.
@@ -727,11 +727,11 @@ class LatticeCircuitManager:
             logger.info(f"Fetching all positive plaquettes at vertex {vertex_address}.")
             has_only_one_positive_plaquette = lattice.dim == 1.5 or lattice.dim == 2
             if has_only_one_positive_plaquette:
-                plaquettes: List[Plaquette] = [
+                plaquettes: list[Plaquette] = [
                     lattice.get_plaquettes(vertex_address, 1, 2)
                 ]
             else:
-                plaquettes: List[Plaquette] = lattice.get_plaquettes(vertex_address)
+                plaquettes: list[Plaquette] = lattice.get_plaquettes(vertex_address)
             logger.debug(f"Found {len(plaquettes)} plaquette(s).")
 
             # For each plaquette, apply the the local Trotter step circuit.
@@ -890,7 +890,7 @@ class LatticeCircuitManager:
 
     def _strip_redundant_controls_if_small_and_periodic_lattice(
         self, physical_states_for_control_pruning: set[str] | None
-    ) -> Dict[Plane, set[str] | None] | None:
+    ) -> dict[Plane, set[str] | None] | None:
         """
         For lattices that are small and periodic, strip redundant controls per plane.
 
@@ -903,7 +903,7 @@ class LatticeCircuitManager:
                 or not self._lattice_is_small):
             return None
 
-        result: Dict[Plane, set[str] | None] = {}
+        result: dict[Plane, set[str] | None] = {}
         for plane in self._cached_ctrl_dirs_small_and_periodic:
             stripped = []
             for plaquette_string in physical_states_for_control_pruning:
@@ -924,7 +924,7 @@ class LatticeCircuitManager:
             hamiltonian: PlaneKeyedHamiltonianData,
             plane: Plane,
             signature: Signature,
-    ) -> List[Tuple[str, str, float]]:
+    ) -> list[tuple[str, str, float]]:
         """
         'Resolve' a PlaneKeyedHamiltonianData dict to a flat list for a specific plaquette's plane and signature.
 
@@ -937,7 +937,7 @@ class LatticeCircuitManager:
             _build_mag_evol_circuit and _sort_matrix_elements_into_lp_bins.
         """
         plane_data = hamiltonian.get(plane, {})
-        resolved: List[Tuple[str, str, float]] = []
+        resolved: list[tuple[str, str, float]] = []
         for (bs1, bs2), sig_dict in plane_data.items():
             sig_val = sig_dict.get(signature)
             if sig_val is not None:
@@ -947,9 +947,9 @@ class LatticeCircuitManager:
 
     def _build_mag_evol_circuit(
         self,
-        hamiltonian_for_specific_plane_and_signature: List[Tuple[str, str, float]],
+        hamiltonian_for_specific_plane_and_signature: list[tuple[str, str, float]],
         control_fusion: bool,
-        physical_states_for_control_pruning: Union[None | Set[str]],
+        physical_states_for_control_pruning: Union[None | set[str]],
         coupling_g: Parameter,
         dt: Parameter,
         optimize_circuits: bool,
@@ -1240,10 +1240,10 @@ class LatticeCircuitManager:
 
     @staticmethod
     def _sort_matrix_elements_into_lp_bins(
-        bitstrings_w_matrix_element: List[(str, str, float | Parameter)],
+        bitstrings_w_matrix_element: list[(str, str, float | Parameter)],
         coupling_g: float | Parameter,
         dt: float | Parameter,
-    ) -> Dict[LPFamily, List[(str, str, float | Parameter)]]:
+    ) -> dict[LPFamily, list[(str, str, float | Parameter)]]:
         """
         Rearrange magnetic Hamiltonian matrix elements to LP family bins.
 

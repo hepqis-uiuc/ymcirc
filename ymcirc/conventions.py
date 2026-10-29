@@ -169,7 +169,7 @@ import copy
 import logging
 from pathlib import Path
 import numpy as np
-from typing import Tuple, Dict, Union, List
+from typing import Union
 from pyclebsch.matrix_elements.lattice_data import SiteMultiplicityIndex
 from pyclebsch.su_n_operators import IrrepWeight
 from ymcirc._abstract import LatticeDef
@@ -188,7 +188,7 @@ logger = logging.getLogger(__name__)
 _PROJECT_ROOT = Path(__file__).parent
 _HAMILTONIAN_DATA_DIR = _PROJECT_ROOT / "_ymcirc_data/magnetic-hamiltonian-box-term-matrix-elements/"
 _PLAQUETTE_STATES_DATA_DIR = _PROJECT_ROOT / "_ymcirc_data/plaquette-states/"
-_HAMILTONIAN_DATA_FILE_PATHS: Dict[str, Dict[str, Path]] = {
+_HAMILTONIAN_DATA_FILE_PATHS: dict[str, dict[str, Path]] = {
     "d=3/2": {
         "T1": _HAMILTONIAN_DATA_DIR / "T1_dim(3_2)_magnetic_hamiltonian.json.gz",
         "T2": _HAMILTONIAN_DATA_DIR / "T2_dim(3_2)_magnetic_hamiltonian.json.gz",
@@ -211,7 +211,7 @@ _HAMILTONIAN_DATA_FILE_PATHS: Dict[str, Dict[str, Path]] = {
         "B4": _HAMILTONIAN_DATA_DIR / "B4_dim(3)_PBC_magnetic_hamiltonian.json.gz",
     }
 }
-_PLAQUETTE_STATES_DATA_FILE_PATHS: Dict[str, Dict[str, Path]] = {
+_PLAQUETTE_STATES_DATA_FILE_PATHS: dict[str, dict[str, Path]] = {
     "d=3/2": {
         "T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(3_2)_plaquette_states.json.gz",
         "T2": _PLAQUETTE_STATES_DATA_DIR / "T2_dim(3_2)_plaquette_states.json.gz",
@@ -239,12 +239,12 @@ _PLAQUETTE_STATES_DATA_FILE_PATHS: Dict[str, Dict[str, Path]] = {
 # and PlaquetteState and MatrixElementValue are defined in
 # ymcirc._pyclebsch_adapter, which produces data in those formats.
 BitString = str
-IrrepBitmap = Dict[IrrepWeight, BitString]
-VertexMultiplicityBitmap = Dict[SiteMultiplicityIndex, BitString]
+IrrepBitmap = dict[IrrepWeight, BitString]
+VertexMultiplicityBitmap = dict[SiteMultiplicityIndex, BitString]
 # Encoded plaquette state pair used as dict key in HamiltonianData.
-EncodedPlaquetteTransition = Tuple[str, str]
+EncodedPlaquetteTransition = tuple[str, str]
 # Dict mapping encoded state pairs to matrix element values (nested dict).
-HamiltonianData = Dict[EncodedPlaquetteTransition, MatrixElementValue]
+HamiltonianData = dict[EncodedPlaquetteTransition, MatrixElementValue]
 
 # Irrep iweights (top row of GT pattern).
 # Note: related to (p, q) scheme via (p + q, q, 0).
@@ -380,7 +380,7 @@ IRREP_TRUNCATIONS: dict[str | frozenset[IrrepWeight], IrrepBitmap] = {
 }
 
 
-def _link_irreps(physical_plaquette_states: List[PlaquetteState]) -> frozenset[IrrepWeight]:
+def _link_irreps(physical_plaquette_states: list[PlaquetteState]) -> frozenset[IrrepWeight]:
     """Return the irreps that appear on any link, active or control, of any of the plaquette states."""
     return frozenset(
         link
@@ -390,10 +390,10 @@ def _link_irreps(physical_plaquette_states: List[PlaquetteState]) -> frozenset[I
 
 
 # Module-level metadata cache, populated when data is first loaded.
-_DATA_METADATA: Dict[Tuple[str, str], dict] = {}
+_DATA_METADATA: dict[tuple[str, str], dict] = {}
 
 
-def _load_plaquette_states(path: Path) -> List:
+def _load_plaquette_states(path: Path) -> list:
     """Load plaquette states from a .json.gz file, caching metadata."""
     data, metadata = json_loader(path)
     # Determine the (dim_string, trunc_string) key from metadata.
@@ -403,7 +403,7 @@ def _load_plaquette_states(path: Path) -> List:
     return data
 
 
-def _load_hamiltonian(path: Path) -> Dict:
+def _load_hamiltonian(path: Path) -> dict:
     """Load Hamiltonian matrix elements from a .json.gz file and cache metadata.
 
     Every value is expected to be a nested dict: ``{Plane: {Signature: float}}``.
@@ -456,7 +456,7 @@ def get_data_metadata(dim_string: str, trunc_string: str, refresh: bool = False)
 # where s is a tuple of 4 site multiplicity indices,
 # a is a tuple of 4 "active link" iweights,
 # and c is a tuple of 4 per-vertex control link tuples.
-PHYSICAL_PLAQUETTE_STATES: Dict[str, LazyDict] = {
+PHYSICAL_PLAQUETTE_STATES: dict[str, LazyDict] = {
     dim_string: LazyDict({trunc_string: (_load_plaquette_states, file_path) for trunc_string, file_path in _PLAQUETTE_STATES_DATA_FILE_PATHS[dim_string].items()})
     for dim_string in _PLAQUETTE_STATES_DATA_FILE_PATHS.keys()
 }
@@ -466,7 +466,7 @@ PHYSICAL_PLAQUETTE_STATES: Dict[str, LazyDict] = {
 # d=3/2, T1
 # d=3/2, T2
 # d=2, T1
-HAMILTONIAN_BOX_TERMS:  Dict[str, LazyDict] = {
+HAMILTONIAN_BOX_TERMS:  dict[str, LazyDict] = {
     dim_string: LazyDict({trunc_string: (_load_hamiltonian, file_path) for trunc_string, file_path in _HAMILTONIAN_DATA_FILE_PATHS[dim_string].items()})
     for dim_string in _HAMILTONIAN_DATA_FILE_PATHS.keys()
 }
@@ -483,7 +483,7 @@ class LatticeStateEncoder:
     def __init__(
             self,
             link_bitmap: IrrepBitmap,
-            physical_plaquette_states: List[PlaquetteState],
+            physical_plaquette_states: list[PlaquetteState],
             lattice: LatticeDef,
     ):
         """
@@ -703,7 +703,7 @@ class LatticeStateEncoder:
         return self._expected_vertex_bit_string_length
 
     @property
-    def forder(self) -> List[int]:
+    def forder(self) -> list[int]:
         """Return the half-link ordering convention (FORDER), inherited from the lattice argument."""
         return self._lattice.forder
 
@@ -913,6 +913,6 @@ class LatticeStateEncoder:
         return decoded_plaquette
 
     @staticmethod
-    def _split_string_evenly(string, split_length) -> List[str]:
+    def _split_string_evenly(string, split_length) -> list[str]:
         """Break up a string into parts of equal length."""
         return [string[i:i+split_length] for i in range(0, len(string), split_length)]

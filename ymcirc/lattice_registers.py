@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import logging
 from qiskit.circuit import QuantumRegister  # type: ignore
-from typing import List, Dict, Union
+from typing import Union
 from ymcirc.conventions import IrrepBitmap, LatticeStateEncoder, VertexMultiplicityBitmap
 from ymcirc._abstract.lattice_data import (
     LatticeData, Plaquette, LatticeVector, LatticeDef,
@@ -136,8 +136,8 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
     def _initialize_qubit_registers(self, n_qubits_per_link: int, n_qubits_per_vertex: int):
         self._n_qubits_per_link = n_qubits_per_link
         self._n_qubits_per_vertex = n_qubits_per_vertex
-        self._vertex_registers: Dict[LatticeVector, QuantumRegister] = {}
-        self._link_registers: Dict[LinkAddress, QuantumRegister] = {}
+        self._vertex_registers: dict[LatticeVector, QuantumRegister] = {}
+        self._link_registers: dict[LinkAddress, QuantumRegister] = {}
         for vertex_vector in self.vertex_addresses:
             self._vertex_registers[vertex_vector] = QuantumRegister(self._n_qubits_per_vertex, name=f"v:{vertex_vector}")
         for link_address in self.link_addresses:
@@ -190,7 +190,7 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
             lattice_vector: LatticeVector,
             e1: LinkUnitVectorLabel,
             e2: LinkUnitVectorLabel
-    ) -> List[QuantumRegister]:
+    ) -> list[QuantumRegister]:
         """
         Return the link and vertex registers from a plaquette in a list ordered according to the local Hamiltonian.
 

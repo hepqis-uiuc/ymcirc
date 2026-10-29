@@ -1,7 +1,7 @@
 """Class for aggregating and analyzing measurement results from lattice quantum circuits."""
 from __future__ import annotations
 import logging
-from typing import Dict, Optional
+from typing import Optional
 import copy
 from ymcirc._abstract.lattice_data import LinkAddress
 from ymcirc.conventions import LatticeStateEncoder, ONE
@@ -27,7 +27,7 @@ class MeasurementResults:
 
     def __init__(
         self,
-        counts: Dict[ParsedLatticeResult, int] | Dict[str, int],
+        counts: dict[ParsedLatticeResult, int] | dict[str, int],
         encoder: LatticeStateEncoder,
     ):
         if not counts:
@@ -50,7 +50,7 @@ class MeasurementResults:
         if self._total_shots <= 0:
             raise ValueError("Total shot count must be positive.")
 
-    def get_counts(self, str_keys: bool = False) -> Dict[ParsedLatticeResult, int] | Dict[str, int]:
+    def get_counts(self, str_keys: bool = False) -> dict[ParsedLatticeResult, int] | dict[str, int]:
         """
         Return a copy of the underlying measurement data as a dict.
 

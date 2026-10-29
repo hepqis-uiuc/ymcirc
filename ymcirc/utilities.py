@@ -9,7 +9,7 @@ import numpy as np
 from pathlib import Path
 from qiskit.circuit import CircuitInstruction, QuantumCircuit, QuantumRegister
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
@@ -61,7 +61,7 @@ class LazyDict(Mapping):
         return len(self._raw_dict)
 
 
-def json_loader(json_path: Path) -> Tuple[Dict | List, dict]:
+def json_loader(json_path: Path) -> tuple[dict | list, dict]:
     """
     Load a gzip-compressed JSON file at json_path and return (data, metadata).
 
@@ -190,11 +190,11 @@ def _flatten_circuit(original_circuit: QuantumCircuit) -> QuantumCircuit:
     return flattened_circuit
 
 
-def eta_update(state: Optional[Dict] | None,
+def eta_update(state: Optional[dict] | None,
                processed: int,
                total: int,
                *,
-               alpha: float = 0.5) -> Tuple[Optional[Dict], Optional[float]]:
+               alpha: float = 0.5) -> tuple[Optional[dict], Optional[float]]:
     """
     Update ETA state and return (new_state, eta_seconds or None).
 

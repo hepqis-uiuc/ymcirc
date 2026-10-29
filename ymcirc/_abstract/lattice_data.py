@@ -3,29 +3,30 @@ from abc import ABC, abstractmethod
 from itertools import product
 import logging
 from math import ceil, isclose, comb
-from typing import List, Tuple, Union, Set, TypeVar, Generic, Iterable
+from typing import Union, TypeVar, Generic
+from collections.abc import Iterable
 
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
 
 # Type aliases and constants.
-LatticeVector = Union[List[int], Tuple[int, ...]]
+LatticeVector = Union[list[int], tuple[int, ...]]
 VertexAddress = LatticeVector
 # For indicating particular directions on a lattice. One-indexed.
 LinkUnitVectorLabel = int
-LinkAddress = Tuple[LatticeVector, LinkUnitVectorLabel]
+LinkAddress = tuple[LatticeVector, LinkUnitVectorLabel]
 DimensionalitySpecifier = Union[int, float, str]  # Allows specification of d = 3/2 via strings or floats.
 # A pair of lattice directions defining a plaquette plane.
-Plane = Tuple[int, int]
+Plane = tuple[int, int]
 # A signature is a tuple of 4 per-vertex direction-label tuples, each sorted by FORDER.
 # Each inner tuple contains the half-link direction labels (integers) for ALL existing
 # links at that vertex (both active and control), sorted by FORDER position.
 # This matches the signature keys used in the Hamiltonian data files.
-Signature = Tuple[
-    Tuple[int, ...],
-    Tuple[int, ...],
-    Tuple[int, ...],
-    Tuple[int, ...],
+Signature = tuple[
+    tuple[int, ...],
+    tuple[int, ...],
+    tuple[int, ...],
+    tuple[int, ...],
 ]
 
 # Constants
@@ -231,7 +232,7 @@ class Plaquette(Generic[T]):
         return tuple(result)
 
     @property
-    def control_link_dirs_per_vertex(self) -> Tuple[Tuple[int, ...], ...]:
+    def control_link_dirs_per_vertex(self) -> tuple[tuple[int, ...], ...]:
         """Per-vertex control link directions sorted by FORDER.
 
         For each of the 4 plaquette vertices, returns a tuple of the
@@ -271,7 +272,7 @@ class LatticeDef:
             dimensions: DimensionalitySpecifier,
             size: int | tuple[int, ...],
             periodic_boundary_conds: bool | tuple[bool, ...] = True,
-            forder: List[int] | None = None
+            forder: list[int] | None = None
     ):
         """
         Initialize a lattice with specified dimensionality, size, and boundary conditions.
@@ -355,7 +356,7 @@ class LatticeDef:
 
     def _configure_lattice(self, dim: DimensionalitySpecifier, size: int | tuple[int, ...]):
         if isinstance(size, Iterable):
-            self._shape: Tuple[int, ...] = size
+            self._shape: tuple[int, ...] = size
             self._dim: float | int = int(dim)
         elif dim == "3/2" or isclose(float(dim), 1.5):
             self._shape = (size, VERTICAL_NUM_VERTICES_D_THREE_HALVES)
@@ -366,7 +367,7 @@ class LatticeDef:
         else:
             raise ValueError(f"A {dim}-dimensional lattice doesn't make sense.")
         # Use of sets enforces no duplicates internally.
-        self._all_vertex_vectors: Set[LatticeVector] = set(product(
+        self._all_vertex_vectors: set[LatticeVector] = set(product(
             *[[i for i in range(axis_length)] for axis_length in self._shape]))
         # Use one-indexed labels for positive unit vectors.
         self._lattice_unit_vector_labels = [
@@ -463,7 +464,7 @@ class LatticeDef:
         return sorted(list(self._all_vertex_vectors))
 
     @property
-    def link_addresses(self) -> list[Tuple[LatticeVector, LinkUnitVectorLabel]]:
+    def link_addresses(self) -> list[tuple[LatticeVector, LinkUnitVectorLabel]]:
         """Retrieve all of the (LatticeVector, LinkUnitVectorLabel) tuples uniquely labeling lattice links."""
         return sorted(list(self._all_link_addreses))
 
@@ -483,7 +484,7 @@ class LatticeDef:
         return self._dim
 
     @property
-    def periodic_boundary_conds(self) -> bool | Tuple[bool, ...]:
+    def periodic_boundary_conds(self) -> bool | tuple[bool, ...]:
         """
         Return whether the lattice has periodic boundary conditions.
 
@@ -500,7 +501,7 @@ class LatticeDef:
                else self.periodic_boundary_conds
 
     @property
-    def forder(self) -> List[int]:
+    def forder(self) -> list[int]:
         """Return the half-link ordering convention (FORDER)."""
         return list(self._forder)
 
@@ -531,7 +532,7 @@ class LatticeDef:
 
         return result_vector
 
-    def get_traversal_order(self) -> List[Tuple[LatticeVector, List[LinkAddress]]]:
+    def get_traversal_order(self) -> list[tuple[LatticeVector, list[LinkAddress]]]:
         """
         Walk through all the vertex and link addresses in the lattice in a conventional order.
 
@@ -640,7 +641,7 @@ class LatticeData(ABC, LatticeDef, Generic[T]):
             dimensions: DimensionalitySpecifier,
             size: int | tuple[int, ...],
             periodic_boundary_conds: bool | tuple[bool, ...] = True,
-            forder: List[int] | None = None
+            forder: list[int] | None = None
     ):
         """
         Initialize a lattice with specified dimensionality, size, and boundary conditions.
@@ -694,7 +695,7 @@ class LatticeData(ABC, LatticeDef, Generic[T]):
                        e1: Union[LinkUnitVectorLabel, None] = None,
                        e2: Union[LinkUnitVectorLabel, None] = None,
                        **kwargs
-                       ) -> Plaquette[T] | List[Plaquette[T]]:
+                       ) -> Plaquette[T] | list[Plaquette[T]]:
         """
         Return the list of all "positive" Plaquettes associated with the vertex lattice_vector.
 
@@ -734,7 +735,7 @@ class LatticeData(ABC, LatticeDef, Generic[T]):
 
     def __iter__(self):
         """Use get_traversal_order method for iteration over lattice data."""
-        all_lattice_data: List[T] = []
+        all_lattice_data: list[T] = []
         for current_vertex_address, connected_link_addresses in self.get_traversal_order():
             all_lattice_data.append(self.get_vertex(current_vertex_address))
             for current_link_address in connected_link_addresses:

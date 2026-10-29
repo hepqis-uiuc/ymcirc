@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import logging
 import warnings
-from typing import Dict, List, Union, Optional
+from typing import Union, Optional
 from ymcirc._abstract.lattice_data import (
     LatticeData, LatticeDef, Plaquette, DimensionalitySpecifier, LatticeVector,
     LinkUnitVectorLabel, LinkAddress)
@@ -67,10 +67,10 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
             raise TypeError(f"Measurement bit string {global_lattice_measurement_bit_string} contains one or more non-binary characters.")
 
         # Initialize dicts to hold measurement data.
-        self._decoded_links: Dict[LinkAddress, IrrepWeight | None] = {}
-        self._decoded_vertices: Dict[LatticeVector, SiteMultiplicityIndex | None] = {}
-        self._bit_strings_links: Dict[LinkAddress, str] = {}
-        self._bit_strings_vertices: Dict[LatticeVector, str] = {}
+        self._decoded_links: dict[LinkAddress, IrrepWeight | None] = {}
+        self._decoded_vertices: dict[LatticeVector, SiteMultiplicityIndex | None] = {}
+        self._bit_strings_links: dict[LinkAddress, str] = {}
+        self._bit_strings_vertices: dict[LatticeVector, str] = {}
 
         # Walk through lattice, decoding each DoF using the encoder.
         start_current_vertex_and_links_substring_idx = 0
@@ -202,7 +202,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
                        e1: Union[LinkUnitVectorLabel, None] = None,
                        e2: Union[LinkUnitVectorLabel, None] = None,
                        get_bit_string: bool = False,
-                       ) -> Plaquette[MeasurementData] | List[Plaquette[MeasurementData]]:
+                       ) -> Plaquette[MeasurementData] | list[Plaquette[MeasurementData]]:
         """
         Return the list of all "positive" Plaquettes associated with the vertex lattice_vector.
 
@@ -293,8 +293,8 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
 
     @staticmethod
     def from_links_and_vertices(
-        links_dict: Dict[LinkAddress, IrrepWeight],
-        vertices_dict: Union[Dict[LatticeVector, SiteMultiplicityIndex], None] = None,
+        links_dict: dict[LinkAddress, IrrepWeight],
+        vertices_dict: Union[dict[LatticeVector, SiteMultiplicityIndex], None] = None,
         *,
         encoder: LatticeStateEncoder,
     ) -> ParsedLatticeResult:
@@ -326,7 +326,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
 
     @staticmethod
     def from_partial_measurement(
-        measurements: List[tuple[LatticeVector, str] | tuple[LinkAddress, str] | tuple[tuple[LinkAddress, LinkUnitVectorLabel, LinkUnitVectorLabel], str]],
+        measurements: list[tuple[LatticeVector, str] | tuple[LinkAddress, str] | tuple[tuple[LinkAddress, LinkUnitVectorLabel, LinkUnitVectorLabel], str]],
         encoder: LatticeStateEncoder,
     ) -> ParsedLatticeResult:
         """

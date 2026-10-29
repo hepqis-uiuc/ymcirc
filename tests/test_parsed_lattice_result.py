@@ -1,6 +1,5 @@
 import warnings
 import pytest
-from typing import Dict, List
 from ymcirc._abstract import LatticeDef
 from ymcirc.parsed_lattice_result import ParsedLatticeResult
 from ymcirc.conventions import LatticeStateEncoder, IrrepWeight, PlaquetteState, ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT
@@ -8,7 +7,7 @@ from ymcirc.conventions import LatticeStateEncoder, IrrepWeight, PlaquetteState,
 
 # Create some test data.
 @pytest.fixture
-def T1_link_bitmap() -> Dict[IrrepWeight, str]:
+def T1_link_bitmap() -> dict[IrrepWeight, str]:
     return {
         ONE: "00",
         THREE: "10",
@@ -17,7 +16,7 @@ def T1_link_bitmap() -> Dict[IrrepWeight, str]:
 
 
 @pytest.fixture
-def T2_link_bitmap() -> Dict[IrrepWeight, str]:
+def T2_link_bitmap() -> dict[IrrepWeight, str]:
     return {
         ONE: "000",
         THREE: "100",
@@ -29,7 +28,7 @@ def T2_link_bitmap() -> Dict[IrrepWeight, str]:
 
 
 @pytest.fixture
-def good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed() -> List[PlaquetteState]:
+def good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed() -> list[PlaquetteState]:
     return [
         (
             (0, 0, 0, 0),
@@ -50,7 +49,7 @@ def good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed() -> List[Plaq
 
 
 @pytest.fixture
-def good_physical_plaquette_states_d_3_2_T1_vertex_data_needed() -> List[PlaquetteState]:
+def good_physical_plaquette_states_d_3_2_T1_vertex_data_needed() -> list[PlaquetteState]:
     return [
         (
             (0, 0, 0, 0),
@@ -76,7 +75,7 @@ def good_physical_plaquette_states_d_3_2_T1_vertex_data_needed() -> List[Plaquet
 
 
 @pytest.fixture
-def good_physical_plaquette_states_d_3_2_T2_two_vertex_qubits_needed() -> List[PlaquetteState]:
+def good_physical_plaquette_states_d_3_2_T2_two_vertex_qubits_needed() -> list[PlaquetteState]:
     return [
         (
             (0, 0, 0, 0),
@@ -112,7 +111,7 @@ def good_physical_plaquette_states_d_3_2_T2_two_vertex_qubits_needed() -> List[P
 
 
 @pytest.fixture
-def good_physical_plaquette_states_d_2_T1_one_vertex_qubit() -> List[PlaquetteState]:
+def good_physical_plaquette_states_d_2_T1_one_vertex_qubit() -> list[PlaquetteState]:
     return [
         (
             (0, 0, 0, 0),

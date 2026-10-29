@@ -1,5 +1,4 @@
 import pytest
-from typing import List
 from ymcirc._abstract import LatticeDef
 from ymcirc.conventions import (
     PHYSICAL_PLAQUETTE_STATES, ONE, THREE,
@@ -172,7 +171,7 @@ def test_lattice_encoder_type_error_for_bad_lattice_arg():
         THREE: "10",
         THREE_BAR: "01"
     }
-    physical_states: List[PlaquetteState] = [
+    physical_states: list[PlaquetteState] = [
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
@@ -207,7 +206,7 @@ def test_lattice_encoder_fails_if_plaquette_states_have_wrong_number_of_controls
         THREE: "10",
         THREE_BAR: "01"
     }
-    physical_states: List[PlaquetteState] = [
+    physical_states: list[PlaquetteState] = [
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
@@ -244,7 +243,7 @@ def test_lattice_encoder_infers_correct_vertex_bitmaps():
         THREE: "10",
         THREE_BAR: "01"
     }
-    good_physical_states: List[PlaquetteState] = [
+    good_physical_states: list[PlaquetteState] = [
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
@@ -288,7 +287,7 @@ def test_lattice_encoder_infers_correct_vertex_bitmaps():
         THREE: "10",
         THREE_BAR: "01"
     }
-    good_physical_states: List[PlaquetteState] = [
+    good_physical_states: list[PlaquetteState] = [
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
@@ -337,7 +336,7 @@ def test_lattice_encoder_infers_correct_vertex_bitmaps():
         THREE: "10",
         THREE_BAR: "01"
     }
-    good_physical_states: List[PlaquetteState] = [
+    good_physical_states: list[PlaquetteState] = [
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
@@ -418,7 +417,7 @@ def test_lattice_encoder_infers_correct_vertex_bitmaps():
         THREE: "10",
         THREE_BAR: "01"
     }
-    good_physical_states: List[PlaquetteState] = [
+    good_physical_states: list[PlaquetteState] = [
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
@@ -468,7 +467,7 @@ def test_lattice_encoder_infers_correct_plaquette_length():
         THREE: "10",
         THREE_BAR: "01"
     }
-    physical_states: List[PlaquetteState] = [
+    physical_states: list[PlaquetteState] = [
         (
             (0, 0, 0, 0),
             (ONE, THREE, THREE, THREE_BAR),
@@ -681,7 +680,7 @@ def test_lattice_encoder_fails_on_bad_creation_args():
 
 
     print("Checking that repeated physical plaquette states cause a ValueError.")
-    non_unique_physical_states: List[PlaquetteState] = [
+    non_unique_physical_states: list[PlaquetteState] = [
         (
             (1, 1, 1, 1),
             (ONE, THREE, THREE, THREE_BAR),
@@ -711,7 +710,7 @@ def test_lattice_encoder_fails_on_bad_creation_args():
         THREE: "10",
         THREE_BAR: "10"
     }
-    good_physical_states: List[PlaquetteState] = [
+    good_physical_states: list[PlaquetteState] = [
         (
             (1, 1, 1, 1),
             (ONE, THREE, THREE, THREE_BAR),
