@@ -9,7 +9,6 @@ import numpy as np
 from pathlib import Path
 from qiskit.circuit import CircuitInstruction, QuantumCircuit, QuantumRegister
 import time
-from typing import Optional
 
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
@@ -190,11 +189,11 @@ def _flatten_circuit(original_circuit: QuantumCircuit) -> QuantumCircuit:
     return flattened_circuit
 
 
-def eta_update(state: Optional[dict] | None,
+def eta_update(state: dict | None,
                processed: int,
                total: int,
                *,
-               alpha: float = 0.5) -> tuple[Optional[dict], Optional[float]]:
+               alpha: float = 0.5) -> tuple[dict | None, float | None]:
     """
     Update ETA state and return (new_state, eta_seconds or None).
 

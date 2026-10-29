@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 import logging
 from qiskit.circuit import QuantumRegister  # type: ignore
-from typing import Union
 from ymcirc.conventions import IrrepBitmap, LatticeStateEncoder, VertexMultiplicityBitmap
 from ymcirc._abstract.lattice_data import (
     LatticeData, Plaquette, LatticeVector, LatticeDef,
@@ -53,8 +52,8 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
             periodic_boundary_conds: bool | tuple[bool, ...] = True,
             n_qubits_per_link: int = 1,
             n_qubits_per_vertex: int = 0,
-            link_bitmap: Union[IrrepBitmap, None] = None,
-            vertex_bitmap: Union[VertexMultiplicityBitmap, None] = None,
+            link_bitmap: IrrepBitmap | None = None,
+            vertex_bitmap: VertexMultiplicityBitmap | None = None,
             forder: list[int] | None = None):
         """Initialize all registers needed to simulate the lattice."""
         super().__init__(dimensions, size, periodic_boundary_conds, forder=forder)
@@ -234,7 +233,7 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
             + len(self._link_registers)*self.n_qubits_per_link
 
     @property
-    def link_bitmap(self) -> Union[IrrepBitmap, None]:
+    def link_bitmap(self) -> IrrepBitmap | None:
         """
         Return a copy of the link truncation dictionary to bitstrings.
 
@@ -243,7 +242,7 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
         return copy.deepcopy(self._link_bitmap)
 
     @property
-    def vertex_bitmap(self) -> Union[VertexMultiplicityBitmap, None]:
+    def vertex_bitmap(self) -> VertexMultiplicityBitmap | None:
         """
         Return a copy of the vertex singlet dictionary map to bitstrings.
 

@@ -18,7 +18,6 @@ from random import random
 from math import isclose
 import numpy as np
 import copy
-from typing import Union
 
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
@@ -679,7 +678,7 @@ def _CRXGate(num_ctrls: int, ctrl_state: str, angle: float) -> ControlledGate:
 
 
 def _CRXCircuit_with_MCX(
-        ctrl_list: list[Union[str, list[int]]], 
+        ctrl_list: list[str | list[int]],
         angle: float | Parameter | ParameterExpression,
         target: int,
         num_qubits: int,
@@ -780,7 +779,7 @@ def gray_to_index(gray_str: str) -> int:
 
 def _bitstrings_differ_in_one_bit(
     bitstring1: str, bitstring2: str
-) -> tuple[bool, Union[int | None]]:
+) -> tuple[bool, int | None]:
     """Checks if two bitstrings differ just in one bit."""
     if len(bitstring1) != len(bitstring2):
         raise AttributeError("The length of the two bitstrings must be equal")

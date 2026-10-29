@@ -169,7 +169,6 @@ import copy
 import logging
 from pathlib import Path
 import numpy as np
-from typing import Union
 from pyclebsch.matrix_elements.lattice_data import SiteMultiplicityIndex
 from pyclebsch.su_n_operators import IrrepWeight
 from ymcirc._abstract import LatticeDef
@@ -716,7 +715,7 @@ class LatticeStateEncoder:
         """Encode an i-Weight tuple as a bit string."""
         return self._link_bitmap[link]
 
-    def decode_bit_string_to_link_state(self, encoded_link: str) -> Union[IrrepWeight, None]:
+    def decode_bit_string_to_link_state(self, encoded_link: str) -> IrrepWeight | None:
         """
         Decode a bit string to a linke state i-Weight tuple.
 
@@ -736,7 +735,7 @@ class LatticeStateEncoder:
         """Encode a vertex multiplicity integer as a bit string."""
         return self._vertex_bitmap[vertex]
 
-    def decode_bit_string_to_vertex_state(self, encoded_vertex: str) -> Union[VertexBag, None]:
+    def decode_bit_string_to_vertex_state(self, encoded_vertex: str) -> VertexBag | None:
         """
         Decode a bit string to a vertex multiplicity index.
 

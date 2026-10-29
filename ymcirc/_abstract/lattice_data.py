@@ -3,19 +3,19 @@ from abc import ABC, abstractmethod
 from itertools import product
 import logging
 from math import ceil, isclose, comb
-from typing import Union, TypeVar, Generic
+from typing import TypeVar, Generic
 from collections.abc import Iterable
 
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
 
 # Type aliases and constants.
-LatticeVector = Union[list[int], tuple[int, ...]]
+LatticeVector = list[int] | tuple[int, ...]
 VertexAddress = LatticeVector
 # For indicating particular directions on a lattice. One-indexed.
 LinkUnitVectorLabel = int
 LinkAddress = tuple[LatticeVector, LinkUnitVectorLabel]
-DimensionalitySpecifier = Union[int, float, str]  # Allows specification of d = 3/2 via strings or floats.
+DimensionalitySpecifier = int | float | str  # Allows specification of d = 3/2 via strings or floats.
 # A pair of lattice directions defining a plaquette plane.
 Plane = tuple[int, int]
 # A signature is a tuple of 4 per-vertex direction-label tuples, each sorted by FORDER.
@@ -692,8 +692,8 @@ class LatticeData(ABC, LatticeDef, Generic[T]):
 
     def get_plaquettes(self,
                        lattice_vector: LatticeVector,
-                       e1: Union[LinkUnitVectorLabel, None] = None,
-                       e2: Union[LinkUnitVectorLabel, None] = None,
+                       e1: LinkUnitVectorLabel | None = None,
+                       e2: LinkUnitVectorLabel | None = None,
                        **kwargs
                        ) -> Plaquette[T] | list[Plaquette[T]]:
         """

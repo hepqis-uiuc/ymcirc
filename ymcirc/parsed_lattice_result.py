@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 import logging
 import warnings
-from typing import Union, Optional
 from ymcirc._abstract.lattice_data import (
     LatticeData, LatticeDef, Plaquette, DimensionalitySpecifier, LatticeVector,
     LinkUnitVectorLabel, LinkAddress)
@@ -20,7 +19,7 @@ logger = logging.getLogger(__name__)
 # are bit strings, and parsed measurement results are either IrrepWeight
 # instances or None depending on whether the bit string decodes succesfully
 # or is garbage.
-MeasurementData = Union[str, IrrepWeight, SiteMultiplicityIndex, None]
+MeasurementData = str | IrrepWeight | SiteMultiplicityIndex | None
 
 
 class ParsedLatticeResult(LatticeData[MeasurementData]):
@@ -199,8 +198,8 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
 
     def get_plaquettes(self,
                        lattice_vector: LatticeVector,
-                       e1: Union[LinkUnitVectorLabel, None] = None,
-                       e2: Union[LinkUnitVectorLabel, None] = None,
+                       e1: LinkUnitVectorLabel | None = None,
+                       e2: LinkUnitVectorLabel | None = None,
                        get_bit_string: bool = False,
                        ) -> Plaquette[MeasurementData] | list[Plaquette[MeasurementData]]:
         """
@@ -294,7 +293,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
     @staticmethod
     def from_links_and_vertices(
         links_dict: dict[LinkAddress, IrrepWeight],
-        vertices_dict: Union[dict[LatticeVector, SiteMultiplicityIndex], None] = None,
+        vertices_dict: dict[LatticeVector, SiteMultiplicityIndex] | None = None,
         *,
         encoder: LatticeStateEncoder,
     ) -> ParsedLatticeResult:
@@ -453,7 +452,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
             return "vertex"
         raise ValueError(f"Cannot classify address: {addr}")
 
-    def get_link_electric_energy(self, link_address: LinkAddress, unphys_mode: Optional[str] = 'warn') -> Union[float, None]:
+    def get_link_electric_energy(self, link_address: LinkAddress, unphys_mode: str | None = 'warn') -> float | None:
         """
         Return the electric Casimir energy for the specified link.
 
@@ -495,7 +494,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         
         return gt_pattern_iweight_to_casimir(link_state)
 
-    def get_lattice_electric_energy(self, average_result: bool = False, unphys_mode: Optional[str] = 'warn', skip_unmeasured: bool = True) -> float:
+    def get_lattice_electric_energy(self, average_result: bool = False, unphys_mode: str | None = 'warn', skip_unmeasured: bool = True) -> float:
         """
         Return the total (or average) electric Casimir energy across all links.
 

@@ -45,7 +45,6 @@ from qiskit.circuit.library.standard_gates import RXGate, CXGate
 from qiskit import qasm3, qpy
 from qiskit.transpiler import PassManager
 from qiskit.transpiler.passes import InverseCancellation
-from typing import Union
 import numpy as np
 
 # Set up module-specific logger
@@ -339,7 +338,7 @@ class LatticeCircuitManager:
             master_circuit: QuantumCircuit,
             lattice: LatticeRegisters,
             control_fusion: bool = False,
-            physical_states_for_control_pruning: Union[None | set[str]] = None,
+            physical_states_for_control_pruning: None | set[str] = None,
             optimize_circuits: bool = False) -> int:
         """
         Computes the number of ancilla qubits needed to perform v-chain synthesis in the master_circuit
@@ -601,7 +600,7 @@ class LatticeCircuitManager:
         master_circuit: QuantumCircuit,
         lattice: LatticeRegisters,
         optimize_circuits: bool = True,
-        physical_states_for_control_pruning: Union[None | set[str]] = None,
+        physical_states_for_control_pruning: None | set[str] = None,
         control_fusion: bool = False,
         cache_mag_evol_circuit: bool = False,
         givens_have_independent_params: bool = False
@@ -949,7 +948,7 @@ class LatticeCircuitManager:
         self,
         hamiltonian_for_specific_plane_and_signature: list[tuple[str, str, float]],
         control_fusion: bool,
-        physical_states_for_control_pruning: Union[None | set[str]],
+        physical_states_for_control_pruning: None | set[str],
         coupling_g: Parameter,
         dt: Parameter,
         optimize_circuits: bool,
