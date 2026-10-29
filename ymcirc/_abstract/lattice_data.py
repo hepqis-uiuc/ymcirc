@@ -10,12 +10,12 @@ from collections.abc import Iterable
 logger = logging.getLogger(__name__)
 
 # Type aliases and constants.
-LatticeVector = list[int] | tuple[int, ...]
-VertexAddress = LatticeVector
+type LatticeVector = list[int] | tuple[int, ...]
+type VertexAddress = LatticeVector
 # For indicating particular directions on a lattice. One-indexed.
 LinkUnitVectorLabel = int
-LinkAddress = tuple[LatticeVector, LinkUnitVectorLabel]
-DimensionalitySpecifier = int | float | str  # Allows specification of d = 3/2 via strings or floats.
+type LinkAddress = tuple[LatticeVector, LinkUnitVectorLabel]
+type DimensionalitySpecifier = int | float | str  # Allows specification of d = 3/2 via strings or floats.
 # A pair of lattice directions defining a plaquette plane.
 Plane = tuple[int, int]
 # A signature is a tuple of 4 per-vertex direction-label tuples, each sorted by FORDER.

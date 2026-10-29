@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # are bit strings, and parsed measurement results are either IrrepWeight
 # instances or None depending on whether the bit string decodes succesfully
 # or is garbage.
-MeasurementData = str | IrrepWeight | SiteMultiplicityIndex | None
+type MeasurementData = str | IrrepWeight | SiteMultiplicityIndex | None
 
 
 class ParsedLatticeResult(LatticeData[MeasurementData]):

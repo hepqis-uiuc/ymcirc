@@ -237,13 +237,13 @@ _PLAQUETTE_STATES_DATA_FILE_PATHS: dict[str, dict[str, Path]] = {
 # Useful type aliases. IrrepWeight and SiteMultiplicityIndex are pyclebsch's,
 # and PlaquetteState and MatrixElementValue are defined in
 # ymcirc._pyclebsch_adapter, which produces data in those formats.
-BitString = str
-IrrepBitmap = dict[IrrepWeight, BitString]
-VertexMultiplicityBitmap = dict[SiteMultiplicityIndex, BitString]
+type BitString = str
+type IrrepBitmap = dict[IrrepWeight, BitString]
+type VertexMultiplicityBitmap = dict[SiteMultiplicityIndex, BitString]
 # Encoded plaquette state pair used as dict key in HamiltonianData.
-EncodedPlaquetteTransition = tuple[str, str]
+type EncodedPlaquetteTransition = tuple[str, str]
 # Dict mapping encoded state pairs to matrix element values (nested dict).
-HamiltonianData = dict[EncodedPlaquetteTransition, MatrixElementValue]
+type HamiltonianData = dict[EncodedPlaquetteTransition, MatrixElementValue]
 
 # Irrep iweights (top row of GT pattern).
 # Note: related to (p, q) scheme via (p + q, q, 0).

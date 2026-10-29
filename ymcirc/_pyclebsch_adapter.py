@@ -92,10 +92,10 @@ _N_PLAQUETTE_CORNERS = 4
 _SHORTEST_PERIODIC_LENGTH_WITHOUT_REPEATED_CONTROLS = 3
 
 # Matrix element value: a nested dict keyed by plane, then signature.
-MatrixElementValue = dict[Plane, dict[Signature, float]]
+type MatrixElementValue = dict[Plane, dict[Signature, float]]
 # Tuple of 4 vertex multiplicites, tuple of 4 "active links", tuple of 4
 # per-vertex control tuples.
-PlaquetteState = (
+type PlaquetteState = (
     tuple[
         tuple[
             SiteMultiplicityIndex,
@@ -113,7 +113,7 @@ PlaquetteState = (
     ]
 )
 # Box-term matrix elements keyed by (final, initial) plaquette states.
-BoxTerms = dict[tuple[PlaquetteState, PlaquetteState], MatrixElementValue]
+type BoxTerms = dict[tuple[PlaquetteState, PlaquetteState], MatrixElementValue]
 
 
 def plaq_state_pyclebsch_to_ymcirc_format(

@@ -55,7 +55,7 @@ logger = logging.getLogger(__name__)
 # we re-index when doing circuit construction.
 # A dict with key hierarchy: plane -> (bs1, bs2) -> signature -> float.
 # Bitstring keys are already trimmed on small periodic lattices.
-PlaneKeyedHamiltonianData = dict[Plane, dict[tuple[str, str], dict[Signature, float]]]
+type PlaneKeyedHamiltonianData = dict[Plane, dict[tuple[str, str], dict[Signature, float]]]
 
 
 class LatticeCircuitManager:
