@@ -24,8 +24,8 @@ from __future__ import annotations
 import copy
 import logging
 from pathlib import Path
-from ymcirc.conventions import (PlaquetteState, LatticeStateEncoder, MatrixElementValue, HamiltonianData)
-from ymcirc._pyclebsch_adapter import box_terms
+from ymcirc.conventions import (PlaquetteState, LatticeStateEncoder)
+from ymcirc._pyclebsch_adapter import MatrixElementValue, box_terms
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import (
     givens,
@@ -49,10 +49,16 @@ import numpy as np
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
 
-# Circuit construction needs to generically iterate over planes.
-# Since it's more efficient to store matrix element data on-disk
-# in a formate where the top level key is a pair of plaquette states,
-# we re-index when doing circuit construction.
+# Encoded plaquette state pair used as dict key in HamiltonianData.
+type EncodedPlaquetteTransition = tuple[str, str]
+# The matrix elements of the magnetic Hamiltonian, in the format
+# LatticeCircuitManager's constructor takes: a dict mapping encoded state
+# pairs to matrix element values (nested dicts keyed by plane, then by
+# signature).
+type HamiltonianData = dict[EncodedPlaquetteTransition, MatrixElementValue]
+
+# Circuit construction iterates over planes, so the constructor re-indexes
+# HamiltonianData, whose top-level key is a pair of plaquette states.
 # A dict with key hierarchy: plane -> (bs1, bs2) -> signature -> float.
 # Bitstring keys are already trimmed on small periodic lattices.
 type PlaneKeyedHamiltonianData = dict[Plane, dict[tuple[str, str], dict[Signature, float]]]

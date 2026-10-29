@@ -140,75 +140,44 @@ LatticeCircuitManager.for_truncation in ymcirc.circuit, whose constructor
 documents their format.
 """
 from __future__ import annotations
-import ast
 import copy
 import logging
-from pathlib import Path
 import numpy as np
 from pyclebsch.matrix_elements.lattice_data import SiteMultiplicityIndex
 from pyclebsch.su_n_operators import IrrepWeight
 from ymcirc._abstract import LatticeDef
-from ymcirc.utilities import LazyDict, json_loader
 from ymcirc._pyclebsch_adapter import (
     MatrixElementValue,
     PlaquetteState,
     physical_plaquette_states,
 )
 
+# IrrepWeight (pyclebsch's), MatrixElementValue, PlaquetteState and
+# physical_plaquette_states (ymcirc._pyclebsch_adapter's) are defined
+# elsewhere and available from here.
+__all__ = [
+    "EIGHT",
+    "FIFTEEN",
+    "FIFTEEN_BAR",
+    "IRREP_TRUNCATIONS",
+    "ONE",
+    "SIX",
+    "SIX_BAR",
+    "THREE",
+    "THREE_BAR",
+    "BitString",
+    "IrrepBitmap",
+    "IrrepWeight",
+    "LatticeStateEncoder",
+    "MatrixElementValue",
+    "PlaquetteState",
+    "VertexMultiplicityBitmap",
+    "physical_plaquette_states",
+]
+
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
 
-
-# Filesystem stuff.
-_PROJECT_ROOT = Path(__file__).parent
-_HAMILTONIAN_DATA_DIR = _PROJECT_ROOT / "_ymcirc_data/magnetic-hamiltonian-box-term-matrix-elements/"
-_PLAQUETTE_STATES_DATA_DIR = _PROJECT_ROOT / "_ymcirc_data/plaquette-states/"
-_HAMILTONIAN_DATA_FILE_PATHS: dict[str, dict[str, Path]] = {
-    "d=3/2": {
-        "T1": _HAMILTONIAN_DATA_DIR / "T1_dim(3_2)_magnetic_hamiltonian.json.gz",
-        "T2": _HAMILTONIAN_DATA_DIR / "T2_dim(3_2)_magnetic_hamiltonian.json.gz",
-        "B3": _HAMILTONIAN_DATA_DIR / "B3_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
-        "B5": _HAMILTONIAN_DATA_DIR / "B5_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
-        "B6": _HAMILTONIAN_DATA_DIR / "B6_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
-        "B7": _HAMILTONIAN_DATA_DIR / "B7_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
-        "B8": _HAMILTONIAN_DATA_DIR / "B8_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
-        "B9": _HAMILTONIAN_DATA_DIR / "B9_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
-        "B10": _HAMILTONIAN_DATA_DIR / "B10_dim(3_2)_PBC_magnetic_hamiltonian.json.gz",
-    },
-    "d=2": {
-        "T1": _HAMILTONIAN_DATA_DIR / "T1_dim(2)_magnetic_hamiltonian.json.gz",
-        "B3": _HAMILTONIAN_DATA_DIR / "B3_dim(2)_PBC_magnetic_hamiltonian.json.gz",
-        "B4": _HAMILTONIAN_DATA_DIR / "B4_dim(2)_PBC_magnetic_hamiltonian.json.gz",
-        "B7": _HAMILTONIAN_DATA_DIR / "B7_dim(2)_PBC_magnetic_hamiltonian.json.gz",
-    },
-    "d=3": {
-        "B3": _HAMILTONIAN_DATA_DIR / "B3_dim(3)_PBC_magnetic_hamiltonian.json.gz",
-        "B4": _HAMILTONIAN_DATA_DIR / "B4_dim(3)_PBC_magnetic_hamiltonian.json.gz",
-    }
-}
-_PLAQUETTE_STATES_DATA_FILE_PATHS: dict[str, dict[str, Path]] = {
-    "d=3/2": {
-        "T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(3_2)_plaquette_states.json.gz",
-        "T2": _PLAQUETTE_STATES_DATA_DIR / "T2_dim(3_2)_plaquette_states.json.gz",
-        "B3": _PLAQUETTE_STATES_DATA_DIR / "B3_dim(3_2)_PBC_plaquette_states.json.gz",
-        "B5": _PLAQUETTE_STATES_DATA_DIR / "B5_dim(3_2)_PBC_plaquette_states.json.gz",
-        "B6": _PLAQUETTE_STATES_DATA_DIR / "B6_dim(3_2)_PBC_plaquette_states.json.gz",
-        "B7": _PLAQUETTE_STATES_DATA_DIR / "B7_dim(3_2)_PBC_plaquette_states.json.gz",
-        "B8": _PLAQUETTE_STATES_DATA_DIR / "B8_dim(3_2)_PBC_plaquette_states.json.gz",
-        "B9": _PLAQUETTE_STATES_DATA_DIR / "B9_dim(3_2)_PBC_plaquette_states.json.gz",
-        "B10": _PLAQUETTE_STATES_DATA_DIR / "B10_dim(3_2)_PBC_plaquette_states.json.gz",
-    },
-    "d=2": {
-        "T1": _PLAQUETTE_STATES_DATA_DIR / "T1_dim(2)_plaquette_states.json.gz",
-        "B3": _PLAQUETTE_STATES_DATA_DIR / "B3_dim(2)_PBC_plaquette_states.json.gz",
-        "B4": _PLAQUETTE_STATES_DATA_DIR / "B4_dim(2)_PBC_plaquette_states.json.gz",
-        "B7": _PLAQUETTE_STATES_DATA_DIR / "B7_dim(2)_PBC_plaquette_states.json.gz",
-    },
-    "d=3": {
-        "B3": _PLAQUETTE_STATES_DATA_DIR / "B3_dim(3)_PBC_plaquette_states.json.gz",
-        "B4": _PLAQUETTE_STATES_DATA_DIR / "B4_dim(3)_PBC_plaquette_states.json.gz",
-    }
-}
 
 # Useful type aliases. IrrepWeight and SiteMultiplicityIndex are pyclebsch's,
 # and PlaquetteState and MatrixElementValue are defined in
@@ -216,10 +185,6 @@ _PLAQUETTE_STATES_DATA_FILE_PATHS: dict[str, dict[str, Path]] = {
 type BitString = str
 type IrrepBitmap = dict[IrrepWeight, BitString]
 type VertexMultiplicityBitmap = dict[SiteMultiplicityIndex, BitString]
-# Encoded plaquette state pair used as dict key in HamiltonianData.
-type EncodedPlaquetteTransition = tuple[str, str]
-# Dict mapping encoded state pairs to matrix element values (nested dict).
-type HamiltonianData = dict[EncodedPlaquetteTransition, MatrixElementValue]
 
 # Irrep iweights (top row of GT pattern).
 # Note: related to (p, q) scheme via (p + q, q, 0).
@@ -252,10 +217,7 @@ FIFTEEN_BAR: IrrepWeight = (3, 2, 0)
 # B11, whose set has no entry: LatticeStateEncoder.for_truncation raises a
 # ValueError for it unless given codes to use as link_bitmap, and making codes
 # the default means adding an entry here, with codes chosen by hand.
-#
-# The entries keyed by truncation names are being replaced by those keyed by
-# sets of irreps.
-IRREP_TRUNCATIONS: dict[str | frozenset[IrrepWeight], IrrepBitmap] = {
+IRREP_TRUNCATIONS: dict[frozenset[IrrepWeight], IrrepBitmap] = {
     frozenset({ONE, THREE, THREE_BAR}): {
         ONE: "00",
         THREE: "10",
@@ -279,79 +241,6 @@ IRREP_TRUNCATIONS: dict[str | frozenset[IrrepWeight], IrrepBitmap] = {
         FIFTEEN: "101",
         FIFTEEN_BAR: "010"
     },
-    "T1": {
-        ONE: "00",
-        THREE: "10",
-        THREE_BAR: "01"
-    },
-    "T2": {
-        ONE: "000",
-        THREE: "100",
-        THREE_BAR: "001",
-        SIX: "110",
-        SIX_BAR: "011",
-        EIGHT: "111"
-    },
-    # B-series truncations from pyclebsch (distinct from T-series).
-    # When there is a difference between dimensions, key includes dimensional suffix
-    # Constituting a list of dimensions for which the irrep content applies.
-    "B3": {
-        ONE: "00",
-        THREE: "10",
-        THREE_BAR: "01"
-    },
-    "B4_d=2,d=3": {
-        ONE: "00",
-        THREE: "10",
-        THREE_BAR: "01"
-    },
-    "B5_d=3/2": {
-        ONE: "00",
-        THREE: "10",
-        THREE_BAR: "01"
-    },
-    "B6_d=3/2": {
-        ONE: "000",
-        THREE: "100",
-        THREE_BAR: "001",
-        SIX: "110",
-        SIX_BAR: "011",
-        EIGHT: "111"
-    },
-    "B7_d=3/2,d=2": {
-        ONE: "000",
-        THREE: "100",
-        THREE_BAR: "001",
-        SIX: "110",
-        SIX_BAR: "011",
-        EIGHT: "111"
-    },
-    "B8_d=3/2": {
-        ONE: "000",
-        THREE: "100",
-        THREE_BAR: "001",
-        SIX: "110",
-        SIX_BAR: "011",
-        EIGHT: "111"
-    },
-    "B9_d=3/2": {
-        ONE: "000",
-        THREE: "100",
-        THREE_BAR: "001",
-        SIX: "110",
-        SIX_BAR: "011",
-        EIGHT: "111"
-    },
-    "B10_d=3/2": {
-        ONE: "000",
-        THREE: "100",
-        THREE_BAR: "001",
-        SIX: "110",
-        SIX_BAR: "011",
-        EIGHT: "111",
-        FIFTEEN: "101",
-        FIFTEEN_BAR: "010"
-    }
 }
 
 
@@ -362,89 +251,6 @@ def _link_irreps(physical_plaquette_states: list[PlaquetteState]) -> frozenset[I
         for _, a_links, c_links in physical_plaquette_states
         for link in (*a_links, *(c_link for corner in c_links for c_link in corner))
     )
-
-
-# Module-level metadata cache, populated when data is first loaded.
-_DATA_METADATA: dict[tuple[str, str], dict] = {}
-
-
-def _load_plaquette_states(path: Path) -> list:
-    """Load plaquette states from a .json.gz file, caching metadata."""
-    data, metadata = json_loader(path)
-    # Determine the (dim_string, trunc_string) key from metadata.
-    dim_string = metadata.get("dim", "")
-    trunc_string = f"{metadata['truncation_mode']}{metadata['cutoff']}"
-    _DATA_METADATA[(dim_string, trunc_string)] = metadata
-    return data
-
-
-def _load_hamiltonian(path: Path) -> dict:
-    """Load Hamiltonian matrix elements from a .json.gz file and cache metadata.
-
-    Every value is expected to be a nested dict: ``{Plane: {Signature: float}}``.
-    JSON encodes all dict keys as strings; this function converts the nested
-    plane and signature keys to tuples via ``ast.literal_eval`` so downstream
-    lookups work with native Python tuples.
-    """
-    data, metadata = json_loader(path)
-    dim_string = metadata.get("dim", "")
-    trunc_string = f"{metadata['truncation_mode']}{metadata['cutoff']}"
-    _DATA_METADATA[(dim_string, trunc_string)] = metadata
-    result = {}
-    for key, value in data.items():
-        converted_value = {}
-        for plane_str, plane_val in value.items():
-            plane_key = ast.literal_eval(plane_str) if isinstance(plane_str, str) else plane_str
-            converted_sigs = {}
-            for sig_str, sig_val in plane_val.items():
-                sig_key = ast.literal_eval(sig_str) if isinstance(sig_str, str) else sig_str
-                converted_sigs[sig_key] = sig_val
-            converted_value[plane_key] = converted_sigs
-        result[key] = converted_value
-    return result
-
-
-def get_data_metadata(dim_string: str, trunc_string: str, refresh: bool = False) -> dict:
-    """Return the metadata dict for the given dimension and truncation.
-
-    Uses _DATA_METADATA as a cache layer. On the first call for a given
-    (dim_string, trunc_string) pair, data is loaded from disk via the
-    PHYSICAL_PLAQUETTE_STATES LazyDict, which populates _DATA_METADATA as a
-    side effect. Subsequent calls return the cached value without disk access.
-
-    Note: LazyDict does not cache its loaded values internally — it re-reads
-    from disk on every __getitem__ call. The caching here is handled entirely
-    by _DATA_METADATA.
-
-    If refresh is True, a disk reload is forced regardless of whether metadata
-    is already cached, and _DATA_METADATA is updated with the fresh result.
-    """
-    key = (dim_string, trunc_string)
-    if key not in _DATA_METADATA or refresh:
-        # Force load by accessing the lazy dict.
-        _ = PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string]
-    return _DATA_METADATA[key]
-
-
-# Lazy-load vertex physical plaquette states from precomputed json.gz files.
-# Entries has the format s, a, c,
-# where s is a tuple of 4 site multiplicity indices,
-# a is a tuple of 4 "active link" iweights,
-# and c is a tuple of 4 per-vertex control link tuples.
-PHYSICAL_PLAQUETTE_STATES: dict[str, LazyDict] = {
-    dim_string: LazyDict({trunc_string: (_load_plaquette_states, file_path) for trunc_string, file_path in _PLAQUETTE_STATES_DATA_FILE_PATHS[dim_string].items()})
-    for dim_string in _PLAQUETTE_STATES_DATA_FILE_PATHS.keys()
-}
-
-# Lazy-load magnetic Hamiltonian box terms from precomputed json.gz files.
-# The following magnetic Hamiltonian box term data is available:
-# d=3/2, T1
-# d=3/2, T2
-# d=2, T1
-HAMILTONIAN_BOX_TERMS:  dict[str, LazyDict] = {
-    dim_string: LazyDict({trunc_string: (_load_hamiltonian, file_path) for trunc_string, file_path in _HAMILTONIAN_DATA_FILE_PATHS[dim_string].items()})
-    for dim_string in _HAMILTONIAN_DATA_FILE_PATHS.keys()
-}
 
 
 class LatticeStateEncoder:

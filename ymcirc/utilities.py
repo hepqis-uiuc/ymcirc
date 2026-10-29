@@ -1,92 +1,19 @@
-"""Utility classes and modules."""
+"""
+Helpers used inside ymcirc.
+
+The private helpers _check_circuits_logically_equivalent and
+_flatten_circuit compare circuits gate by gate, for the tests. eta_update
+and fmt_td estimate and format the time left while LatticeCircuitManager
+builds a magnetic Trotter step, for its log messages.
+"""
 from __future__ import annotations
-import ast
-from collections.abc import Mapping
-import gzip
-import json
 import logging
 import numpy as np
-from pathlib import Path
 from qiskit.circuit import CircuitInstruction, QuantumCircuit, QuantumRegister
 import time
 
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
-
-
-class LazyDict(Mapping):
-    """
-    This is a lazy-loading dictionary.
-
-    It makes working with dictionaries which have expensive-to-compute
-    values less painful. Taken from:
-    https://stackoverflow.com/questions/16669367/setup-dictionary-lazily.
-
-    Note: LazyDict does NOT cache loaded values. Every __getitem__ call
-    invokes the loader function with its argument, re-executing the load
-    from scratch. If caching is desired, it must be handled externally
-    (e.g., by the loader function itself storing results in a separate dict).
-    """
-
-    def __init__(self, *args, **kwargs):
-        """
-        Create a LazyDict.
-
-        Behaves like a regular dict once created, but
-        creating it is a bit different. Consider a dict:
-        {
-            "key_1": expensive_fn(input_1),
-            "key_2": expensive_fn(input_2),
-            ...
-        }
-
-        To create an equivalent LazyDict:
-        LazyDict({
-            "key_1": (expensive_fn, input_1),
-            "key_2": (expensive_fn, input_2),
-            ...
-        })
-        """
-        self._raw_dict = dict(*args, **kwargs)
-
-    def __getitem__(self, key):
-        func, arg = self._raw_dict.__getitem__(key)
-        return func(arg)
-
-    def __iter__(self):
-        return iter(self._raw_dict)
-
-    def __len__(self):
-        return len(self._raw_dict)
-
-
-def json_loader(json_path: Path) -> tuple[dict | list, dict]:
-    """
-    Load a gzip-compressed JSON file at json_path and return (data, metadata).
-
-    The file is expected to be a .json.gz file with a top-level dict containing
-    "metadata" and "data" keys. The "data" portion has ast.literal_eval applied
-    to convert string representations of tuples back to Python objects.
-
-    Returns a 2-tuple of (data, metadata) where data is a dict or list and
-    metadata is a dict.
-    """
-    logger.debug(f"Loading json data from disk.")
-    with gzip.open(json_path, 'rt') as json_file:
-        raw_top_level = json.load(json_file)
-        metadata = raw_top_level["metadata"]
-        raw_data = raw_top_level["data"]
-        # Safer to use ast.literal_eval than eval to convert data keys to tuples.
-        # The latter can execute arbitrary potentially malicious code while
-        # the worst case attack vector for literal_eval would be to crash
-        # the python process.
-        # See https://docs.python.org/3/library/ast.html#ast.literal_eval
-        # for more information.
-        if isinstance(raw_data, dict):
-            result = {ast.literal_eval(key): value for key, value in raw_data.items()}
-        elif isinstance(raw_data, list):
-            result = [ast.literal_eval(item) for item in raw_data]
-    return result, metadata
 
 
 # The following methods are intended for package-internal use.

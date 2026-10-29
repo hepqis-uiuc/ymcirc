@@ -1,9 +1,9 @@
 import pytest
 from ymcirc._abstract import LatticeDef
 from ymcirc.conventions import (
-    PHYSICAL_PLAQUETTE_STATES, ONE, THREE,
+    ONE, THREE,
     THREE_BAR, SIX, SIX_BAR, EIGHT,
-    LatticeStateEncoder, HAMILTONIAN_BOX_TERMS, physical_plaquette_states,
+    LatticeStateEncoder, physical_plaquette_states,
     IrrepBitmap, PlaquetteState, FIFTEEN, FIFTEEN_BAR
 )
 from ymcirc._pyclebsch_adapter import (
@@ -19,149 +19,6 @@ from pyclebsch.matrix_elements.lattice_data import (
 _T1_LINK_BITMAP = {ONE: "00", THREE: "10", THREE_BAR: "01"}
 _T2_LINK_BITMAP = {ONE: "000", THREE: "100", THREE_BAR: "001", SIX: "110", SIX_BAR: "011", EIGHT: "111"}
 _B10_LINK_BITMAP = _T2_LINK_BITMAP | {FIFTEEN: "101", FIFTEEN_BAR: "010"}
-
-
-@pytest.mark.parametrize("dim_string,trunc_string", [
-    ("d=3/2", "T1"),
-    ("d=3/2", "T2"),
-    ("d=3/2", "B3"),
-    ("d=3/2", "B3"),
-    ("d=3/2", "B5"),
-    ("d=3/2", "B6"),
-    ("d=3/2", "B7"),
-    ("d=3/2", "B8"),
-    ("d=3/2", "B9"),
-    ("d=3/2", "B10"),
-    ("d=2", "T1"),
-    ("d=2", "B3"),
-    ("d=2", "B4"),
-    pytest.param("d=2", "B7", marks=pytest.mark.slow),
-    ("d=3", "B3"),
-    pytest.param("d=3", "B4", marks=pytest.mark.slow),
-])
-def test_physical_plaquette_states_data_valid(dim_string, trunc_string):
-    print("Checking that none of the physical plaquette states data contain duplicates.")
-    num_duplicates = len(PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string]) \
-        - len(set(PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string]))
-    has_no_duplicates = num_duplicates == 0
-    assert has_no_duplicates, f"Detected {num_duplicates} duplicate entries."
-
-    print("Checking that physical state data are valid.")
-    expected_num_vertices = 4
-    expected_num_a_links = 4
-    expected_iweight_length = 3
-    match dim_string:
-        case "d=3/2":
-            expected_num_c_links = 4
-        case "d=2":
-            expected_num_c_links = 8
-        case "d=3":
-            expected_num_c_links = 16  # 4 controls/vertex * 4 vertices
-        case _:
-            raise NotImplementedError(f"Test not implemented for dimension {dim_string}.")
-    for state in PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string]:
-        assert len(state) == 3, \
-            "States should be length-3 tuples of tuples (vertices, a-links, c-links)." \
-            f" Encountered state: {state}"
-        vertices = state[0]
-        a_links = state[1]
-        c_links = state[2]
-
-        vertices_are_valid = len(vertices) == expected_num_vertices \
-            and all(isinstance(vertex, int) for vertex in vertices)
-        assert vertices_are_valid is True, f"Encountered state with invalid vertices: {vertices}."
-
-        a_links_are_valid = len(a_links) == expected_num_a_links \
-            and all(isinstance(a_link, tuple) and len(a_link) == expected_iweight_length for a_link in a_links) \
-            and all(isinstance(iweight_elem, int) for a_link in a_links for iweight_elem in a_link)
-        assert a_links_are_valid is True, f"Encountered state with invalid active links: {a_links}."
-
-        # c_links is now per-vertex nested: ((c_at_v1, ...), (c_at_v2, ...), ...)
-        assert len(c_links) == 4, f"Expected 4 per-vertex control link tuples, got {len(c_links)}."
-        total_c_links = sum(len(vc) for vc in c_links)
-        assert total_c_links == expected_num_c_links, \
-            f"Expected {expected_num_c_links} total control links, got {total_c_links}."
-        for vc in c_links:
-            for c_link in vc:
-                assert isinstance(c_link, tuple) and len(c_link) == expected_iweight_length, \
-                    f"Encountered invalid control link: {c_link}."
-                assert all(isinstance(elem, int) for elem in c_link), \
-                    f"Non-int element in control link: {c_link}."
-
-
-@pytest.mark.parametrize("expected_dim_string,expected_trunc_string", [
-    ("d=3/2", "T1"),
-    ("d=3/2", "T2"),
-    ("d=3/2", "B3"),
-    ("d=3/2", "B3"),
-    ("d=3/2", "B5"),
-    ("d=3/2", "B6"),
-    ("d=3/2", "B7"),
-    ("d=3/2", "B8"),
-    ("d=3/2", "B9"),
-    ("d=3/2", "B10"),
-    ("d=2", "T1"),
-    ("d=2", "B3"),
-    ("d=2", "B4"),
-    pytest.param("d=2", "B7", marks=pytest.mark.slow),
-    ("d=3", "B3"),
-    pytest.param("d=3", "B4", marks=pytest.mark.slow),
-])
-def test_hamiltonian_box_terms_no_missing_expected_cases(expected_dim_string, expected_trunc_string):
-    # Check for no missing expected data.
-    assert expected_dim_string in HAMILTONIAN_BOX_TERMS.keys(), f"{expected_dim_string} data not present."
-    assert expected_trunc_string in HAMILTONIAN_BOX_TERMS[expected_dim_string].keys(), f"{expected_dim_string}, {expected_trunc_string} data not present."
-
-
-def test_hamiltonian_box_terms_no_unexpected_cases():
-    all_expected_dim_trunc_cases = {
-        "d=3/2": set(["T1", "T2", "B3", "B5", "B6", "B7", "B8", "B9", "B10"]),
-        "d=2": set(["T1", "B3", "B4", "B7"]),
-        "d=3": set(["B3", "B4"])
-    }
-    print(
-        "Checking that the following dimension/truncation cases have matrix element data, and that no unexpected cases come up:\n"
-        f"{all_expected_dim_trunc_cases}"
-    )
-    # Check for no unexpected actual data.
-    for actual_dim in HAMILTONIAN_BOX_TERMS.keys():
-        assert actual_dim in all_expected_dim_trunc_cases.keys(), f"{actual_dim} was unexpected."
-        for actual_trunc in HAMILTONIAN_BOX_TERMS[actual_dim].keys():
-            assert actual_trunc in all_expected_dim_trunc_cases[actual_dim], f"{actual_dim}, {actual_trunc} was unexpected."
-
-
-@pytest.mark.parametrize("dim_string,trunc_string", [
-    ("d=3/2", "T1"),
-    pytest.param("d=3/2", "T2", marks=pytest.mark.slow),
-    ("d=3/2", "B3"),
-    ("d=3/2", "B3"),
-    ("d=3/2", "B5"),
-    pytest.param("d=3/2", "B6", marks=pytest.mark.slow),
-    pytest.param("d=3/2", "B7", marks=pytest.mark.slow),
-    pytest.param("d=3/2", "B8", marks=pytest.mark.slow),
-    pytest.param("d=3/2", "B9", marks=pytest.mark.slow),
-    pytest.param("d=3/2", "B10", marks=pytest.mark.slow),
-    pytest.param("d=2", "T1", marks=pytest.mark.slow),
-    ("d=2", "B3"),
-    pytest.param("d=2", "B4", marks=pytest.mark.slow),
-    pytest.param("d=2", "B7", marks=pytest.mark.slow),
-    pytest.param("d=3", "B3", marks=pytest.mark.slow),
-    pytest.param("d=3", "B4", marks=pytest.mark.slow),
-])
-def test_matrix_element_data_are_valid(dim_string, trunc_string):
-    print(f"Checking that matrix element data are valid for {dim_string}, {trunc_string}.")
-    current_iter = 0
-    for (state_f, state_i), mat_elem_val in HAMILTONIAN_BOX_TERMS[dim_string][trunc_string].items():
-        # Log test progress
-        current_iter += 1
-        percent_done = current_iter/len(HAMILTONIAN_BOX_TERMS[dim_string][trunc_string])
-        print(f"Current status: {percent_done:.4%}", end='\r')
-
-        assert state_f in PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string], "Encountered state not in physical" \
-            f" plaquette state list: {state_f}."
-        assert state_i in PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string], "Encountered state not in physical" \
-            f" plaquette state list: {state_i}."
-        assert isinstance(mat_elem_val, dict), f"Unexpected matrix element type: {type(mat_elem_val)}, value: {mat_elem_val}."
 
 
 def test_lattice_encoder_type_error_for_bad_lattice_arg():
