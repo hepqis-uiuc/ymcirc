@@ -49,7 +49,7 @@ def benchmark_config(dim_string, truncation_mode, cutoff, lattice_size, n_iterat
     print(f"  Vertices: {lattice_def.n_vertices}, Links: {lattice_def.n_links}")
 
     def construct():
-        ParsedLatticeResult(lattice_def.dim, lattice_def.shape[0], bitstring, encoder, lattice_def.periodic_boundary_conds)
+        ParsedLatticeResult(lattice_def.dim, lattice_def.size, bitstring, encoder, lattice_def.periodic_boundary_conds)
 
     # Warmup
     construct()

@@ -1,42 +1,124 @@
+"""
+Lattice geometry, and generic containers for data on the sites and links of a lattice.
+
+LatticeDef describes a lattice: its dimensionality (d=3/2, a chain of
+plaquettes; d=2; or d=3), its length along each axis, its boundary
+conditions, and its F-order, the order of the half-links at a site. It takes
+the lattice's geometry from pyclebsch's LatticeDef
+(https://github.com/hepqis-uiuc/pyclebsch), on which pyclebsch also computes
+the physical plaquette states and matrix elements ymcirc uses: which sites,
+links and plaquettes exist, each plaquette's signature (the half-links at its
+corners), and which of a plaquette's control links repeat another of its
+control links. Only LatticeDef.get_traversal_order orders the sites and links,
+which fixes the order of registers in a circuit and of bits in a measured bit
+string.
+
+LatticeData[T] adds to LatticeDef a mapping from the sites and links to data
+of type T, such as quantum registers (ymcirc.lattice_registers) or measured
+link states (ymcirc.parsed_lattice_result), and Plaquette[T] collects the data
+on the sites, active links and control links of one plaquette.
+"""
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from functools import cache
 from itertools import product
 import logging
-from math import ceil, isclose, comb
-from typing import TypeVar, Generic
-from collections.abc import Iterable
+from math import ceil, isclose
+from typing import TypeVar, Generic, cast
+from collections.abc import Iterable, Sequence
+
+from pyclebsch.matrix_elements.lattice_data import (
+    LatticeDef as PyclebschLatticeDef,
+    LinkDirection,
+    compute_plaquette_signature,
+)
+from pyclebsch.matrix_elements.lattice_data import (
+    Plane as PyclebschPlane,
+)
 
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
 
 # Type aliases and constants.
-type LatticeVector = list[int] | tuple[int, ...]
+type LatticeVector = tuple[int, ...]
 type VertexAddress = LatticeVector
-# For indicating particular directions on a lattice. One-indexed.
-LinkUnitVectorLabel = int
-type LinkAddress = tuple[LatticeVector, LinkUnitVectorLabel]
+# A link is addressed by a site and a direction, one-indexed: (site, +k) is
+# the link from the site along axis k, and (site, -k) the link that arrives at
+# the site along axis k.
+type LinkAddress = tuple[LatticeVector, int]
 type DimensionalitySpecifier = int | float | str  # Allows specification of d = 3/2 via strings or floats.
-# A pair of lattice directions defining a plaquette plane.
-Plane = tuple[int, int]
-# A signature is a tuple of 4 per-vertex direction-label tuples, each sorted by FORDER.
-# Each inner tuple contains the half-link direction labels (integers) for ALL existing
-# links at that vertex (both active and control), sorted by FORDER position.
-# MatrixElementValue, which holds the magnetic Hamiltonian's matrix elements, is
-# keyed by plane and then by signatures that pyclebsch computes in this same
-# form: the plaquette's vertices counter-clockwise from its bottom-left vertex,
-# each with all its half-link directions sorted by FORDER. Plaquette.signature
-# must give exactly this form, or a plaquette's matrix elements are not found.
-Signature = tuple[
-    tuple[int, ...],
-    tuple[int, ...],
-    tuple[int, ...],
-    tuple[int, ...],
-]
+# A pair of positive directions spanning a plaquette's plane, such as (1, 2).
+type Plane = tuple[int, int]
+# A signature holds, for each of a plaquette's 4 vertices (counter-clockwise
+# from its bottom-left vertex), the directions of ALL the half-links at that
+# vertex (both active and control links), sorted by FORDER. It is the second
+# element of pyclebsch's PlaquetteSignature, whose first element is the plane.
+# MatrixElementValue, which holds the magnetic Hamiltonian's matrix elements,
+# is keyed by plane and then by signature, so Plaquette.signature, which
+# pyclebsch computes, finds a plaquette's matrix elements.
+type Signature = tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...], tuple[int, ...]]
+# The indices that locate a control link in a plaquette, as pyclebsch's
+# PlaquetteGeometry does: (vertex index, control index). The vertex index
+# (0-3) counts the plaquette's vertices counter-clockwise from the
+# bottom-left one; each vertex lists its own control links in F-order (as
+# in the plaquette's bit string and in PlaquetteGeometry.control_links), and
+# the control index is the link's place in that vertex's list. For example,
+# (1, 0) is the first control link of the second vertex.
+type PlaquetteControlIndices = tuple[int, int]
 
 # Constants
-VERTICAL_DIR_LABEL: LinkUnitVectorLabel = 2
+VERTICAL_DIR_LABEL: int = 2
 # d = 3/2 only has two vertices in the "vertical" direction.
 VERTICAL_NUM_VERTICES_D_THREE_HALVES: int = 2
+# pyclebsch's lattices have three axes; a lattice with fewer has length 1
+# along the others.
+_N_PYCLEBSCH_AXES = 3
+# The length pyclebsch's lattices have along an axis that ymcirc's lattice lacks.
+_LENGTH_OF_MISSING_AXIS = 1
+
+
+@cache
+def _pyclebsch_lattice(
+        num_sites: tuple[int, int, int],
+        pbcs: tuple[bool, bool, bool],
+        forder: tuple[LinkDirection, ...]
+) -> PyclebschLatticeDef:
+    """
+    Return pyclebsch's lattice of these lengths, boundary conditions and F-order.
+
+    A pyclebsch LatticeDef computes its sites, links and plaquettes once and
+    keeps them, and cannot be modified, so one object serves every ymcirc
+    LatticeDef of the same lattice. ymcirc creates many of these, one for
+    each parsed measurement (ymcirc.parsed_lattice_result), so this avoids
+    computing the same geometry again for each one.
+    """
+    return PyclebschLatticeDef(num_sites, pbcs, list(forder))
+
+
+@cache
+def _duplicate_control_indices_by_plane_and_signature(
+        lattice: PyclebschLatticeDef) -> dict[tuple[Plane, Signature], dict[PlaquetteControlIndices, PlaquetteControlIndices]]:
+    """
+    LatticeDef._duplicate_control_indices for every plane and signature of a lattice.
+
+    Computed once per lattice. Callers must not modify the result.
+    """
+    result: dict[tuple[Plane, Signature], dict[PlaquetteControlIndices, PlaquetteControlIndices]] = {}
+    for plaquette_address, geometry in lattice.plaquettes.items():
+        plane, site_half_links = compute_plaquette_signature(plaquette_address, lattice)
+        key = (plane, cast(Signature, site_half_links))
+        if key in result:
+            continue
+        original_indices_of_link = {}
+        duplicates: dict[PlaquetteControlIndices, PlaquetteControlIndices] = {}
+        for vertex_idx, (control_links, unique) in enumerate(zip(geometry.control_links, geometry.unique_controls)):
+            for control_idx, link in enumerate(control_links):
+                if control_idx in unique:
+                    original_indices_of_link[link] = (vertex_idx, control_idx)
+                else:
+                    duplicates[(vertex_idx, control_idx)] = original_indices_of_link[link]
+        result[key] = duplicates
+    return result
 
 T = TypeVar('T')
 
@@ -80,7 +162,7 @@ class Plaquette(Generic[T]):
             for all control links at that vertex, and the values are the corresponding data on those links.
         bottom_left_vertex (LatticeVector):
             Retrieve the lattice coordinate of the "v1" vertex in the plaquette.
-        plane (tuple[LinkUnitVectorLabel, LinkUnitVectorLabel]):
+        plane (tuple[int, int]):
             Retrieve a length-2 tuple of lattice unit vectors defining the plane of the lattice.
     """
 
@@ -88,7 +170,7 @@ class Plaquette(Generic[T]):
             self,
             lattice: LatticeData,
             bottom_left_vertex: LatticeVector,
-            plane: tuple[LinkUnitVectorLabel, LinkUnitVectorLabel],
+            plane: tuple[int, int],
             **kwargs
     ):
         """Initialize a plaquette from a given LatticeData instance, and data to uniquely specify the plaquette."""
@@ -115,28 +197,15 @@ class Plaquette(Generic[T]):
         self._active_links = tuple([lattice.get_link(link_address, **kwargs) for link_address in zip(vertices_ccw, link_steps_ccw)])
         self._lattice = lattice  # DO NOT MUTATE THIS.
 
-        # Construct the control link dict, and ordered control link tuple.
-        all_pos_and_neg_link_dirs = set(lattice_direction_labels + [(-1)*dir for dir in lattice_direction_labels])
-        active_link_dirs_per_vertex = {
-            vertices_ccw[0]: [e1, e2],
-            vertices_ccw[1]: [-e1, e2],
-            vertices_ccw[2]: [-e1, -e2],
-            vertices_ccw[3]: [e1, -e2]
-        }
+        # Construct the control link dict: at each vertex, its half-links
+        # other than those of its two active links.
+        active_link_dirs_per_vertex = [{e1, e2}, {-e1, e2}, {-e1, -e2}, {e1, -e2}]
         self._control_links: dict[LatticeVector, dict[LinkAddress, T]] = {}
-        for idx, v in enumerate(vertices_ccw):
+        for v, active_link_dirs in zip(vertices_ccw, active_link_dirs_per_vertex):
             self._control_links[v] = {}
-            for link_dir in all_pos_and_neg_link_dirs:
-                on_upper_vertex_d_three_halves = link_dir == 2 and lattice.dim < 2 and v[1] == 1
-                on_lower_vertex_d_three_halves = link_dir == -2 and lattice.dim < 2 and v[1] == 0
-                if on_upper_vertex_d_three_halves or on_lower_vertex_d_three_halves:
-                    continue
-                if link_dir in active_link_dirs_per_vertex[v]:
-                    continue
-                try:
+            for link_dir in lattice._half_link_directions(v):
+                if link_dir not in active_link_dirs:
                     self._control_links[v][(v, link_dir)] = lattice.get_link((v, link_dir), **kwargs)
-                except KeyError:  # Depending on boundary conditions, KeyErrors can happen that can be skipped.
-                    continue
 
         # Remaining properties are simply set from init args.
         self._plane = plane
@@ -196,47 +265,25 @@ class Plaquette(Generic[T]):
         """
         return tuple(link for vertex in self.control_links_per_vertex for link in vertex)
 
-    def _existing_dirs_at_vertex(self, vertex_idx: int) -> set[int]:
-        """Return the set of half-link directions that actually exist at a given vertex.
-
-        Combines active link directions (from the plaquette plane) with
-        control link directions that were successfully resolved during __init__.
-
-        Arguments:
-            vertex_idx: Vertex index 0-3 (CCW from bottom-left).
-        """
-        e1, e2 = self._plane
-        # Active link directions per vertex (CCW: v1, v2, v3, v4).
-        active_dirs = [{e1, e2}, {-e1, e2}, {-e1, -e2}, {e1, -e2}][vertex_idx]
-
-        # Control link directions that were successfully resolved.
-        vertex_vector = self._ordered_vertex_vectors[vertex_idx]
-        control_dirs = {addr[1] for addr in self._control_links[vertex_vector].keys()}
-
-        return active_dirs | control_dirs
-
     @property
     def signature(self) -> Signature:
-        """Compute the signature for this plaquette.
+        """The signature of this plaquette, as pyclebsch computes it.
 
-        For each of the 4 plaquette vertices, returns a tuple of ALL existing
+        For each of the 4 plaquette vertices, a tuple of ALL existing
         half-link directions at that vertex (both active and control), sorted
         by their position in the forder list. MatrixElementValue, which holds
         the magnetic Hamiltonian's matrix elements, is keyed by plane and then
-        by signatures that pyclebsch computes in this same form, so the
-        plaquette's matrix elements are found under its plane and this
-        signature.
+        by signature, so the plaquette's matrix elements are found under its
+        plane and this signature.
 
         Physically, the signature encodes whether a plaquette is in the
         "interior" of a lattice, on a "corner", on an "edge", etc.
+
+        Raises a KeyError if the lattice has no plaquette in this plane at
+        this bottom-left vertex, which pyclebsch requires to be one of
+        (1, 2), (1, 3), (2, 3).
         """
-        forder = self._lattice.forder
-        result = []
-        for vertex_idx in range(4):
-            dirs = self._existing_dirs_at_vertex(vertex_idx)
-            sorted_dirs = sorted(dirs, key=lambda d: forder.index(d))
-            result.append(tuple(sorted_dirs))
-        return tuple(result)
+        return self._lattice._plaquette_signature(self._bottom_left_vertex, self._plane)
 
     @property
     def control_link_dirs_per_vertex(self) -> tuple[tuple[int, ...], ...]:
@@ -264,22 +311,34 @@ class Plaquette(Generic[T]):
         return self._bottom_left_vertex
 
     @property
-    def plane(self) -> tuple[LinkUnitVectorLabel, LinkUnitVectorLabel]:
+    def plane(self) -> tuple[int, int]:
         """Retrieve the plane of the plaquette."""
         return self._plane
 
 
 class LatticeDef:
-    """A class that defines a particular lattice geometry."""
+    """
+    A class that defines a particular lattice geometry.
 
-    _DEFAULT_FORDER = [1, 2, 3, -1, -2, -3]
+    The geometry comes from a pyclebsch LatticeDef of the same lattice, which
+    this class holds (wraps) rather than inherits from. Inheriting would make
+    pyclebsch's whole interface part of ymcirc's, which conflicts with ymcirc
+    in two ways: pyclebsch's coordinates always have three components, while
+    ymcirc's have two in d=3/2 and d=2; and pyclebsch's containers have their
+    own iteration order, while get_traversal_order must remain the only thing
+    that orders ymcirc's registers and bit strings. So this class translates
+    coordinates at the boundary, and takes from pyclebsch only facts that
+    carry no order.
+    """
+
+    _DEFAULT_FORDER: tuple[int, ...] = (1, 2, 3, -1, -2, -3)
 
     def __init__(
             self,
             dimensions: DimensionalitySpecifier,
             size: int | tuple[int, ...],
             periodic_boundary_conds: bool | tuple[bool, ...] = True,
-            forder: list[int] | None = None
+            forder: Sequence[int] | None = None
     ):
         """
         Initialize a lattice with specified dimensionality, size, and boundary conditions.
@@ -288,16 +347,28 @@ class LatticeDef:
             dimensions:
                 An integer, float, or string specifying the dimensionality of the lattice.
             size:
-                If an int, the number of unique vertices in every lattice direction. If
-                a tuple, the number of unique vertices in each lattice direction.
+                If an int, the number of unique vertices in every lattice direction
+                (for d=3/2, along the chain; it is always two vertices tall). If
+                a tuple, the number of unique vertices in each lattice direction,
+                for d=2 and d=3 only.
             periodic_boundary_conds:
-                If a bool, controls boundary counds in every lattice direction. If a tuple,
-                controls boundary conditions in each lattice direction.
+                If a bool, controls boundary counds in every lattice direction
+                (for d=3/2, along the chain; it is always open vertically). Tuples,
+                for boundary conditions in each lattice direction, are not yet
+                supported.
             forder:
                 Half-link ordering convention, passed to pyclebsch when it
                 computes the lattice's plaquette states and matrix elements.
-                Must be a permutation of [1, 2, 3, -1, -2, -3].
-                Defaults to [1, 2, 3, -1, -2, -3] if None.
+                A sequence (such as a list or a tuple) that is a permutation
+                of (1, 2, 3, -1, -2, -3); kept as a tuple. Defaults to
+                (1, 2, 3, -1, -2, -3) if None.
+
+        Raises a NotImplementedError for more than three dimensions, which
+        pyclebsch does not support, and for tuples of boundary conditions; a
+        TypeError for an F-order that is not a sequence (a set or an
+        iterator, whose order is not reliable), or is a string; and a
+        ValueError for an F-order that is not a permutation of the six
+        directions.
         """
         # Set up lattice configuration.
         self._validate_lattice_params(
@@ -309,17 +380,18 @@ class LatticeDef:
 
         # Validate and store forder.
         if forder is None:
-            forder = list(LatticeDef._DEFAULT_FORDER)
-        if sorted(forder, key=lambda x: (abs(x), x < 0)) != sorted(LatticeDef._DEFAULT_FORDER, key=lambda x: (abs(x), x < 0)):
+            forder = LatticeDef._DEFAULT_FORDER
+        if not isinstance(forder, Sequence) or isinstance(forder, str):
+            raise TypeError(f"forder must be a sequence, such as a list or a tuple. Got: {forder!r}")
+        if sorted(forder) != sorted(LatticeDef._DEFAULT_FORDER):
             raise ValueError(f"forder must be a permutation of {LatticeDef._DEFAULT_FORDER}. Got: {forder}")
-        self._forder = list(forder)
+        self._forder: tuple[int, ...] = tuple(forder)
 
         self._configure_lattice(dimensions, size)
 
     def __repr__(self):
         class_name = type(self).__name__
-        size = self.shape[0]
-        return f"{class_name}(dim={self.dim}, size={size}, periodic_boundary_conds={self.periodic_boundary_conds}, forder={self.forder})"
+        return f"{class_name}(dim={self.dim}, size={self.size}, periodic_boundary_conds={self.periodic_boundary_conds}, forder={self.forder})"
 
     def __str__(self):
         if isinstance(self.periodic_boundary_conds, bool):
@@ -344,101 +416,164 @@ class LatticeDef:
                                  dim: DimensionalitySpecifier,
                                  size: int | tuple[int, ...],
                                  periodic_boundary_conds: bool | tuple[bool, ...]):
-        if isinstance(size, Iterable):
-            raise NotImplementedError("Tuples for lattice size not yet supported.")
         if isinstance(periodic_boundary_conds, Iterable):
             raise NotImplementedError("Tuples for boundary conditions not yet supported.")
 
-        if not isinstance(size, int) and (dim == "3/2" or isclose(float(dim), 1.5)):
-            raise ValueError(f"The size of a d=3/2 lattice must be specified by an int. Encountered: {size}.")
+        is_d_three_halves = dim == "3/2" or isclose(float(dim), 1.5)
+        if not (is_d_three_halves or (isinstance(dim, int) and dim > 1)):
+            raise ValueError(f"A {dim}-dimensional lattice doesn't make sense.")
+        if isinstance(dim, int) and dim > _N_PYCLEBSCH_AXES:
+            raise NotImplementedError(
+                f"Lattices of more than {_N_PYCLEBSCH_AXES} dimensions are not supported. Encountered: {dim}.")
 
-        if isinstance(size, int) and size < 2:
+        if isinstance(size, Iterable):
+            if is_d_three_halves:
+                raise ValueError(f"The size of a d=3/2 lattice must be specified by an int. Encountered: {size}.")
+            if len(tuple(size)) != dim:
+                raise ValueError(f"A d={dim} lattice needs one length per dimension. Encountered: {size}.")
+        lengths = tuple(size) if isinstance(size, Iterable) else (size,)
+        if any(not isinstance(length, int) or length < 2 for length in lengths):
             raise ValueError("Lattice must have at least two vertices in each "
                              f"dimension. A size = {size} doesn't make sense.")
-
-        if not (dim == "3/2" or isclose(float(dim), 1.5) or (isinstance(dim, int) and dim > 1)):
-            raise ValueError(f"A {dim}-dimensional lattice doesn't make sense.")
 
         if not isinstance(periodic_boundary_conds, bool):
             raise TypeError(f"Cannot interpret boundary condition as boolean: {periodic_boundary_conds}.")
 
     def _configure_lattice(self, dim: DimensionalitySpecifier, size: int | tuple[int, ...]):
-        if isinstance(size, Iterable):
-            self._shape: tuple[int, ...] = size
-            self._dim: float | int = int(dim)
-        elif dim == "3/2" or isclose(float(dim), 1.5):
-            self._shape = (size, VERTICAL_NUM_VERTICES_D_THREE_HALVES)
-            self._dim = 1.5
-        elif isinstance(dim, int) and dim > 1:
-            self._shape = (size,) * int(dim)
-            self._dim = int(dim)
+        if dim == "3/2" or isclose(float(dim), 1.5):
+            self._shape: tuple[int, ...] = (cast(int, size), VERTICAL_NUM_VERTICES_D_THREE_HALVES)
+            self._dim: float | int = 1.5
+            # The chain is never periodic vertically.
+            self._periodic_axes: tuple[bool, ...] = (bool(self._periodic_boundary_conds), False)
         else:
-            raise ValueError(f"A {dim}-dimensional lattice doesn't make sense.")
-        # Use of sets enforces no duplicates internally.
-        self._all_vertex_vectors: set[LatticeVector] = set(product(
-            *[[i for i in range(axis_length)] for axis_length in self._shape]))
-        # Use one-indexed labels for positive unit vectors.
-        self._lattice_unit_vector_labels = [
-            i for i in range(1, ceil(self._dim) + 1)]
+            self._dim = int(dim)
+            self._shape = tuple(size) if isinstance(size, Iterable) else (size,) * self._dim
+            self._periodic_axes = (bool(self._periodic_boundary_conds),) * self._dim
 
-        # Construct the link addresses.
-        self._all_link_addreses = []
-        for vertex_vector in self._all_vertex_vectors:
-            for link_unit_vector in self._lattice_unit_vector_labels:
-                if self.dim == 1.5 and self._skip_links_above_or_below_d_equals_three_halves(vertex_vector, link_unit_vector):
-                    continue  # Skip to next lattice direction.
-                else:
-                    link_address = (vertex_vector, link_unit_vector)
-                    self._all_link_addreses.append(link_address)
-        self._all_link_addreses = set(self._all_link_addreses)
+        # The geometry, from pyclebsch's lattice of the same shape and
+        # boundary conditions, with length 1 and open along missing axes.
+        n_missing_axes = _N_PYCLEBSCH_AXES - len(self._shape)
+        self._pyclebsch_lattice = _pyclebsch_lattice(
+            cast(tuple[int, int, int], self._shape + (_LENGTH_OF_MISSING_AXIS,) * n_missing_axes),
+            cast(tuple[bool, bool, bool], self._periodic_axes + (False,) * n_missing_axes),
+            # Checked by __init__ to be a permutation of pyclebsch's link directions.
+            cast(tuple[LinkDirection, ...], self._forder),
+        )
+        self._all_vertex_vectors: set[LatticeVector] = {
+            self._from_pyclebsch_coordinates(site) for site in self._pyclebsch_lattice.sites}
+        self._all_link_addreses: set[LinkAddress] = {
+            self._from_pyclebsch_link_address(link) for link in self._pyclebsch_lattice.links}
+
+    def _to_pyclebsch_coordinates(self, vertex_vector: LatticeVector) -> tuple[int, int, int]:
+        """The coordinates in pyclebsch's lattice of a vertex: ymcirc's, with 0 along each missing axis."""
+        return cast(tuple[int, int, int], tuple(vertex_vector) + (0,) * (_N_PYCLEBSCH_AXES - len(self._shape)))
+
+    def _from_pyclebsch_coordinates(self, site: tuple[int, ...]) -> tuple[int, ...]:
+        """The coordinates of a site of pyclebsch's lattice in this one (the inverse of _to_pyclebsch_coordinates)."""
+        return tuple(site[:len(self._shape)])
+
+    def _to_pyclebsch_link_address(self, link_address: LinkAddress) -> tuple[tuple[int, int, int], LinkDirection]:
+        """
+        The address in pyclebsch's lattice of a link given by its start vertex and positive direction.
+
+        Raises a ValueError if the direction is not a positive direction of
+        this lattice.
+        """
+        vertex_vector, direction = link_address
+        if direction not in range(1, len(self._shape) + 1):
+            raise ValueError(f"Expected a positive direction of this lattice, encountered {direction}.")
+        # Checked above to be one of pyclebsch's link directions.
+        return (self._to_pyclebsch_coordinates(vertex_vector), cast(LinkDirection, direction))
+
+    def _from_pyclebsch_link_address(self, link_address: tuple[tuple[int, ...], int]) -> LinkAddress:
+        """The address in this lattice of a link of pyclebsch's (the inverse of _to_pyclebsch_link_address)."""
+        site, direction = link_address
+        return (self._from_pyclebsch_coordinates(site), direction)
+
+    def _wrap_periodic_axes(self, vertex_vector: LatticeVector) -> tuple[int, ...]:
+        """vertex_vector with each coordinate along a periodic axis taken modulo the axis's length."""
+        return tuple(
+            component % length if periodic else component
+            for component, length, periodic in zip(vertex_vector, self._shape, self._periodic_axes)
+        )
+
+    def _half_link_directions(self, vertex_vector: LatticeVector) -> set[int]:
+        """
+        The directions of the half-links at a vertex: +k for a link leaving it along axis k, -k for one arriving.
+
+        Raises a KeyError if the lattice has no such vertex.
+        """
+        site = self._to_pyclebsch_coordinates(self._wrap_periodic_axes(vertex_vector))
+        return set(self._pyclebsch_lattice.sites[site])
+
+    def _plaquette_signature(self, bottom_left_vertex: LatticeVector, plane: Plane) -> Signature:
+        """
+        The signature of the plaquette at bottom_left_vertex in plane, from pyclebsch.
+
+        Raises a KeyError if the lattice has no such plaquette.
+        """
+        site = self._to_pyclebsch_coordinates(self._wrap_periodic_axes(bottom_left_vertex))
+        if (site, plane) not in self._pyclebsch_lattice.plaquettes:
+            raise KeyError(f"No plaquette in plane {plane} at vertex {bottom_left_vertex} of {self}.")
+        # Checked above to be one of pyclebsch's planes.
+        pyclebsch_plane = cast(PyclebschPlane, plane)
+        _, site_half_links = compute_plaquette_signature((site, pyclebsch_plane), self._pyclebsch_lattice)
+        return cast(Signature, site_half_links)
+
+    def _duplicate_control_indices(self, plane: Plane, signature: Signature) -> dict[PlaquetteControlIndices, PlaquetteControlIndices]:
+        """
+        Where the plaquettes with this plane and signature repeat a control link.
+
+        On a periodic axis of length 2, one link can be a control link at two
+        vertices of a plaquette. For each vertex of a plaquette, pyclebsch's
+        PlaquetteGeometry.unique_controls gives the controls that no earlier
+        vertex has; every control it leaves out is a duplicate, the same
+        link as a control of an earlier vertex. This returns a dict that
+        maps the indices (PlaquetteControlIndices) of each duplicate to the
+        indices of the earlier control it repeats. Plaquettes with the same
+        plane and signature repeat their controls in the same way
+        (pyclebsch.matrix_elements.lattice_data.plaquettes_by_signature
+        explains why), so one plaquette of them stands for all.
+
+        Returns an empty dict when no control repeats another, and also when
+        the lattice has no plaquette with this plane and signature. The
+        caller owns the returned dict.
+        """
+        indices_by_plane_and_signature = _duplicate_control_indices_by_plane_and_signature(
+            self._pyclebsch_lattice)
+        return dict(indices_by_plane_and_signature.get((plane, signature), {}))
 
     def _normalize_link_address(self, link_address: LinkAddress) -> LinkAddress:
-        """Convert link_address to form where the direction label is positive."""
+        """
+        Convert link_address to form where the direction label is positive.
+
+        Raises a ValueError if the direction is not a nonzero integer of at
+        most the number of axes in magnitude, and a KeyError if the lattice
+        has no such link.
+        """
         lattice_vector, unit_vector_label = link_address[0], link_address[1]
 
         # Validate input
-        if unit_vector_label == 0 or not isinstance(unit_vector_label, LinkUnitVectorLabel):
-            raise ValueError("Unit vectors on the lattice must be specified by nonzero integers. "
-                             f"Encountered: {unit_vector_label}.")
+        if not isinstance(unit_vector_label, int) or unit_vector_label == 0 \
+                or abs(unit_vector_label) > len(self._shape):
+            raise ValueError("Unit vectors on the lattice must be specified by nonzero integers "
+                             f"of magnitude at most {len(self._shape)}. Encountered: {unit_vector_label}.")
 
         # Handle negative unit vector case
-        unit_vector_label_zero_indexed = abs(unit_vector_label) - 1
-        unit_vector = tuple(0 if component != unit_vector_label_zero_indexed else 1 for component in range(ceil(self.dim)))
         if unit_vector_label < 0:
             # Go back one vertex in the direction given by the unit vector.
-            lattice_vector = tuple(l_comp - u_comp for l_comp, u_comp in zip(lattice_vector, unit_vector))
+            lattice_vector = self.add_unit_vector_to_vertex_vector(lattice_vector, unit_vector_label)
             unit_vector_label = abs(unit_vector_label)
 
-        # Handle links on boundaries of lattice.
-        if any(component < 0 for component in lattice_vector) or any(component > self.shape[0] for component in lattice_vector):
-            # TODO implement boundary logic for periodic boundary conditions
-            vertical_dir_idx = VERTICAL_DIR_LABEL - 1
-            if self.dim == 1.5 and (lattice_vector[vertical_dir_idx] < 0 or lattice_vector[vertical_dir_idx] > 1):
-                raise KeyError(f"Lattice vertex {lattice_vector} doesn't exist for d = 3/2.")
-            elif self.all_boundary_conds_periodic:
-                lattice_vector = tuple(comp % self.shape[dir_idx] for dir_idx, comp in enumerate(lattice_vector))
-            else:
-                # TODO implement handling of fixed boundary conditions.
-                raise NotImplementedError()
-
-        normalized_link_address = (lattice_vector, unit_vector_label)
+        normalized_link_address = (self._wrap_periodic_axes(lattice_vector), unit_vector_label)
+        if normalized_link_address not in self._all_link_addreses:
+            raise KeyError(f"Link {link_address} doesn't exist on the lattice {self}.")
         return normalized_link_address
 
     @property
     def n_plaquettes(self) -> int:
         """Retrieve the total number of unique plaquettes in the entire lattice."""
-        if self.all_boundary_conds_periodic is True:
-            if self.dim >= 2:
-                # For each unique vertex, there are dim choose 2 unique plaquettes
-                # that are defined by pairs of positive lattice directions.
-                return int(len(self.vertex_addresses) * comb(self.dim, 2))
-            else:
-                # For d=3/2, only need a count of the number of vertices along the
-                # "bottom" rung of the lattice. This is half the total number of
-                # vertices.
-                return int(len(self.vertex_addresses) / 2)
-        else:
-            raise NotImplementedError("Number of plaquettes calculation only implemented for periodic lattices.")
+        return len(self._pyclebsch_lattice.plaquettes)
 
     @property
     def n_vertices(self) -> int:
@@ -455,10 +590,9 @@ class LatticeDef:
         """
         Retrieve the total number of control links per plaquette.
 
-        Note that the same physical link can appear as multiple controls
-        for periodic boundary conditions on small lattices. This number is
-        NOT necessarily the same as the number of physically unique links
-        controlling a plaquette.
+        Note that on a periodic axis of length 2, one link can be a control
+        link at two vertices of a plaquette, so this number is NOT
+        necessarily the number of distinct links controlling a plaquette.
         """
         if self.all_boundary_conds_periodic is False:
             raise NotImplementedError("Only periodic boundary conditions have been implemented.")
@@ -472,13 +606,25 @@ class LatticeDef:
         return sorted(list(self._all_vertex_vectors))
 
     @property
-    def link_addresses(self) -> list[tuple[LatticeVector, LinkUnitVectorLabel]]:
-        """Retrieve all of the (LatticeVector, LinkUnitVectorLabel) tuples uniquely labeling lattice links."""
+    def link_addresses(self) -> list[LinkAddress]:
+        """Retrieve all of the (LatticeVector, positive direction) tuples uniquely labeling lattice links."""
         return sorted(list(self._all_link_addreses))
 
     @property
     def shape(self) -> tuple[int, ...]:
         """Return the shape of the lattice wrt number of vertices in each dimension."""
+        return self._shape
+
+    @property
+    def size(self) -> int | tuple[int, ...]:
+        """
+        The size argument that creates this lattice: one length, or the shape.
+
+        One length for d=3/2 (along the chain) and for lattices of the same
+        length along every axis, otherwise the shape.
+        """
+        if self._dim == 1.5 or len(set(self._shape)) == 1:
+            return self._shape[0]
         return self._shape
 
     @property
@@ -509,36 +655,28 @@ class LatticeDef:
                else self.periodic_boundary_conds
 
     @property
-    def forder(self) -> list[int]:
-        """Return the half-link ordering convention (FORDER)."""
-        return list(self._forder)
+    def forder(self) -> tuple[int, ...]:
+        """Return the half-link ordering convention (FORDER), a tuple of the six directions."""
+        return self._forder
 
-    def add_unit_vector_to_vertex_vector(self, vertex_vector: LatticeVector, unit_vec_dir: LinkUnitVectorLabel):
+    def add_unit_vector_to_vertex_vector(self, vertex_vector: LatticeVector, unit_vec_dir: int):
         """
         Return the lattice vector one site away from vertex vector in the direction unit_vec_dir.
 
-        Negative values for unit_vec_dir yield backward steps.
+        Negative values for unit_vec_dir yield backward steps. Along a
+        periodic axis, the step wraps around; along any other (such as the
+        vertical axis of d=3/2), the result may lie outside the lattice.
         """
         if unit_vec_dir == 0:
             raise ValueError(f"Unit vector label must be a nonzero integer.")
 
         sign = -1 if unit_vec_dir < 0 else 1
-        unit_vec_dir = abs(unit_vec_dir)
-        unit_vec_nonzero_component_idx = unit_vec_dir - 1
+        unit_vec_nonzero_component_idx = abs(unit_vec_dir) - 1
 
         unit_vector = tuple(sign*1 if idx == unit_vec_nonzero_component_idx else 0 for idx in range(len(self.shape)))
 
         result_vector = tuple(v_comp + u_comp for v_comp, u_comp in zip(vertex_vector, unit_vector))
-
-        if self.all_boundary_conds_periodic is True and self.dim != 1.5:
-            result_vector = tuple(comp % self.shape[0] for comp in result_vector)
-        elif self.all_boundary_conds_periodic is True:
-            # Vertical direction is NEVER periodic in d=3/2.
-            result_vector = (result_vector[0] % self.shape[0], result_vector[1])
-        else:
-            raise NotImplementedError("Vector addition not yet implemented on nonperiodic lattices.")
-
-        return result_vector
+        return self._wrap_periodic_axes(result_vector)
 
     def get_traversal_order(self) -> list[tuple[LatticeVector, list[LinkAddress]]]:
         """
@@ -599,38 +737,17 @@ class LatticeDef:
         all_vertex_addresses_sorted = sorted(self.vertex_addresses)
         all_addresses_traversal_order = []
         for current_vertex_address in all_vertex_addresses_sorted:
-            link_addresses_following_current_vertex_address = []
-            for positive_direction in range(1, ceil(self.dim) + 1):
-                has_no_vertical_periodic_link_three_halves_case = (
-                    self.dim == 1.5
-                    and positive_direction > 1
-                    and current_vertex_address[1] == 1
-                )
-                if has_no_vertical_periodic_link_three_halves_case:
-                    continue
-
-                current_link_address = (current_vertex_address, positive_direction)
-                link_addresses_following_current_vertex_address.append(current_link_address)
-
+            # The links leaving the vertex in the positive directions, in
+            # increasing order of direction, skipping those the lattice
+            # lacks (in d=3/2, the vertical links above the chain).
+            link_addresses_following_current_vertex_address: list[LinkAddress] = [
+                (current_vertex_address, positive_direction)
+                for positive_direction in range(1, len(self._shape) + 1)
+                if (current_vertex_address, positive_direction) in self._all_link_addreses
+            ]
             all_addresses_traversal_order.append((current_vertex_address, link_addresses_following_current_vertex_address))
 
         return all_addresses_traversal_order
-
-    @staticmethod
-    def _skip_links_above_or_below_d_equals_three_halves(
-            vertex_vector: LatticeVector, direction_label: LinkUnitVectorLabel) -> bool:
-        """Check whether to skip initalizing unphysical registers for d=3/2."""
-        if len(vertex_vector) < 2:
-            raise ValueError(f"Vertex vector has length {len(vertex_vector)} < 2.")
-        is_lower_vertex = vertex_vector[1] == 0
-        if is_lower_vertex and direction_label == -VERTICAL_DIR_LABEL:
-            # Don't make a link below the chain.
-            return True
-        elif not is_lower_vertex and direction_label == VERTICAL_DIR_LABEL:
-            # Don't make a link above the chain
-            return True
-        else:
-            return False
 
 
 class LatticeData(ABC, LatticeDef, Generic[T]):
@@ -649,7 +766,7 @@ class LatticeData(ABC, LatticeDef, Generic[T]):
             dimensions: DimensionalitySpecifier,
             size: int | tuple[int, ...],
             periodic_boundary_conds: bool | tuple[bool, ...] = True,
-            forder: list[int] | None = None
+            forder: Sequence[int] | None = None
     ):
         """
         Initialize a lattice with specified dimensionality, size, and boundary conditions.
@@ -700,8 +817,8 @@ class LatticeData(ABC, LatticeDef, Generic[T]):
 
     def get_plaquettes(self,
                        lattice_vector: LatticeVector,
-                       e1: LinkUnitVectorLabel | None = None,
-                       e2: LinkUnitVectorLabel | None = None,
+                       e1: int | None = None,
+                       e2: int | None = None,
                        **kwargs
                        ) -> Plaquette[T] | list[Plaquette[T]]:
         """

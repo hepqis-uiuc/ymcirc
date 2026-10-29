@@ -1,5 +1,6 @@
 from __future__ import annotations
 from math import ceil
+from collections import UserList
 from itertools import product
 import pytest
 from ymcirc.conventions import IrrepBitmap, VertexMultiplicityBitmap
@@ -154,11 +155,6 @@ def test_link_and_vertex_register_initialization(dims: DimensionalitySpecifier):
     print(f"\tobtained = {lattice._all_vertex_vectors}")
 
     assert expected_vertex_vectors == lattice._all_vertex_vectors
-    print("Checking that correct set of lattice unit vector labels was obtained,..")
-    print(f"\texpected = {expected_lattice_unit_vector_labels}")
-    print(f"\tobtained = {lattice._lattice_unit_vector_labels}")
-
-    assert expected_lattice_unit_vector_labels == lattice._lattice_unit_vector_labels
 
     # Check that expected registers are initialized.
     # This means for dim = 1.5 checking there aren't links above
@@ -414,48 +410,89 @@ def test_get_plaquettes(dims: DimensionalitySpecifier, size: int):
             assert link_reg.name in lattice_all_link_names
 
 
-def test_get_registers_in_local_hamiltonian_order():
-    print("Confirm that we get registers ordered by vertices, active links, then control links.")
-    lattice = LatticeRegisters(dimensions=2, size=3)
-    result_register_list = lattice.get_registers_in_local_hamiltonian_order(
-        lattice_vector=(0, 0),
-        e1=1,
-        e2=2)
-    plaquette = lattice.get_plaquettes(
-        lattice_vector=(0, 0),
-        e1=1,
-        e2=2)
-    expected_num_controls = 8
-    expected_num_total_regs = expected_num_controls + (2*4)
-    # Initialze the following test data.
-    expected_control_regs = []
-    actual_num_controls = 0  # Initialize this.
-    for v in plaquette.control_links:
-        actual_num_controls += len(v)
-        for link_address, reg in plaquette.control_links[v].items():
-            expected_control_regs.append(reg)
+# Register names of the plaquette at the origin of a periodic size-3 lattice,
+# in the order of the plaquette's bit string: vertices counterclockwise from
+# the bottom-left one, active links, then each vertex's control links in
+# F-order. Keyed by (dimensions, F-order as a tuple, plane).
+_D2_PLANE_12_PREFIX = [
+    "v:(0, 0)", "v:(1, 0)", "v:(1, 1)", "v:(0, 1)",
+    "l:((0, 0), 1)", "l:((1, 0), 2)", "l:((0, 1), 1)", "l:((0, 0), 2)",
+]
+_D3_PREFIXES = {
+    (1, 2): [
+        "v:(0, 0, 0)", "v:(1, 0, 0)", "v:(1, 1, 0)", "v:(0, 1, 0)",
+        "l:((0, 0, 0), 1)", "l:((1, 0, 0), 2)", "l:((0, 1, 0), 1)", "l:((0, 0, 0), 2)",
+    ],
+    (1, 3): [
+        "v:(0, 0, 0)", "v:(1, 0, 0)", "v:(1, 0, 1)", "v:(0, 0, 1)",
+        "l:((0, 0, 0), 1)", "l:((1, 0, 0), 3)", "l:((0, 0, 1), 1)", "l:((0, 0, 0), 3)",
+    ],
+    (2, 3): [
+        "v:(0, 0, 0)", "v:(0, 1, 0)", "v:(0, 1, 1)", "v:(0, 0, 1)",
+        "l:((0, 0, 0), 2)", "l:((0, 1, 0), 3)", "l:((0, 0, 1), 2)", "l:((0, 0, 0), 3)",
+    ],
+}
+_EXPECTED_LOCAL_HAMILTONIAN_ORDER = {
+    (2, (1, 2, 3, -1, -2, -3), (1, 2)): _D2_PLANE_12_PREFIX + [
+        "l:((2, 0), 1)", "l:((0, 2), 2)",
+        "l:((1, 0), 1)", "l:((1, 2), 2)",
+        "l:((1, 1), 1)", "l:((1, 1), 2)",
+        "l:((0, 1), 2)", "l:((2, 1), 1)",
+    ],
+    (2, (-1, -2, 1, 2, 3, -3), (1, 2)): _D2_PLANE_12_PREFIX + [
+        "l:((2, 0), 1)", "l:((0, 2), 2)",
+        "l:((1, 2), 2)", "l:((1, 0), 1)",
+        "l:((1, 1), 1)", "l:((1, 1), 2)",
+        "l:((2, 1), 1)", "l:((0, 1), 2)",
+    ],
+    (3, (1, 2, 3, -1, -2, -3), (1, 2)): _D3_PREFIXES[(1, 2)] + [
+        "l:((0, 0, 0), 3)", "l:((2, 0, 0), 1)", "l:((0, 2, 0), 2)", "l:((0, 0, 2), 3)",
+        "l:((1, 0, 0), 1)", "l:((1, 0, 0), 3)", "l:((1, 2, 0), 2)", "l:((1, 0, 2), 3)",
+        "l:((1, 1, 0), 1)", "l:((1, 1, 0), 2)", "l:((1, 1, 0), 3)", "l:((1, 1, 2), 3)",
+        "l:((0, 1, 0), 2)", "l:((0, 1, 0), 3)", "l:((2, 1, 0), 1)", "l:((0, 1, 2), 3)",
+    ],
+    (3, (1, 2, 3, -1, -2, -3), (1, 3)): _D3_PREFIXES[(1, 3)] + [
+        "l:((0, 0, 0), 2)", "l:((2, 0, 0), 1)", "l:((0, 2, 0), 2)", "l:((0, 0, 2), 3)",
+        "l:((1, 0, 0), 1)", "l:((1, 0, 0), 2)", "l:((1, 2, 0), 2)", "l:((1, 0, 2), 3)",
+        "l:((1, 0, 1), 1)", "l:((1, 0, 1), 2)", "l:((1, 0, 1), 3)", "l:((1, 2, 1), 2)",
+        "l:((0, 0, 1), 2)", "l:((0, 0, 1), 3)", "l:((2, 0, 1), 1)", "l:((0, 2, 1), 2)",
+    ],
+    (3, (1, 2, 3, -1, -2, -3), (2, 3)): _D3_PREFIXES[(2, 3)] + [
+        "l:((0, 0, 0), 1)", "l:((2, 0, 0), 1)", "l:((0, 2, 0), 2)", "l:((0, 0, 2), 3)",
+        "l:((0, 1, 0), 1)", "l:((0, 1, 0), 2)", "l:((2, 1, 0), 1)", "l:((0, 1, 2), 3)",
+        "l:((0, 1, 1), 1)", "l:((0, 1, 1), 2)", "l:((0, 1, 1), 3)", "l:((2, 1, 1), 1)",
+        "l:((0, 0, 1), 1)", "l:((0, 0, 1), 3)", "l:((2, 0, 1), 1)", "l:((0, 2, 1), 2)",
+    ],
+    (3, (-1, -2, 1, 2, 3, -3), (1, 2)): _D3_PREFIXES[(1, 2)] + [
+        "l:((2, 0, 0), 1)", "l:((0, 2, 0), 2)", "l:((0, 0, 0), 3)", "l:((0, 0, 2), 3)",
+        "l:((1, 2, 0), 2)", "l:((1, 0, 0), 1)", "l:((1, 0, 0), 3)", "l:((1, 0, 2), 3)",
+        "l:((1, 1, 0), 1)", "l:((1, 1, 0), 2)", "l:((1, 1, 0), 3)", "l:((1, 1, 2), 3)",
+        "l:((2, 1, 0), 1)", "l:((0, 1, 0), 2)", "l:((0, 1, 0), 3)", "l:((0, 1, 2), 3)",
+    ],
+    (3, (-1, -2, 1, 2, 3, -3), (1, 3)): _D3_PREFIXES[(1, 3)] + [
+        "l:((2, 0, 0), 1)", "l:((0, 2, 0), 2)", "l:((0, 0, 0), 2)", "l:((0, 0, 2), 3)",
+        "l:((1, 2, 0), 2)", "l:((1, 0, 0), 1)", "l:((1, 0, 0), 2)", "l:((1, 0, 2), 3)",
+        "l:((1, 2, 1), 2)", "l:((1, 0, 1), 1)", "l:((1, 0, 1), 2)", "l:((1, 0, 1), 3)",
+        "l:((2, 0, 1), 1)", "l:((0, 2, 1), 2)", "l:((0, 0, 1), 2)", "l:((0, 0, 1), 3)",
+    ],
+    (3, (-1, -2, 1, 2, 3, -3), (2, 3)): _D3_PREFIXES[(2, 3)] + [
+        "l:((2, 0, 0), 1)", "l:((0, 2, 0), 2)", "l:((0, 0, 0), 1)", "l:((0, 0, 2), 3)",
+        "l:((2, 1, 0), 1)", "l:((0, 1, 0), 1)", "l:((0, 1, 0), 2)", "l:((0, 1, 2), 3)",
+        "l:((2, 1, 1), 1)", "l:((0, 1, 1), 1)", "l:((0, 1, 1), 2)", "l:((0, 1, 1), 3)",
+        "l:((2, 0, 1), 1)", "l:((0, 2, 1), 2)", "l:((0, 0, 1), 1)", "l:((0, 0, 1), 3)",
+    ],
+}
 
-    # The actual tests start here.
-    print("Checking that we got the right number of registers...")
-    assert expected_num_total_regs == len(result_register_list), f"Expected {expected_num_total_regs}, encountered {len(result_register_list)}."
 
-    print("Scanning through individual result registers...")
-    for idx, reg in enumerate(result_register_list[:4]):
-        print(f"Vertex: {reg} == {plaquette.vertices[idx]}?")
-        assert reg == plaquette.vertices[idx], f"Register mismatch, {reg} != {plaquette.vertices[idx]}"
-
-    for idx, reg in enumerate(result_register_list[4:8]):
-        print(f"Active link: {reg} == {plaquette.active_links[idx]}?")
-        assert reg == plaquette.active_links[idx], f"Register mismatch, {reg} != {plaquette.active_links[idx]}"
-
-    print("Expecting controls:", expected_control_regs)
-    for idx, reg in enumerate(result_register_list[8:]):
-        # TODO should check ordering of control registers.
-        print(f"Control link {reg} in list of controls?")
-        assert reg in expected_control_regs, f"Register mismatch, {reg} not found in {expected_control_regs}."
-
-    print("Total number of control links matches expectation?")
-    assert actual_num_controls == expected_num_controls
+@pytest.mark.parametrize(
+    ("dims", "forder", "plane"), list(_EXPECTED_LOCAL_HAMILTONIAN_ORDER.keys())
+)
+def test_get_registers_in_local_hamiltonian_order(dims, forder, plane):
+    """Registers come in the order of the plaquette's bit string, controls in F-order at each vertex."""
+    lattice = LatticeRegisters(dimensions=dims, size=3, forder=list(forder))
+    origin = (0,) * dims
+    registers = lattice.get_registers_in_local_hamiltonian_order(origin, *plane)
+    assert [register.name for register in registers] == _EXPECTED_LOCAL_HAMILTONIAN_ORDER[(dims, forder, plane)]
 
 
 def test_all_plaquettes_are_indexed_only_one_time():
@@ -670,7 +707,7 @@ def test_get_bitmaps_from_lattice():
         0: "0",
         1: "1"
     }
-    lattice = LatticeRegisters(4, 2, link_bitmap=irrep_trunc_dict, vertex_bitmap=vertex_bitmap)
+    lattice = LatticeRegisters(3, 2, link_bitmap=irrep_trunc_dict, vertex_bitmap=vertex_bitmap)
     print(
         f"Should find that:\nlattice.link_bitmap == {irrep_trunc_dict}\n"
         f"lattice.vertex_bitmap == {vertex_bitmap}"
@@ -901,7 +938,28 @@ def test_bad_forder_raises_value_error():
     valid_alt_forder = [-1, -2, 1, 2, 3, -3]
     print(f"  Checking forder={valid_alt_forder} does not raise.")
     lattice_def = LatticeDef(dimensions=2, size=2, forder=valid_alt_forder)
-    assert lattice_def.forder == valid_alt_forder
+    assert lattice_def.forder == (-1, -2, 1, 2, 3, -3)
+
+
+@pytest.mark.parametrize(
+    "forder",
+    [[-1, -2, 1, 2, 3, -3], (-1, -2, 1, 2, 3, -3), UserList([-1, -2, 1, 2, 3, -3])],
+)
+def test_forder_accepts_any_sequence_and_is_kept_as_a_tuple(forder):
+    """An F-order may be given as any sequence; LatticeDef keeps and returns it as a tuple."""
+    lattice_def = LatticeDef(dimensions=2, size=2, forder=forder)
+    assert lattice_def.forder == (-1, -2, 1, 2, 3, -3)
+    assert isinstance(lattice_def.forder, tuple)
+    assert LatticeDef(dimensions=2, size=2).forder == (1, 2, 3, -1, -2, -3)
+
+
+@pytest.mark.parametrize(
+    "forder", [{1, 2, 3, -1, -2, -3}, (d for d in (1, 2, 3, -1, -2, -3))]
+)
+def test_forder_that_is_not_a_sequence_raises_type_error(forder):
+    """A set or an iterator has no reliable order, so it cannot be an F-order."""
+    with pytest.raises(TypeError):
+        LatticeDef(dimensions=2, size=2, forder=forder)
 
 
 def test_non_default_forder_changes_control_link_ordering():

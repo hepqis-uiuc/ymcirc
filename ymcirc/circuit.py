@@ -36,7 +36,8 @@ from ymcirc.givens import (
     compute_p_tilde,
     gray_to_index,
 )
-from ymcirc._abstract.lattice_data import Plaquette, LinkUnitVectorLabel, LinkAddress, LatticeVector, Plane, Signature
+from typing import cast
+from ymcirc._abstract.lattice_data import PlaquetteControlIndices, Plaquette, LinkAddress, LatticeVector, Plane, Signature
 from ymcirc.utilities import eta_update, fmt_td
 from qiskit import transpile
 from qiskit.circuit import Parameter, ParameterVector, QuantumCircuit, QuantumRegister, AncillaRegister, ClassicalRegister
@@ -60,7 +61,8 @@ type HamiltonianData = dict[EncodedPlaquetteTransition, MatrixElementValue]
 # Circuit construction iterates over planes, so the constructor re-indexes
 # HamiltonianData, whose top-level key is a pair of plaquette states.
 # A dict with key hierarchy: plane -> (bs1, bs2) -> signature -> float.
-# Bitstring keys are already trimmed on small periodic lattices.
+# The bit strings in the keys have their duplicate controls (on a periodic
+# axis of length 2) already removed.
 type PlaneKeyedHamiltonianData = dict[Plane, dict[tuple[str, str], dict[Signature, float]]]
 
 
@@ -105,16 +107,18 @@ class LatticeCircuitManager:
             <s1| box + box^dagger |s2> for each plane and plaquette signature,
             as a MatrixElementValue (``dict[Plane, dict[Signature, float]]``).
 
-        If the lattice defined by lattice_encoder is small and periodic, then the data in mag_hamiltonian
-        will be filtered for consistency. "Small and periodic" means that the lattice has
-        periodic boundary conditions, and is small enough that it is possible for a single
-        physical lattice link to appear as control links on two different vertices in a given
-        plaquette. In this situation, all matrix elements in the magnetic Hamiltonian
-        for which the initial or the final state have distinct link state data on one of
-        these "shared" control links are discarded, and "duplicate" control links
-        are removed from the binary encoding of the plaquette states. This duplicate
-        removal is done by removing all but the first instance of a repeated control
-        link from the plaquette state.
+        On a periodic axis of length 2, one link can be a control link at two
+        vertices of a plaquette. Each such duplicate control is removed from
+        the bit strings of mag_hamiltonian, keeping the first instance, as
+        pyclebsch's unique controls of the plaquette's plane and signature
+        say (LatticeDef._duplicate_control_indices); the plaquette
+        circuits leave out the duplicate's qubits in the same way. A matrix
+        element in which a duplicate control has a different link state from
+        the control it repeats cannot occur on the lattice, and raises a
+        ValueError. Entries whose plane and signature belong to no plaquette
+        of the lattice are kept as given; no plaquette circuit uses them.
+
+        Raises a NotImplementedError for lattices that are not periodic.
         """
         # Copies to avoid inadvertently changing the behavior of the
         # LatticeCircuitManager instance.
@@ -129,84 +133,30 @@ class LatticeCircuitManager:
         # Parameter for the number of ancillas used in circuit. Initialized to 0.
         self._num_ancillas = 0
 
-        # Determine if lattice is small and periodic. If yes, filter out inconsistent Hamiltonian terms
-        # and drop repeated references to the same physical control link in mag_hamiltonian bit strings.
-        self._lattice_is_small = False
-        self._lattice_is_periodic = False
-        lattice_size_threshold_for_smallness = 2
-        if not lattice_encoder.lattice_def.all_boundary_conds_periodic:
+        lattice_def = self._encoder.lattice_def
+        if not lattice_def.all_boundary_conds_periodic:
             raise NotImplementedError("Lattices with nonperiodic or mixed boundary conditions not yet supported.")
-        else:
-            self._lattice_is_periodic = True
-        match lattice_encoder.lattice_def.dim:
-            case 1.5:
-                lattice_size = lattice_encoder.lattice_def.shape[0]
-            case 2:
-                lattice_size = lattice_encoder.lattice_def.shape[0]
-                if lattice_size != lattice_encoder.lattice_def.shape[1]:
-                    raise NotImplementedError("Non-square dim 2 lattices not yet supported.")
-            case 3:
-                lattice_size = lattice_encoder.lattice_def.shape[0]
-                if lattice_size != lattice_encoder.lattice_def.shape[1] \
-                        or lattice_size != lattice_encoder.lattice_def.shape[2]:
-                    raise NotImplementedError("Non-cubic dim 3 lattices not yet supported.")
-            case _:
-                raise NotImplementedError(f"Dim {lattice_encoder.lattice_def.dim} lattice not yet supported.")
-        self._lattice_is_small = True if lattice_size <= lattice_size_threshold_for_smallness else False
 
-        # Cache control link dirs per plane for small periodic lattices (used by consistency/discard methods).
-        self._cached_ctrl_dirs_small_and_periodic: dict[Plane, tuple] = {}
-        if self._lattice_is_small and self._lattice_is_periodic:
-            _temp_lattice = LatticeRegisters.from_lattice_state_encoder(self._encoder)
-            dim = self._encoder.lattice_def.dim
-            if dim == 1.5 or dim == 2:
-                planes = [(1, 2)]
-            elif dim == 3:
-                planes = [(1, 2), (1, 3), (2, 3)]
-            else:
-                raise NotImplementedError(f"Dim {dim} lattice not yet supported.")
-            origin = tuple(0 for _ in range(len(self._encoder.lattice_def.shape)))
-            for e1, e2 in planes:
-                _temp_plaq = _temp_lattice.get_plaquettes(origin, e1, e2)
-                self._cached_ctrl_dirs_small_and_periodic[(e1, e2)] = _temp_plaq.control_link_dirs_per_vertex
-
-        # Pivot self._mag_hamiltonian from entry-first to per-plane-first format.
-        # On small periodic lattices, also filter inconsistent entries and trim
-        # duplicate control links per-plane. A given (bs1, bs2) entry may be
-        # consistent for one plane but not another, so filtering is per-plane.
+        # Pivot self._mag_hamiltonian from entry-first to per-plane-first
+        # format, removing duplicate controls from the bit strings of each
+        # plane and signature.
         plane_keyed_hamiltonian_data: PlaneKeyedHamiltonianData = {}
-        if self._lattice_is_small is True and self._lattice_is_periodic is True:
-            for (final_bs, initial_bs), matrix_elem_value in _input_hamiltonian.items():
-                final_ps = lattice_encoder.decode_bit_string_to_plaquette_state(final_bs)
-                initial_ps = lattice_encoder.decode_bit_string_to_plaquette_state(initial_bs)
-
-                for plane, sig_dict in matrix_elem_value.items():
-                    if (self._plaquette_state_has_inconsistent_controls(final_ps, plane)
-                            or self._plaquette_state_has_inconsistent_controls(initial_ps, plane)):
-                        continue
-
-                    final_trimmed = self._discard_duplicate_controls_from_plaquette_state(final_ps, plane)
-                    initial_trimmed = self._discard_duplicate_controls_from_plaquette_state(initial_ps, plane)
-                    trimmed_key = (
-                        lattice_encoder.encode_plaquette_state_as_bit_string(
-                            final_trimmed, override_n_c_links_validation=True),
-                        lattice_encoder.encode_plaquette_state_as_bit_string(
-                            initial_trimmed, override_n_c_links_validation=True),
+        for (final_bs, initial_bs), matrix_elem_value in _input_hamiltonian.items():
+            for plane, sig_dict in matrix_elem_value.items():
+                plane_data = plane_keyed_hamiltonian_data.setdefault(plane, {})
+                for signature, value in sig_dict.items():
+                    duplicate_control_indices = lattice_def._duplicate_control_indices(plane, signature)
+                    key = (
+                        self._bit_string_without_duplicate_controls(final_bs, duplicate_control_indices),
+                        self._bit_string_without_duplicate_controls(initial_bs, duplicate_control_indices),
                     )
-
-                    if plane not in plane_keyed_hamiltonian_data:
-                        plane_keyed_hamiltonian_data[plane] = {}
-                    if trimmed_key in plane_keyed_hamiltonian_data[plane]:
-                        plane_keyed_hamiltonian_data[plane][trimmed_key].update(sig_dict)
-                    else:
-                        plane_keyed_hamiltonian_data[plane][trimmed_key] = dict(sig_dict)
-        else:
-            # Large or non-periodic: pivot to per-plane-first without filtering/trimming.
-            for (bs1, bs2), matrix_elem_value in _input_hamiltonian.items():
-                for plane, sig_dict in matrix_elem_value.items():
-                    if plane not in plane_keyed_hamiltonian_data:
-                        plane_keyed_hamiltonian_data[plane] = {}
-                    plane_keyed_hamiltonian_data[plane][(bs1, bs2)] = dict(sig_dict)
+                    if key[0] is None or key[1] is None:
+                        raise ValueError(
+                            f"The matrix element between {final_bs} and {initial_bs} in plane {plane}, "
+                            f"signature {signature}, has a control link whose link state differs from "
+                            "that of another control link of the plaquette that is the same link."
+                        )
+                    plane_data.setdefault(cast(tuple[str, str], key), {})[signature] = value
         self._mag_hamiltonian = plane_keyed_hamiltonian_data
 
     @classmethod
@@ -360,13 +310,17 @@ class LatticeCircuitManager:
           - control_fusion: Optional boolian argument with the default set to False. If it's set
                             to be True, then redundant controls are removed from the Givens rotations
                             of each LP family. LP families are visited in Gray-code order either way.
-          - physical_states_for_control_pruning: The set of all physical states encoded as bitstrings.
-                                                 If provided, control pruning of multi-control rotation
-                                                 gate inside Givens rotation subcircuits will be attempted.
-                                                 If the lattice is small and periodic, then duplicate control
-                                                 links which are shared between vertices will be stripped
-                                                 out first.
-                                                 If None, no control pruning is attempted.
+          - physical_states_for_control_pruning: the physical plaquette states, encoded as bit strings
+                                                 with all their controls. The set may hold the states
+                                                 of every plane and signature together, as the encoded
+                                                 result of physical_plaquette_states does. If provided,
+                                                 control pruning of the multi-controlled gates inside
+                                                 the Givens rotations is attempted. The caller need not
+                                                 filter them: for each plane and signature, the step
+                                                 removes duplicate controls (on a periodic axis of
+                                                 length 2) and leaves out states that cannot occur
+                                                 there because their duplicate controls disagree. If
+                                                 None, no control pruning is attempted.
           - optimize_circuits: if True, run the qiskit transpiler on each
                                internal givens rotation with the maximum
                                optimization level before composing with
@@ -469,8 +423,8 @@ class LatticeCircuitManager:
         circuit: QuantumCircuit,
         lattice: LatticeRegisters,
         bottom_left_vertex: LatticeVector,
-        e1: LinkUnitVectorLabel,
-        e2: LinkUnitVectorLabel,
+        e1: int,
+        e2: int,
     ) -> None:
         """
         Append measurements for all registers in the specified plaquette.
@@ -478,7 +432,8 @@ class LatticeCircuitManager:
         Measures all vertex registers, active link registers, and control link
         registers belonging to the plaquette defined by bottom_left_vertex and
         the plane (e1, e2). Deduplicates registers that appear multiple times
-        (e.g., shared control links on small periodic lattices).
+        (a link that is a control link at two vertices, on a periodic axis
+        of length 2).
 
         Arguments:
             - circuit: The QuantumCircuit to append measurements to.
@@ -646,13 +601,17 @@ class LatticeCircuitManager:
                                internal givens rotation with the maximum
                                optimization level before composing with
                                master_circuit.
-          - physical_states_for_control_pruning: The set of all physical states encoded as bitstrings.
-                                                 If provided, control pruning of multi-control rotation
-                                                 gate inside Givens rotation subcircuits will be attempted.
-                                                 If the lattice is small and periodic, then duplicate control
-                                                 links which are shared between vertices will be stripped
-                                                 out first.
-                                                 If None, no control pruning is attempted.
+          - physical_states_for_control_pruning: the physical plaquette states, encoded as bit strings
+                                                 with all their controls. The set may hold the states
+                                                 of every plane and signature together, as the encoded
+                                                 result of physical_plaquette_states does. If provided,
+                                                 control pruning of the multi-controlled gates inside
+                                                 the Givens rotations is attempted. The caller need not
+                                                 filter them: for each plane and signature, the step
+                                                 removes duplicate controls (on a periodic axis of
+                                                 length 2) and leaves out states that cannot occur
+                                                 there because their duplicate controls disagree. If
+                                                 None, no control pruning is attempted.
           - control_fusion: Optional boolean argument with the default set to False. If it's set
                             to be True, then redundant controls are removed from the Givens rotations
                             of each LP family. LP families are visited in Gray-code order either way.
@@ -664,9 +623,6 @@ class LatticeCircuitManager:
         Returns:
           None (master_circuit has the magnetic Trotter step appended)
         """
-        per_plane_pruning_states = self._strip_redundant_controls_if_small_and_periodic_lattice(
-            physical_states_for_control_pruning)
-
         # Construct the dt and coupling parameters for the current magnetic Trotter step,
         name_prefixes = ['dt_mag', 'coupling_g_mag']
         step_num_separator = '__'
@@ -694,27 +650,18 @@ class LatticeCircuitManager:
                 "control_fusion": control_fusion,
             }
 
-        # Pre-compute per-plane skip indices for small periodic lattices.
-        # Maps (plane, vertex_idx) -> set of ctrl_idx values to skip.
-        _skip_indices: dict[tuple[Plane, int], set[int]] = {}
-        if self._lattice_is_small and self._lattice_is_periodic:
-            dim = self._encoder.lattice_def.dim
-            if dim == 1.5:
-                for plane in self._cached_ctrl_dirs_small_and_periodic:
-                    n_ctrls = len(self._cached_ctrl_dirs_small_and_periodic[plane][0])
-                    _skip_indices[(plane, 1)] = set(range(n_ctrls))
-                    _skip_indices[(plane, 3)] = set(range(n_ctrls))
-            else:
-                for plane, ctrl_dirs in self._cached_ctrl_dirs_small_and_periodic.items():
-                    e1, e2 = plane
-                    _skip_indices[(plane, 1)] = {ctrl_dirs[1].index(e1)}
-                    _skip_indices[(plane, 2)] = {ctrl_dirs[2].index(e2)}
-                    _skip_indices[(plane, 3)] = {ctrl_dirs[3].index(e2), ctrl_dirs[3].index(-e1)}
-
-        # Local cache for Hamiltonian data per (plane, signature).
-        # On periodic lattices, all plaquettes share the same key, so this
-        # avoids re-iterating over self._mag_hamiltonian for every plaquette.
+        # Plaquettes with the same (plane, signature) share the following, so
+        # each is prepared once per (plane, signature) rather than once per
+        # plaquette:
+        # - their matrix elements, picked out of self._mag_hamiltonian as the
+        #   flat list that _build_mag_evol_circuit takes;
+        # - their states for control pruning, with the duplicate controls (on
+        #   a periodic axis of length 2) removed and the states that cannot
+        #   occur there left out.
+        # (The indices of their duplicate controls are looked up per
+        # plaquette: LatticeDef computes them once per lattice.)
         _per_plane_and_signature_hamiltonian_cache: dict[tuple[Plane, Signature], list] = {}
+        _pruning_states_cache: dict[tuple[Plane, Signature], set[str] | None] = {}
 
         # Stitch magnetic Hamiltonian evolution circuit onto LatticeRegisters.
         # Vertex iteration loop.
@@ -750,6 +697,8 @@ class LatticeCircuitManager:
                         self._mag_hamiltonian, plaquette_plane, plaquette_signature
                     )
                     _per_plane_and_signature_hamiltonian_cache[cache_key] = hamiltonian_current_plane_and_signature
+                duplicate_control_indices = self._encoder.lattice_def._duplicate_control_indices(
+                    plaquette_plane, plaquette_signature)
 
                 # Build or fetch the cached template circuit for this (plane, signature).
                 # When givens_have_independent_params is True, the template must
@@ -767,15 +716,17 @@ class LatticeCircuitManager:
                     plaquette_local_rotation_circuit_template = self._cached_mag_evol_circuits[cache_key]
                 else:
                     logger.info(f"Building magnetic evolution circuit for cache_key={cache_key}.")
-                    effective_pruning_states = (
-                        per_plane_pruning_states.get(plaquette_plane)
-                        if per_plane_pruning_states is not None
-                        else physical_states_for_control_pruning
-                    )
+                    if cache_key not in _pruning_states_cache:
+                        _pruning_states_cache[cache_key] = (
+                            self._pruning_states_without_duplicate_controls(
+                                physical_states_for_control_pruning, duplicate_control_indices)
+                            if physical_states_for_control_pruning is not None
+                            else None
+                        )
                     plaquette_local_rotation_circuit_template = self._build_mag_evol_circuit(
                         hamiltonian_current_plane_and_signature,
                         control_fusion,
-                        effective_pruning_states,
+                        _pruning_states_cache[cache_key],
                         coupling_g=Parameter('coupling_g_mag_placeholder'),
                         dt=Parameter('dt_mag_placeholder'),
                         optimize_circuits=optimize_circuits,
@@ -805,11 +756,10 @@ class LatticeCircuitManager:
                         a_link_qubits.append(qubit)
                 for vertex_idx, vertex_controls in enumerate(plaquette.control_links_per_vertex):
                     for ctrl_idx, register in enumerate(vertex_controls):
-                        # If lattice is small and has PBCs, skip redundant c_link registers.
-                        if self._lattice_is_small and self._lattice_is_periodic:
-                            skip_set = _skip_indices.get((plaquette_plane, vertex_idx), set())
-                            if ctrl_idx in skip_set:
-                                continue
+                        # A control that repeats an earlier control of the
+                        # plaquette is not in its bit string.
+                        if (vertex_idx, ctrl_idx) in duplicate_control_indices:
+                            continue
 
                         for qubit in register:
                             c_link_qubits.append(qubit)
@@ -891,36 +841,32 @@ class LatticeCircuitManager:
             case _:
                 raise ValueError(f"Unsupported file type: {filename.suffix}")
 
-    def _strip_redundant_controls_if_small_and_periodic_lattice(
-        self, physical_states_for_control_pruning: set[str] | None
-    ) -> dict[Plane, set[str] | None] | None:
+    def _pruning_states_without_duplicate_controls(
+        self,
+        physical_states_for_control_pruning: set[str],
+        duplicate_control_indices: dict[PlaquetteControlIndices, PlaquetteControlIndices],
+    ) -> set[str] | None:
         """
-        For lattices that are small and periodic, strip redundant controls per plane.
+        Return the states for control pruning with the controls at duplicate_control_indices removed.
 
-        Returns a dict mapping each plane to its stripped physical state set,
-        or None if the lattice is not small-and-periodic or if the input is None
-        (in which case callers should use the original input set unchanged).
+        duplicate_control_indices maps the indices (PlaquetteControlIndices)
+        of each duplicate control of the plaquettes (on a periodic axis of
+        length 2) to the indices of the earlier control it repeats, as
+        LatticeDef._duplicate_control_indices returns them.
+        A state in which a removed control differs from the control it
+        repeats is not a state of these plaquettes (it can be a state of a
+        plaquette in another plane), and is left out. Returns None if no state
+        is left, so that no control pruning is attempted.
         """
-        if (physical_states_for_control_pruning is None
-                or not self._lattice_is_periodic
-                or not self._lattice_is_small):
-            return None
-
-        result: dict[Plane, set[str] | None] = {}
-        for plane in self._cached_ctrl_dirs_small_and_periodic:
-            stripped = []
-            for plaquette_string in physical_states_for_control_pruning:
-                plaquette_state = self._encoder.decode_bit_string_to_plaquette_state(plaquette_string)
-                if self._plaquette_state_has_inconsistent_controls(plaquette_state, plane):
-                    continue
-                trimmed = self._discard_duplicate_controls_from_plaquette_state(plaquette_state, plane)
-                trimmed_bs = self._encoder.encode_plaquette_state_as_bit_string(
-                    trimmed, override_n_c_links_validation=True)
-                stripped.append(trimmed_bs)
-            result[plane] = set(stripped) if stripped else None
-            logger.info(f"Plane {plane}: {len(stripped)} stripped plaquette states.")
-
-        return result
+        if not duplicate_control_indices:
+            return physical_states_for_control_pruning
+        without_duplicates = {
+            self._bit_string_without_duplicate_controls(plaquette_string, duplicate_control_indices)
+            for plaquette_string in physical_states_for_control_pruning
+        }
+        without_duplicates.discard(None)
+        logger.info(f"{len(without_duplicates)} plaquette states for control pruning without duplicate controls.")
+        return cast(set[str], without_duplicates) or None
 
     @staticmethod
     def _resolve_hamiltonian_for_plaquette(
@@ -1053,83 +999,36 @@ class LatticeCircuitManager:
 
         return plaquette_local_rotation_circuit
 
-    def _plaquette_state_has_inconsistent_controls(self, plaquette: PlaquetteState, plane: Plane) -> bool:
+    def _bit_string_without_duplicate_controls(
+            self,
+            plaquette_bit_string: str,
+            duplicate_control_indices: dict[PlaquetteControlIndices, PlaquetteControlIndices],
+    ) -> str | None:
         """
-        True if "shared" control links have different states; False otherwise.
+        Return plaquette_bit_string with the controls at duplicate_control_indices removed.
 
-        For d=3/2: v1 controls == v2 controls, v3 controls == v4 controls (no plane dependence).
-
-        For d=2 and d=3: uses direction-based lookups via the per-plane cached ctrl dirs,
-        so results are correct for any F-order and any plane. On a size-2 periodic lattice,
-        the four in-plane sharing pairs are:
-        - v1[dir -e1] shares with v2[dir +e1]
-        - v1[dir -e2] shares with v4[dir +e2]
-        - v2[dir -e2] shares with v3[dir +e2]
-        - v3[dir +e1] shares with v4[dir -e1]
-
-        Note that this only makes sense on a small, periodic lattice, so a ValueError
-        is raised if the lattice fails those checks.
+        duplicate_control_indices maps the indices (PlaquetteControlIndices)
+        of each control that repeats another control of the plaquette (the
+        same link) to the indices of the control it repeats, as
+        LatticeDef._duplicate_control_indices gives them. Returns None if the bit string gives a removed control a
+        different link state from the control it repeats: no state of the
+        lattice does that.
         """
-        if (self._lattice_is_periodic is False) or (self._lattice_is_small is False):
-            raise ValueError("Plaquette state consistency check only makes sense on a small, periodic lattice.")
-
-        c_links = plaquette[2]
-        dim = self._encoder.lattice_def.dim
-
-        if dim == 1.5:
-            # d=3/2: wholesale vertex equality, no plane dependence.
-            return c_links[0] != c_links[1] or c_links[2] != c_links[3]
-
-        # d=2 and d=3: direction-based lookup using the per-plane cache.
-        ctrl_dirs = self._cached_ctrl_dirs_small_and_periodic[plane]
-        e1, e2 = plane
-        return (
-            (c_links[0][ctrl_dirs[0].index(-e1)] != c_links[1][ctrl_dirs[1].index(e1)]) or
-            (c_links[0][ctrl_dirs[0].index(-e2)] != c_links[3][ctrl_dirs[3].index(e2)]) or
-            (c_links[1][ctrl_dirs[1].index(-e2)] != c_links[2][ctrl_dirs[2].index(e2)]) or
-            (c_links[2][ctrl_dirs[2].index(e1)] != c_links[3][ctrl_dirs[3].index(-e1)])
+        if not duplicate_control_indices:
+            return plaquette_bit_string
+        vertices, active_links, controls = self._encoder.decode_bit_string_to_plaquette_state(plaquette_bit_string)
+        if any(controls[duplicate_vertex_idx][duplicate_control_idx] != controls[original_vertex_idx][original_control_idx]
+               for (duplicate_vertex_idx, duplicate_control_idx), (original_vertex_idx, original_control_idx)
+               in duplicate_control_indices.items()):
+            return None
+        controls_without_duplicates = tuple(
+            tuple(link for control_idx, link in enumerate(vertex_controls)
+                  if (vertex_idx, control_idx) not in duplicate_control_indices)
+            for vertex_idx, vertex_controls in enumerate(controls)
         )
-
-    def _discard_duplicate_controls_from_plaquette_state(self, plaquette: PlaquetteState, plane: Plane) -> PlaquetteState:
-        """
-        Return a new instance of the plaquette where duplicate control link data has been discarded.
-
-        For d=3/2: keep v1 and v3 controls, drop v2 and v4 (since v1==v2, v3==v4).
-
-        For d=2 and d=3: uses direction-based trimming via the per-plane cached ctrl dirs.
-        Keeps first occurrence of each shared physical link. This method is FORDER-aware.
-        - v1: keep all controls
-        - v2: drop dir +e1 (duplicates v1's dir -e1)
-        - v3: drop dir +e2 (duplicates v2's dir -e2)
-        - v4: drop dir +e2 (duplicates v1's dir -e2) and dir -e1 (duplicates v3's dir +e1)
-
-        Since this only makes sense on a small, periodic lattice, a ValueError
-        is raised if the lattice is not small and periodic.
-        """
-        if (self._lattice_is_periodic is False) or (self._lattice_is_small is False):
-            raise ValueError("Plaquette state consistency check only makes sense on a small, periodic lattice.")
-
-        vertex_multiplicities, a_links, c_links = plaquette
-        dim = self._encoder.lattice_def.dim
-
-        if dim == 1.5:
-            physical_c_links = (c_links[0], (), c_links[2], ())
-        else:
-            # d=2 and d=3: direction-based trimming.
-            ctrl_dirs = self._cached_ctrl_dirs_small_and_periodic[plane]
-            e1, e2 = plane
-            physical_c_links = (
-                c_links[0],
-                tuple(c for i, c in enumerate(c_links[1])
-                      if i != ctrl_dirs[1].index(e1)),
-                tuple(c for i, c in enumerate(c_links[2])
-                      if i != ctrl_dirs[2].index(e2)),
-                tuple(c for i, c in enumerate(c_links[3])
-                      if i != ctrl_dirs[3].index(e2) and i != ctrl_dirs[3].index(-e1)),
-            )
-
-        plaquette_with_filtered_c_links = (vertex_multiplicities, a_links, physical_c_links)
-        return plaquette_with_filtered_c_links
+        return self._encoder.encode_plaquette_state_as_bit_string(
+            cast(PlaquetteState, (vertices, active_links, controls_without_duplicates)),
+            override_n_c_links_validation=True)
 
     @staticmethod
     def _rename_registers_strip_prefix(orig_circ: QuantumCircuit, prefix: str) -> QuantumCircuit:

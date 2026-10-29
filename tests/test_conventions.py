@@ -1069,8 +1069,8 @@ def test_non_default_forder_plaquette_encode_decode_round_trip():
     alt_encoder = LatticeStateEncoder.for_truncation(alt_lattice_def, "T", 1)
 
     # Verify that each encoder keeps its lattice's forder.
-    assert default_encoder.lattice_def.forder == [1, 2, 3, -1, -2, -3], "Default forder incorrect."
-    assert alt_encoder.lattice_def.forder == alt_forder, "Alt forder incorrect."
+    assert default_encoder.lattice_def.forder == (1, 2, 3, -1, -2, -3), "Default forder incorrect."
+    assert alt_encoder.lattice_def.forder == (-1, -2, 1, 2, 3, -3), "Alt forder incorrect."
 
     # A test plaquette state where v2 has distinct ctrl link irreps.
     # Default forder v2 ctrl dirs: (+1, -2) → tuple position 0 = dir+1, position 1 = dir-2.

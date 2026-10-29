@@ -127,12 +127,14 @@ For some lattices and truncations (d=3/2 at T1, for example), no vertex has a
 singlet multiplicity greater than one, so every multiplicity index is 0 and
 those data can be ignored; the encoder's vertex bitmap is then empty.
 
-For small, periodic lattices, the same physical lattice link can be a control on
-distinct vertices in the same plaquette. For example, a periodic d=3/2 lattice
-with size 2 (2 plaquettes) will have c1 == c2 and c3 == c4. When circuits are constructed,
-all plaquette states and magnetic Hamiltonian terms for which the control links do
-not satisfy these equality constraints will be discarded. This logic is handled in
-the ymcirc.circuit module.
+On a periodic axis of length 2, one link can be a control link at two vertices
+of a plaquette. For example, on a periodic d=3/2 lattice of size 2 (2
+plaquettes), the control link of v2 is that of v1, and the control link of v4
+is that of v3. The encoder encodes plaquette states with all their controls.
+ymcirc.circuit's LatticeCircuitManager removes the duplicates from the bit
+strings: a matrix element in which two copies of one link have different link
+states raises a ValueError, and a state for control pruning in which they do is
+left out.
 
 The matrix elements of the magnetic Hamiltonian between these states are
 computed, for the same lattice and truncation, by
@@ -273,7 +275,7 @@ class LatticeStateEncoder:
         Inputs:
         - link_bitmap: a dictionary of link iWeights mapping to bit strings.
         - physical_plaquette_states: a list of physical plaquette states.
-        - lattice: a LatticeDef or child class. This provides information
+        - lattice: a ymcirc LatticeDef or child class. This provides information
             about the size of the lattice, boundary conditions, dimensionality, etc.
             The F-order convention is inherited from lattice.forder.
 
@@ -361,13 +363,7 @@ class LatticeStateEncoder:
         self._vertex_bitmap = vertex_bitmap
         self._bit_string_to_vertex_map = {bit_string: vertex for vertex, bit_string in vertex_bitmap.items()}
         self._bit_string_to_link_map = {bit_string: link for link, bit_string in link_bitmap.items()}
-        # TODO The following conditional is a placeholder to deal with LatticeDef not yet supporting size tuples, remove eventually.
-        if lattice.dim == 1.5:
-            self._lattice = LatticeDef(lattice.dim, lattice.shape[0], lattice.periodic_boundary_conds, forder=lattice.forder)
-        elif not all([axis_length == lattice.shape[0] for axis_length in lattice.shape]):
-            raise NotImplementedError("Lattices with different lengths along different dimensions not yet supported.")
-        else:
-            self._lattice = LatticeDef(lattice.dim, lattice.shape[0], lattice.periodic_boundary_conds, forder=lattice.forder)
+        self._lattice = LatticeDef(lattice.dim, lattice.size, lattice.periodic_boundary_conds, forder=lattice.forder)
 
         # The repr gives the number of physical plaquette states, not the
         # states, of which there can be millions.
@@ -390,7 +386,10 @@ class LatticeStateEncoder:
         Create the encoder for lattice at an irrep truncation.
 
         Arguments:
-        - lattice: as for LatticeStateEncoder.
+        - lattice: a ymcirc LatticeDef or child class: the lattice whose
+            plaquette states the encoder encodes. The encoder takes the
+            dimensionality, size, boundary conditions and F-order
+            (lattice.forder) from lattice.
         - truncation_mode, cutoff: the irrep truncation, as pyclebsch's
             irreps_and_singlets takes it, for example ("T", 1) or ("B", 3).
             pyclebsch validates them.
