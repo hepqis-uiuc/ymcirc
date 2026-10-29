@@ -5,7 +5,7 @@ import numpy as np
 from ymcirc._abstract import LatticeDef
 from ymcirc._abstract.lattice_data import Plane
 from ymcirc.circuit import LatticeCircuitManager
-from ymcirc.conventions import LatticeStateEncoder, ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT, physical_plaquette_states
+from ymcirc.conventions import IrrepBitmap, LatticeStateEncoder, ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT, physical_plaquette_states
 from ymcirc._pyclebsch_adapter import box_terms
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import bitstring_value_of_LP_family, compute_LP_family
@@ -27,7 +27,7 @@ def test_create_blank_full_lattice_circuit_has_promised_register_order():
     # Not physically meaningful, but has the right format.
     iweight_one = (0, 0, 0)
     iweight_three = (1, 0, 0)
-    irrep_bitmap = {
+    irrep_bitmap: IrrepBitmap = {
         iweight_one: "0",
         iweight_three: "1"
     }
@@ -1488,7 +1488,7 @@ class TestCircuitSaveAndLoad:
 
 def test_measure_link_adds_correct_classical_register():
     """measure_link should add a ClassicalRegister and measurement only for the specified link."""
-    link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    link_bitmap: IrrepBitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
     physical_plaquette_states = [
         ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
         ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
@@ -1513,7 +1513,7 @@ def test_measure_link_adds_correct_classical_register():
 
 def test_measure_vertex_adds_correct_classical_register():
     """measure_vertex should add measurement only for the specified vertex register."""
-    link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    link_bitmap: IrrepBitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
     physical_plaquette_states = [
         ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
         ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
@@ -1536,7 +1536,7 @@ def test_measure_vertex_adds_correct_classical_register():
 
 def test_measure_vertex_with_vertex_qubits():
     """measure_vertex on a lattice with non-trivial vertex registers."""
-    link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    link_bitmap: IrrepBitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
     physical_plaquette_states = [
         ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
         ((0, 0, 0, 1), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
@@ -1559,7 +1559,7 @@ def test_measure_vertex_with_vertex_qubits():
 
 def test_measure_plaquette_measures_all_dofs():
     """measure_plaquette should measure all vertices, active links, and control links."""
-    link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    link_bitmap: IrrepBitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
     physical_plaquette_states = [
         ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
         ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
@@ -1584,7 +1584,7 @@ def test_measure_plaquette_measures_all_dofs():
 
 def test_measure_plaquette_deduplicates_shared_registers():
     """On a small periodic lattice, shared control links should be measured only once."""
-    link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    link_bitmap: IrrepBitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
     physical_plaquette_states = [
         ((0, 0, 0, 0), ((0,0,0), (0,0,0), (0,0,0), (0,0,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
         ((0, 0, 0, 0), ((1,0,0), (1,0,0), (1,1,0), (1,1,0)), (((0,0,0),), ((0,0,0),), ((0,0,0),), ((0,0,0),))),
@@ -1743,7 +1743,7 @@ def test_resolve_hamiltonian_for_plaquette():
 def test_signature():
     """Test Plaquette.signature property for d=3/2 and d=2 with default and nonstandard forder."""
     default_forder = [1, 2, 3, -1, -2, -3]
-    link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    link_bitmap: IrrepBitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
     vertex_bitmap = {}
 
     # d=3/2, plane (1, 2), default forder:

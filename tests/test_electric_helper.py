@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 from ymcirc._abstract import LatticeDef
-from ymcirc.conventions import LatticeStateEncoder, ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT, PlaquetteState
+from ymcirc.conventions import IrrepBitmap, LatticeStateEncoder, ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT, PlaquetteState
 from ymcirc.electric_helper import electric_hamiltonian, casimirs, convert_bitstring_to_evalue
 
 
@@ -13,7 +13,7 @@ def test_decomp_1_3_3bar():
     ZI = np.kron([[1, 0], [0, -1]], [[1, 0], [0, 1]])
     ZZ = np.kron([[1, 0], [0, -1]], [[1, 0], [0, -1]])
 
-    bmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    bmap: IrrepBitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
 
     N = len(list(bmap.values())[0])
 
@@ -53,7 +53,7 @@ def test_decomp_1_3_3bar_6_6bar_8():
     ZZZ = np.kron(np.kron([[1, 0], [0, -1]], [[1, 0], [0, -1]]),
                   [[1, 0], [0, -1]])
 
-    bmap = {
+    bmap: IrrepBitmap = {
         (0, 0, 0): "000",
         (1, 0, 0): "100",
         (1, 1, 0): "001",
@@ -88,7 +88,7 @@ def test_convert_bitstring_to_evalue_d_2_ground_state():
         "a single multiplicity qubit in the lattice ground state."
     )
     T1_link_bitmap = {ONE: "00", THREE: "10", THREE_BAR: "01"}
-    physical_states: PlaquetteState = [  # The only thing this controls is the number of vertex qubits the LatticeStateEncoder infers. Garbage data otherwise.
+    physical_states: list[PlaquetteState] = [  # The only thing this controls is the number of vertex qubits the LatticeStateEncoder infers. Garbage data otherwise.
         (
             (0, 0, 0, 1),  # Since 1 is the highest multiplicity, one vertex qubit.
             (ONE, ONE, ONE, ONE),
@@ -113,7 +113,7 @@ def test_convert_bitstring_to_evalue_d_2_excited_state():
         "with 2 multiplicity qubits in a lattice state with six excited links."
     )
     T1_link_bitmap = {ONE: "00", THREE: "10", THREE_BAR: "01"}
-    physical_states: PlaquetteState = [  # The only thing this controls is the number of vertex qubits the LatticeStateEncoder infers. Garbage data otherwise.
+    physical_states: list[PlaquetteState] = [  # The only thing this controls is the number of vertex qubits the LatticeStateEncoder infers. Garbage data otherwise.
         (
             (0, 0, 0, 3),  # Since 3 is the highest multiplicity, two vertex qubits.
             (ONE, ONE, ONE, ONE),
@@ -146,8 +146,8 @@ def test_convert_bitstring_to_evalue_d_3_2_excited_state():
         "Testing if the electric energy |E|^2 is being calculated correctly for d = 3/2, "
         "with no multiplicity qubits in a lattice state with one excited link."
     )
-    T1_link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
-    physical_states: PlaquetteState = [  # The only thing this controls is the number of vertex qubits the LatticeStateEncoder infers. Garbage data otherwise.
+    T1_link_bitmap: IrrepBitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    physical_states: list[PlaquetteState] = [  # The only thing this controls is the number of vertex qubits the LatticeStateEncoder infers. Garbage data otherwise.
         (
             (0, 0, 0, 0),  # All zeros flag that no vertex qubits needed, only trivial multiplicities.
             (ONE, ONE, ONE, ONE),
@@ -169,8 +169,8 @@ def test_convert_bitstring_to_evalue_ignore_unphysical_links():
     print(
         "Testing if the electric energy |E|^2 is being calculated correctly for d = 3/2, T1 truncation "
         "when there's a link in an unphysical state that's set to be ignored, one vertex qubit, and two excited links.")
-    T1_link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
-    physical_states: PlaquetteState = [  # The only thing this controls is the number of vertex qubits the LatticeStateEncoder infers. Garbage data otherwise.
+    T1_link_bitmap: IrrepBitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    physical_states: list[PlaquetteState] = [  # The only thing this controls is the number of vertex qubits the LatticeStateEncoder infers. Garbage data otherwise.
         (
             (0, 0, 0, 1),  # One vertex qubit needed to track these multiplicities.
             (ONE, ONE, ONE, ONE),
@@ -197,8 +197,8 @@ def test_convert_bitstring_to_evalue_raise_error_on_unphysical_links():
     print(
         "Testing the option to raise an error when encountering unphysical links "
         "for the electric energy |E|^2 calculation.")
-    T1_link_bitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
-    physical_states: PlaquetteState = [  # The only thing this controls is the number of vertex qubits the LatticeStateEncoder infers. Garbage data otherwise.
+    T1_link_bitmap: IrrepBitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+    physical_states: list[PlaquetteState] = [  # The only thing this controls is the number of vertex qubits the LatticeStateEncoder infers. Garbage data otherwise.
         (
             (0, 0, 0, 1),  # One vertex qubit needed to track these multiplicities.
             (ONE, ONE, ONE, ONE),
@@ -228,7 +228,7 @@ def test_convert_bitstring_to_evalue_d_2_T2_truncation():
         "2*(4/3) + 2*(10/3) + 4*(9/3) = 64/3"
     )
     T1_link_bitmap = {ONE: "000", THREE: "100", THREE_BAR: "001", SIX: "110", SIX_BAR: "011", EIGHT: "111"}
-    physical_states: PlaquetteState = [  # The only thing this controls is the number of vertex qubits the LatticeStateEncoder infers. Garbage data otherwise.
+    physical_states: list[PlaquetteState] = [  # The only thing this controls is the number of vertex qubits the LatticeStateEncoder infers. Garbage data otherwise.
         (
             (0, 0, 0, 3),  # Since 3 is the highest multiplicity, two vertex qubits.
             (ONE, ONE, ONE, ONE),

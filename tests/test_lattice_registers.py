@@ -697,7 +697,7 @@ def test_d_equals_2_lattice_from_bitmaps():
         4: '100',
         5: '101'
     }
-    link_bitmap = {
+    link_bitmap: IrrepBitmap = {
         (0, 0, 0): '00',
         (1, 0, 0): '10',
         (1, 1, 0): '01'
