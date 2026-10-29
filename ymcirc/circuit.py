@@ -1237,10 +1237,10 @@ class LatticeCircuitManager:
 
     @staticmethod
     def _sort_matrix_elements_into_lp_bins(
-        bitstrings_w_matrix_element: list[(str, str, float | Parameter)],
+        bitstrings_w_matrix_element: list[tuple[str, str, float | Parameter]],
         coupling_g: float | Parameter,
         dt: float | Parameter,
-    ) -> dict[LPFamily, list[(str, str, float | Parameter)]]:
+    ) -> dict[LPFamily, list[tuple[str, str, float | Parameter]]]:
         """
         Rearrange magnetic Hamiltonian matrix elements to LP family bins.
 

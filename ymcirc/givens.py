@@ -158,7 +158,7 @@ def givens(
 
 
 def givens_fused_controls(
-    lp_bin_w_angle: list[(str, str, float)],
+    lp_bin_w_angle: list[tuple[str, str, float]],
     lp_bin: LPFamily,
     encoded_physical_states: set[str] | None,
     num_ancillas: int = 0,
@@ -467,9 +467,9 @@ def prune_controls(
 
 def fuse_controls(
     lp_fam: LPFamily,
-    lp_bin_w_angle: list[(str, str, float | Parameter | ParameterExpression)],
+    lp_bin_w_angle: list[tuple[str, str, float | Parameter | ParameterExpression]],
     round_close_angles: bool = True,
-) -> dict[float, tuple[list[int], str]]:
+) -> dict[float | Parameter | ParameterExpression, list[tuple[list[int], str]]]:
     """
     This function fuses the controls of multiple multi-RX gates of the same LP family.
 
@@ -484,7 +484,7 @@ def fuse_controls(
         - A dictionary in which the entries are fused controls binned according to angles. Each is of the form List[(controls,control_state)].
     """
 
-    angle_bin = {}
+    angle_bin: dict[float | Parameter | ParameterExpression, list[tuple[list[int], str]]] = {}
     target = _determine_target_of_lp_fam(lp_fam)
     # If a target couldn't be found, it means that the givens rotation is the identity rotation.
     if target is None:
@@ -623,8 +623,8 @@ def _eliminate_phys_states_that_differ_from_rep_at_Q_idx(
 
 
 def _fuse_ctrls_of_ctrls_list(
-    sorted_ctrls_list: list[(list[int], str)],
-) -> list[(list[int], str)]:
+    sorted_ctrls_list: list[tuple[list[int], str]],
+) -> list[tuple[list[int], str]]:
     """
     Fuses the control states when the control states only differ in one bit.
     After fusion, the position in the control state where the fusion occurred is
