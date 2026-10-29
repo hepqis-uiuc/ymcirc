@@ -73,14 +73,13 @@ def configure_script_options(
 
     Inputs:
         - dimensionality_string:
-              A string of the form
-              "d=[dimesionality]" where "dimensionality"
-              can be 3/2, 2, 3, ...
-
-              See ymcirc.conventions for more info.
+              "d=3/2" (or "d=1.5") for the plaquette chain, "d=2" for the
+              square lattice, or "d=3" for the cubic lattice.
         - truncation_mode, cutoff:
               The link irrep truncation, as pyclebsch's irreps_and_singlets
-              takes it, for example ("T", 1) or ("B", 3). pyclebsch computes
+              takes it, for example ("T", 1) or ("B", 3); the module
+              docstring of ymcirc.conventions explains the truncation
+              modes. pyclebsch computes
               the physical plaquette states and magnetic matrix elements for it,
               and validates it.
         - lattice_size:

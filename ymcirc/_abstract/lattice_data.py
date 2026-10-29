@@ -21,7 +21,11 @@ Plane = tuple[int, int]
 # A signature is a tuple of 4 per-vertex direction-label tuples, each sorted by FORDER.
 # Each inner tuple contains the half-link direction labels (integers) for ALL existing
 # links at that vertex (both active and control), sorted by FORDER position.
-# This matches the signature keys used in the Hamiltonian data files.
+# MatrixElementValue, which holds the magnetic Hamiltonian's matrix elements, is
+# keyed by plane and then by signatures that pyclebsch computes in this same
+# form: the plaquette's vertices counter-clockwise from its bottom-left vertex,
+# each with all its half-link directions sorted by FORDER. Plaquette.signature
+# must give exactly this form, or a plaquette's matrix elements are not found.
 Signature = tuple[
     tuple[int, ...],
     tuple[int, ...],
@@ -217,8 +221,11 @@ class Plaquette(Generic[T]):
 
         For each of the 4 plaquette vertices, returns a tuple of ALL existing
         half-link directions at that vertex (both active and control), sorted
-        by their position in the forder list. This matches the signature keys
-        used in the Hamiltonian matrix element data files.
+        by their position in the forder list. MatrixElementValue, which holds
+        the magnetic Hamiltonian's matrix elements, is keyed by plane and then
+        by signatures that pyclebsch computes in this same form, so the
+        plaquette's matrix elements are found under its plane and this
+        signature.
 
         Physically, the signature encodes whether a plaquette is in the
         "interior" of a lattice, on a "corner", on an "edge", etc.
@@ -287,7 +294,8 @@ class LatticeDef:
                 If a bool, controls boundary counds in every lattice direction. If a tuple,
                 controls boundary conditions in each lattice direction.
             forder:
-                Half-link ordering convention used by pyclebsch data files.
+                Half-link ordering convention, passed to pyclebsch when it
+                computes the lattice's plaquette states and matrix elements.
                 Must be a permutation of [1, 2, 3, -1, -2, -3].
                 Defaults to [1, 2, 3, -1, -2, -3] if None.
         """

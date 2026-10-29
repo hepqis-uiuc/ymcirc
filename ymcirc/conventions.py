@@ -1,29 +1,45 @@
 """
-This module is a canonical source for project conventions, including:
+This module holds the encoding of lattice states as bit strings.
 
-- Bit string encodings.
-- Magnetic Hamiltonian box term data.
-
-This module loads data for both of these from package-local json.gz files.
-The module also provides the class LatticeStateEncoder for converting
-link, vertex multiplicity, and plaquette states to and from bit string encodings.
-See the documentation on the class itself for more information.
+It provides the irreps' i-weights, the link bitmaps (IRREP_TRUNCATIONS), and
+the class LatticeStateEncoder for converting link, vertex multiplicity, and
+plaquette states to and from bit string encodings. See the documentation on
+the class itself for more information. It also provides
+physical_plaquette_states, which computes a lattice's physical plaquette
+states with pyclebsch (https://github.com/hepqis-uiuc/pyclebsch).
 
 ########## Irrep link state bit string encodings ##########
 
-The constant IRREP_TRUNCATIONS is a dict of possible choices of link irrep states
-to include in a simulation. A particular choice of such states is referred to
-as a truncation throughout this codebase. The keys of IRREP_TRUNCATIONS correspond
-to particular choices of truncation, and the values are the actual bit string encodings.
-Example truncations:
+A truncation is a choice of which link irrep states to include in a
+simulation. Like pyclebsch, ymcirc specifies a truncation by a truncation
+mode and a cutoff c. The modes are pyclebsch's:
 
-- T1: contains 1, 3, 3bar
-- T2: contains T1 along with 6, 6bar, and 8
-- B3 (d=3/2, 2, 3): Limits total E^2 Casimir value at a vertex to 3.
+- "T": a link can carry any irrep with Dynkin labels (p, q) such that
+  p + q <= c, and every singlet of those irreps is allowed at a vertex. T1
+  (mode "T", cutoff 1) has 1, 3 and 3bar; T2 adds 6, 6bar and 8.
+- "C": a link can carry any irrep whose quadratic Casimir is at most c, and
+  every singlet of those irreps is allowed at a vertex.
+- "B": a singlet is allowed at a vertex only if the quadratic Casimirs of its
+  links sum to at most c. B3 (mode "B", cutoff 3), for example, has 1, 3 and
+  3bar on its links.
 
-Consult IRREP_TRUNCATIONS for a complete list of currently supported irrep truncations.
+Quadratic Casimirs are normalized so that the Casimir of the 3 is 4/3.
 
-Each truncation is a dictionary which map length-3 tuples to unique bit strings.
+The constant IRREP_TRUNCATIONS holds the link bitmaps: the bit string
+encodings of the irreps on a lattice's links. It is keyed by the set of those
+irreps, as a frozenset (a plain set cannot be a dict key). For example, the
+bitmap for 1, 3 and 3bar (whose constants are defined below) is
+
+IRREP_TRUNCATIONS[frozenset({ONE, THREE, THREE_BAR})]
+
+LatticeStateEncoder.for_truncation(lattice, truncation_mode, cutoff) computes
+the lattice's physical plaquette states, and uses the bitmap for the set of
+irreps on their links. The comment above
+IRREP_TRUNCATIONS lists which truncations each entry covers. A truncation
+whose set of irreps has no entry needs a link bitmap passed to
+for_truncation.
+
+Each link bitmap is a dictionary which maps length-3 tuples to unique bit strings.
 The tuples represent "i-Weights", which are a way of uniquely labeling
 SU(N) irreps which come from working with the Gelfand-Tsetlin pattern calculus.
 See Arne et al for more details (https://doi.org/10.1063/1.3521562).
@@ -41,8 +57,7 @@ i-Weight values:
 
 There are generically "leftover" states when encoding a particular truncation
 into a set of qubits (i.e. the state space of a link in a particular truncation
-is usually not of dimension 2^n). These are omitted from the irrep truncation
-dicts.
+is usually not of dimension 2^n). These are omitted from the link bitmaps.
 
 There is also generically a multiplicity index associated with each lattice vertex
 denoting which singlet state the vertex is in. The multiplicity index is needed because
@@ -52,29 +67,14 @@ which yield various "multiplicites" of singlets.
 
 ########## Physical plaquette states, and singlet multiplicities ##########
 
-The dict of (lazy-loaded) dicts PHYSICAL_PLAQUETTE_STATES consists of all the single-plaquette
-gauge-invariant states in a particular lattice geometry and truncation. For example, the dict
-contains data for (among other cases, see below):
+The function physical_plaquette_states(lattice_def, truncation_mode, cutoff)
+returns a list of all the single-plaquette gauge-invariant states of a
+lattice at a truncation, computed by pyclebsch. For example, for a periodic
+d=2 lattice of size 3 at T1:
 
-- d=3/2, T1 or T2
-- d=3, B3
+physical_plaquette_states(LatticeDef(2, 3), "T", 1)
 
-T1 refers to the ONE, THREE, THREE_BAR truncation, while T2 includes the
-additional states SIX, SIX_BAR, and EIGHT. B-truncations instead limit
-the maximum sum of electric Casimirs meeting at a given vertex.
-To get the physical states for a particular case, use the following syntax:
-
-PHYSICAL_PLAQUETTE_STATES["d=2"]["T2"]
-
-Since the key in this dict is a string, spacing and capitalization is
-necessary. NOTE: "d=3/2" works but "d=1.5" will cause a KeyError.
-Additionally, some truncations depend on dimension; in such cases, there
-is a string postfix to the truncation key which lists applicable dimensions.
-See PHYSICAL_PLAQUETTE_STATES in this module for a current list of cases.
-
-The entries in the physical states dict consist of lists of all the
-single-plaquete gauge-invariant states in that particular dimensionality and truncation.
-The plaquette data takes the form a tuple of tuples:
+Each plaquette state takes the form of a tuple of tuples:
 
 plaquette = (
     vertex_multiplicities,
@@ -123,38 +123,9 @@ c_v1_dir-1 ---- v1 ----l1--- v2 ---- c_v2_dir+1
                    |            |
               c_v1_dir-2   c_v2_dir-2
 
-Finally, it is a special quirk of d=3/2, T1 that there are no nontrivial singlet multiplicities,
-and those data can be ignored.
-
-########## Magnetic Hamiltonian box term data ##########
-
-Data on the box term of the magnetic Hamiltonian is (lazy) loaded into the dict
-HAMILTONIAN_BOX_TERMS. This dict follows an indexing pattern similar to
-that of PHYSICAL_PLAQUETTE_STATES, and contains the same cases.
-
-Once a particular case of dimension and truncation has been chosen,
-the actual matrix element data takes the form of a
-dictionary whose keys are tuples (final_plaquette_state, initial_plaquette_state)
-and whose values are themselves dicts (see the type alias MatrixElementValue, defined in this module).
-As an example of the data shape for d=3:
-
-HAMILTONIAN_BOX_TERMS["d=3"][trunc_string] = {
-    (plaq_1, plaq_2): {
-        (1, 2): {sig_1: 0.9, ...},
-        (1, 3): {sig_2: 0.3, ...},
-        (2, 3): {sig_3: 0.5, ...},
-    },
-    ...
-}
-
-plaq_1 and plaq_2 taking the form described above for plaquette states.
-The lower dict level of nested plane tuples is present even for d=3/2 and d=2,
-and the lowest level of dictionary has keys which are Signature-valued (see the
-relevant type alias in this module).
-
-See the definition of HAMILTONIAN_BOX_TERMS below for a complete listing of all available
-combinations of dimension and truncation data. NOTE AGAIN: "d=3/2" works but
-"d=1.5" will cause a KeyError.
+For some lattices and truncations (d=3/2 at T1, for example), no vertex has a
+singlet multiplicity greater than one, so every multiplicity index is 0 and
+those data can be ignored; the encoder's vertex bitmap is then empty.
 
 For small, periodic lattices, the same physical lattice link can be a control on
 distinct vertices in the same plaquette. For example, a periodic d=3/2 lattice
@@ -162,6 +133,11 @@ with size 2 (2 plaquettes) will have c1 == c2 and c3 == c4. When circuits are co
 all plaquette states and magnetic Hamiltonian terms for which the control links do
 not satisfy these equality constraints will be discarded. This logic is handled in
 the ymcirc.circuit module.
+
+The matrix elements of the magnetic Hamiltonian between these states are
+computed, for the same lattice and truncation, by
+LatticeCircuitManager.for_truncation in ymcirc.circuit, whose constructor
+documents their format.
 """
 from __future__ import annotations
 import ast

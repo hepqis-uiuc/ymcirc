@@ -108,7 +108,16 @@ uv run -m run.time_evol
 ```
 Replace `run.time_evol` with the particular desired module in the `run` directory.
 
-Time evolution depends on precomputed magnetic Hamiltonian matrix element data. These are included with the `ymcirc`, and were generated using [pyclebsch](https://github.com/hepqis-uiuc/pyclebsch).
+The physical plaquette states and the magnetic Hamiltonian's matrix elements for a lattice and truncation are computed by [pyclebsch](https://github.com/hepqis-uiuc/pyclebsch), a dependency of `ymcirc`. pyclebsch keeps them in in-memory caches, which last only as long as the process. These caches are unlimited by default; `pyclebsch.set_physical_plaquette_states_cache_limit(n)` and `pyclebsch.set_plaquette_matrix_elements_cache_limit(n)` cap them at `n` entries each (an entry holds the results for one plaquette signature at one truncation), evicting the least recently used. Repeated runs can reuse Clebsch-Gordan coefficients from a disk cache, which is off by default and is turned on with `pyclebsch.set_cgc_cache_dir(path)` or the environment variable `PYCLEBSCH_CACHE_DIR`; pyclebsch's README has the details.
+
+pyclebsch shows progress bars (from `tqdm`) while it computes. Setting the environment variable `TQDM_DISABLE=1` turns them off, along with every other `tqdm` progress bar in the process. For example, to run `run.time_evol` without progress bars:
+```shell
+TQDM_DISABLE=1 uv run -m run.time_evol
+```
+Written this way, the variable is set only for that one command. To turn the progress bars off for every command run afterwards in the same terminal session, run this first:
+```shell
+export TQDM_DISABLE=1
+```
 
 ## Citations
 If you use this code in a paper, please cite:
