@@ -735,7 +735,7 @@ class LatticeStateEncoder:
         """Encode a vertex multiplicity integer as a bit string."""
         return self._vertex_bitmap[vertex]
 
-    def decode_bit_string_to_vertex_state(self, encoded_vertex: str) -> VertexBag | None:
+    def decode_bit_string_to_vertex_state(self, encoded_vertex: str) -> SiteMultiplicityIndex | None:
         """
         Decode a bit string to a vertex multiplicity index.
 
