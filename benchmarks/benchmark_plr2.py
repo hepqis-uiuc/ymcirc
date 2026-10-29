@@ -17,23 +17,18 @@ import timeit
 import copy
 from ymcirc._abstract import LatticeDef
 from ymcirc.conventions import (
-    IRREP_TRUNCATIONS, LatticeStateEncoder, PHYSICAL_PLAQUETTE_STATES,
-    get_data_metadata, ONE
+    LatticeStateEncoder, physical_plaquette_states, ONE
 )
 from ymcirc.parsed_lattice_result import ParsedLatticeResult
 
 
-def make_encoder(dim_string, trunc_string, lattice_size):
+def make_encoder(dim_string, truncation_mode, cutoff, lattice_size):
     if dim_string == "d=3/2":
         dim = 1.5
     else:
         dim = int(dim_string[2:])
-    link_bitmap = IRREP_TRUNCATIONS[trunc_string]
-    plaquette_states = PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string]
-    metadata = get_data_metadata(dim_string, trunc_string)
-    forder = metadata.get("f_order", None)
-    lattice_def = LatticeDef(dim, lattice_size, True, forder=forder)
-    return LatticeStateEncoder(link_bitmap, plaquette_states, lattice_def)
+    lattice_def = LatticeDef(dim, lattice_size, True)
+    return LatticeStateEncoder.for_truncation(lattice_def, truncation_mode, cutoff)
 
 
 def make_vacuum_bitstring(encoder):
@@ -47,15 +42,15 @@ def make_vacuum_bitstring(encoder):
     return bitstring
 
 
-def profile_components(dim_string, trunc_string, lattice_size, n_iterations=50):
-    encoder = make_encoder(dim_string, trunc_string, lattice_size)
+def profile_components(dim_string, truncation_mode, cutoff, lattice_size, n_iterations=50):
+    encoder = make_encoder(dim_string, truncation_mode, cutoff, lattice_size)
     bitstring = make_vacuum_bitstring(encoder)
     lattice_def = encoder.lattice_def
 
     print(f"\n{'='*60}")
-    print(f"{dim_string}, {trunc_string}, size={lattice_size}")
+    print(f"{dim_string}, {truncation_mode}{cutoff}, size={lattice_size}")
     print(f"  Bitstring length: {len(bitstring)} bits")
-    print(f"  Plaquette states count: {len(PHYSICAL_PLAQUETTE_STATES[dim_string][trunc_string])}")
+    print(f"  Plaquette states count: {len(physical_plaquette_states(encoder.lattice_def, truncation_mode, cutoff))}")
     print(f"{'='*60}")
 
     # 1. Time deep copy of encoder
@@ -113,13 +108,13 @@ def profile_components(dim_string, trunc_string, lattice_size, n_iterations=50):
     avg = (sum(times)/len(times))*1000
     print(f"  Full PLR construction:        {avg:.3f} ms")
 
-    # 7. Time __repr__ of encoder (used on line 104)
+    # 7. Time __repr__ of encoder
     times = timeit.repeat(lambda: encoder.__repr__(), number=1, repeat=n_iterations)
     avg = (sum(times)/len(times))*1000
     print(f"  encoder.__repr__():           {avg:.3f} ms")
 
 
 if __name__ == "__main__":
-    profile_components("d=3/2", "T1", 2, n_iterations=100)
-    profile_components("d=2", "T1", 2, n_iterations=100)
-    profile_components("d=2", "T1", 4, n_iterations=100)
+    profile_components("d=3/2", "T", 1, 2, n_iterations=100)
+    profile_components("d=2", "T", 1, 2, n_iterations=100)
+    profile_components("d=2", "T", 1, 4, n_iterations=100)

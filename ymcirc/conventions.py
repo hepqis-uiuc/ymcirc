@@ -172,10 +172,9 @@ import numpy as np
 from typing import Tuple, Dict, Union, List
 from pyclebsch.matrix_elements.lattice_data import SiteMultiplicityIndex
 from pyclebsch.su_n_operators import IrrepWeight
-from ymcirc._abstract import LatticeDef, Plane, Signature
+from ymcirc._abstract import LatticeDef
 from ymcirc.utilities import LazyDict, json_loader
 from ymcirc._pyclebsch_adapter import (
-    BoxTerms,
     MatrixElementValue,
     PlaquetteState,
     physical_plaquette_states,
@@ -237,7 +236,7 @@ _PLAQUETTE_STATES_DATA_FILE_PATHS: Dict[str, Dict[str, Path]] = {
 }
 
 # Useful type aliases. IrrepWeight and SiteMultiplicityIndex are pyclebsch's,
-# and PlaquetteState, MatrixElementValue and BoxTerms are defined in
+# and PlaquetteState and MatrixElementValue are defined in
 # ymcirc._pyclebsch_adapter, which produces data in those formats.
 BitString = str
 IrrepBitmap = Dict[IrrepWeight, BitString]
@@ -473,148 +472,6 @@ HAMILTONIAN_BOX_TERMS:  Dict[str, LazyDict] = {
 }
 
 
-def _filter_matrix_element_value(
-        value: MatrixElementValue,
-        threshold: float
-) -> MatrixElementValue | None:
-    """Apply a threshold filter to a MatrixElementValue.
-
-    Drops leaf floats if abs value is below threshold, prunes plane keys whose values become
-    empty after filtering, and returns None if all plane keys are pruned.
-    """
-    filtered: Dict[Plane, Dict[Signature, float]] = {}
-    for plane_key, plane_val in value.items():
-        filtered_sigs = {
-            sig: float(sig_val)
-            for sig, sig_val in plane_val.items()
-            if abs(sig_val) >= threshold
-        }
-        if filtered_sigs:
-            filtered[plane_key] = filtered_sigs
-    return filtered if filtered else None
-
-
-def load_magnetic_hamiltonian(
-        dim_string: str,
-        trunc_string: str,
-        lattice_encoder: LatticeStateEncoder,
-        mag_hamiltonian_matrix_element_threshold: float = 0,
-        only_include_elems_connected_to_electric_vacuum: bool = False,
-) -> Dict[Tuple[str, str], MatrixElementValue]:
-    """
-    Compute box + box^dagger as a dict keyed by encoded plaquette state pairs.
-
-    This is a convenience method to obtain the magnetic Hamiltonian terms in a
-    format which facilitates the construction of rotation circuits. The returned
-    dict maps (encoded_state_1, encoded_state_2) bit-string pairs to
-    MatrixElementValues (``Dict[Plane, Dict[Signature, float]]``).
-
-    Necessary arguments:
-      - dim_string: a string of the form "d=3/2" which specifies what
-        dimensionality lattice to assume when loading magnetic Hamiltonian data. See
-        the module docstring on ymcirc.conventions for more information.
-      - trunc_string: a string of the form "T1" which specifies
-        the particular link irrep truncation type to assume when loading magnetic Hamiltonian data. See
-        the module docstring on ymcirc.conventions for more information.
-      - lattice_encoder: A LatticeStateEncoder instance that allows en/decoding lattices states
-        as bit strings.
-
-    Optional arguments:
-      - mag_hamiltonian_matrix_element_threshold: Only include matrix elements
-        whose absolute value (or leaf absolute values, for dict-valued entries)
-        is at least this value.
-      - only_include_elems_connected_to_electric_vacuum: Drop any matrix elements
-        which aren't connected to the electric vacuum state.
-    """
-    rotations = compute_all_rotations_from_just_box_terms(
-        HAMILTONIAN_BOX_TERMS[dim_string][trunc_string]
-    )
-
-    mag_hamiltonian: Dict[Tuple[str, str], MatrixElementValue] = {}
-    for (plaquette_state_1, plaquette_state_2), matrix_elem in rotations.items():
-        # Apply threshold filter.
-        if mag_hamiltonian_matrix_element_threshold > 0:
-            filtered = _filter_matrix_element_value(matrix_elem, mag_hamiltonian_matrix_element_threshold)
-            if filtered is None:
-                continue
-            matrix_elem = filtered
-
-        state_1_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state_1)
-        state_2_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state_2)
-        if only_include_elems_connected_to_electric_vacuum and ('1' in state_1_bitstring) and ('1' in state_2_bitstring):
-            continue
-        mag_hamiltonian[(state_1_bitstring, state_2_bitstring)] = matrix_elem
-
-    logger.info(f"Loaded pre-computed magnetic Hamiltonian data from disk for {dim_string}, {trunc_string}. There are {len(mag_hamiltonian)} encoded state-pair entries (not yet resolved per plaquette via plane+signature filtering).")
-    n_matrix_elems = len([val for plane_dict in mag_hamiltonian.values() for sig_dict in plane_dict.values() for val in sig_dict.values()])
-    logger.info(f"Loaded {n_matrix_elems} floats.")
-
-    return mag_hamiltonian
-
-
-def _sum_matrix_element_values(a: MatrixElementValue, b: MatrixElementValue) -> MatrixElementValue:
-    """Sum two MatrixElementValues by merging their nested dict structures.
-
-    Both operands must be ``Dict[Plane, Dict[Signature, float]]``.
-    An empty dict ``{}`` acts as the identity element.
-
-    For matching plane keys, signature sub-dicts are merged: matching signature
-    keys have their float values summed; non-overlapping keys are preserved.
-    """
-    if not a:
-        return dict(b)
-    if not b:
-        return dict(a)
-
-    merged: Dict[Plane, Dict[Signature, float]] = {}
-    for plane_key in set(a) | set(b):
-        a_sigs = a.get(plane_key, {})
-        b_sigs = b.get(plane_key, {})
-        inner_merged: Dict[Signature, float] = dict(a_sigs)
-        for sig_key, sig_b_val in b_sigs.items():
-            if sig_key in inner_merged: # sig_a match, add sig_b_val to it
-                inner_merged[sig_key] = float(inner_merged[sig_key]) + float(sig_b_val)
-            else:               # no sig_a match, nothing to add to
-                inner_merged[sig_key] = sig_b_val
-        merged[plane_key] = inner_merged
-    return merged
-
-
-def compute_all_rotations_from_just_box_terms(
-        box_terms: BoxTerms
-) -> BoxTerms:
-    """
-    Compute the set of Givens rotations needed to simulate a magnetic Hamiltonian.
-
-    Note that box^dagger is automatically computed internally, do not input box + box^dagger!
-    Additionally assumes a convention has been chosen where box has no complex elements.
-
-    Returns a dict whose keys are (final_state, initial_state) tuples and whose
-    values are MatrixElementValues (``Dict[Plane, Dict[Signature, float]]``).
-    The dict structures are merged via _sum_matrix_element_values, which effectively
-    computes box + box^dagger.
-    """
-    # Get list of all state transitions appearing in box and box dagger, with no repetition for ordering.
-    seen_pairs: set = set()
-    all_transitions_unordered = []
-    for f, i in box_terms.keys():
-        pair = frozenset((f, i))  # frozenset in membership test is O(1) vs. O(n) for a regular set.
-        if pair not in seen_pairs:
-            seen_pairs.add(pair)
-            all_transitions_unordered.append((f, i))
-
-    # Use state transitions to sum the box and box^dagger amplitudes for
-    # transitions between states.
-    box_plus_box_dagger_rotations: Dict[Tuple[PlaquetteState, PlaquetteState], MatrixElementValue] = {}
-    for state_1, state_2 in all_transitions_unordered:
-        box_amplitude = box_terms.get((state_1, state_2), {})
-        box_dagger_amplitude = box_terms.get((state_2, state_1), {})
-        summed = _sum_matrix_element_values(box_amplitude, box_dagger_amplitude)
-        box_plus_box_dagger_rotations[(state_1, state_2)] = summed
-
-    return box_plus_box_dagger_rotations
-
-
 class LatticeStateEncoder:
     """
     Class for encoding/decode lattice state data.
@@ -659,7 +516,8 @@ class LatticeStateEncoder:
         LatticeStateEncoder.for_truncation creates the encoder for a lattice
         at an irrep truncation, using pyclebsch to either compute
         the physical plaquette states or read them from memory if already
-        computed.
+        computed. An encoder created from the constructor has no truncation
+        (its truncation property is None).
         """
         # Validation of input.
         # Check link bitmaps for uniqueness of bit string encodings.
@@ -733,6 +591,9 @@ class LatticeStateEncoder:
         # The repr gives the number of physical plaquette states, not the
         # states, of which there can be millions.
         self._n_physical_plaquette_states = len(physical_plaquette_states)
+        # Set by for_truncation; an encoder created from its constructor was
+        # given its physical plaquette states directly, for no truncation.
+        self._truncation: tuple[str, int] | None = None
 
         logger.info(f"Created {self}.")
 
@@ -759,8 +620,10 @@ class LatticeStateEncoder:
             not present in IRREP_TRUNCATIONS.
 
         The physical plaquette states are computed/cached in memory by pyclebsch
-        (physical_plaquette_states). The link bitmap in use is the encoder's
-        link_bitmap.
+        (physical_plaquette_states). The link bitmap in use can be read from
+        the encoder's link_bitmap. The encoder records truncation_mode and
+        cutoff, readable as its truncation property, which
+        LatticeCircuitManager.for_truncation uses.
 
         There are two scenarios where a ValueError is raised to aid the user:
           1. link_bitmap is not provided, and IRREP_TRUNCATIONS has no entry for
@@ -782,7 +645,9 @@ class LatticeStateEncoder:
                     "link_bitmap."
                 )
             link_bitmap = IRREP_TRUNCATIONS[link_irreps]
-        return cls(link_bitmap, states, lattice)
+        encoder = cls(link_bitmap, states, lattice)
+        encoder._truncation = (truncation_mode, cutoff)
+        return encoder
 
     def __repr__(self):
         """
@@ -805,6 +670,17 @@ class LatticeStateEncoder:
     def vertex_bitmap(self) -> VertexMultiplicityBitmap:
         """Return a copy of the vertex multiplicity bitmap in use."""
         return copy.deepcopy(self._vertex_bitmap)
+
+    @property
+    def truncation(self) -> tuple[str, int] | None:
+        """
+        Return the irrep truncation the encoder was created for, as (truncation_mode, cutoff).
+
+        None if the encoder was created from its constructor, with physical
+        plaquette states given directly; LatticeStateEncoder.for_truncation
+        records the truncation. It cannot be reassigned.
+        """
+        return self._truncation
 
     @property
     def link_bitmap(self) -> IrrepBitmap:

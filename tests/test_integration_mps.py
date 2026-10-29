@@ -15,8 +15,7 @@ from qiskit.circuit.quantumcircuit import QuantumCircuit
 import pytest
 from ymcirc._abstract import LatticeDef
 from ymcirc.conventions import (
-    LatticeStateEncoder, IRREP_TRUNCATIONS, PHYSICAL_PLAQUETTE_STATES,
-    load_magnetic_hamiltonian, ONE, THREE,
+    LatticeStateEncoder, ONE, THREE,
 )
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.circuit import LatticeCircuitManager
@@ -24,8 +23,15 @@ from ymcirc.electric_helper import electric_hamiltonian
 from ymcirc.parsed_lattice_result import ParsedLatticeResult
 from ymcirc.measurement_results import MeasurementResults
 
+# The smallest magnitude of magnetic matrix element the tests keep, chosen by
+# hand to be somewhat high, which makes the tests faster: fewer Givens
+# rotations to build and simulate. Set too high, it keeps too few matrix
+# elements for the observables the tests check to change over time; set too
+# low, the tests are slower.
+_MAG_HAMILTONIAN_MATRIX_ELEMENT_THRESHOLD = 0.6
 
-def _build_time_evolved_circuit(encoder, mag_ham, dt, g, n_steps=1) -> tuple[QuantumCircuit, LatticeCircuitManager, LatticeRegisters]:
+
+def _build_time_evolved_circuit(encoder, dt, g, n_steps=1) -> tuple[QuantumCircuit, LatticeCircuitManager, LatticeRegisters]:
     """
     Helper: build a time-evolution circuit with n_steps Trotter steps.
 
@@ -33,7 +39,9 @@ def _build_time_evolved_circuit(encoder, mag_ham, dt, g, n_steps=1) -> tuple[Qua
     order used by run/functions.py.
     """
     lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
-    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circ_mgr = LatticeCircuitManager.for_truncation(
+        encoder,
+        mag_hamiltonian_matrix_element_threshold=_MAG_HAMILTONIAN_MATRIX_ELEMENT_THRESHOLD)
     circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
 
     # Add ancillas for magnetic evolution.
@@ -110,26 +118,22 @@ def _counts_to_measurement_results(counts: dict[str, int] | dict[tuple, int], en
 def test_mps_time_evolution_observables_change():
     """Time-evolved lattice should show changing observables."""
     lattice_def = LatticeDef(1.5, 2, periodic_boundary_conds=True)
-    trunc = "T1"
-    link_bitmap = IRREP_TRUNCATIONS[trunc]
-    physical_states = PHYSICAL_PLAQUETTE_STATES["d=3/2"][trunc]
-    encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_def)
-
-    mag_ham = load_magnetic_hamiltonian("d=3/2", trunc, encoder, mag_hamiltonian_matrix_element_threshold=0.6) # Somewhat high threshold to make test faster.
+    truncation_mode, cutoff = "T", 1
+    encoder = LatticeStateEncoder.for_truncation(lattice_def, truncation_mode, cutoff)
 
     g = 1.0
     n_data_qubits = encoder.lattice_def.n_links * encoder.expected_link_bit_string_length
 
     # Early time: vacuum should dominate.
     circuit_early, circ_mgr_early, lattice_early = _build_time_evolved_circuit(
-        encoder, mag_ham, dt=0.1, g=g, n_steps=1)
+        encoder, dt=0.1, g=g, n_steps=1)
     circuit_early.measure_all()
     counts_early = _run_mps_simulation(circuit_early, shots=4096)
     mr_early = _counts_to_measurement_results(counts_early, encoder, n_data_qubits)
 
     # Later time: excited states should appear.
     circuit_late, circ_mgr_late, lattice_late = _build_time_evolved_circuit(
-        encoder, mag_ham, dt=0.25, g=g, n_steps=4)
+        encoder, dt=0.25, g=g, n_steps=4)
     circuit_late.measure_all()
     counts_late = _run_mps_simulation(circuit_late, shots=4096)
     mr_late = _counts_to_measurement_results(counts_late, encoder, n_data_qubits)
@@ -152,19 +156,15 @@ def test_mps_time_evolution_observables_change():
 def test_mps_transition_probability_nonzero_at_late_time():
     """Transition probability to an excited state should be nonzero at late times."""
     lattice_def = LatticeDef(1.5, 2, periodic_boundary_conds=True)
-    trunc = "T1"
-    link_bitmap = IRREP_TRUNCATIONS[trunc]
-    physical_states = PHYSICAL_PLAQUETTE_STATES["d=3/2"][trunc]
-    encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_def)
-
-    mag_ham = load_magnetic_hamiltonian("d=3/2", trunc, encoder, mag_hamiltonian_matrix_element_threshold=0.6)
+    truncation_mode, cutoff = "T", 1
+    encoder = LatticeStateEncoder.for_truncation(lattice_def, truncation_mode, cutoff)
 
     g = 1.0
     n_data_qubits = encoder.lattice_def.n_links * encoder.expected_link_bit_string_length
 
     # Evolve to a later time.
     circuit, circ_mgr, lattice = _build_time_evolved_circuit(
-        encoder, mag_ham, dt=0.25, g=g, n_steps=4)
+        encoder, dt=0.25, g=g, n_steps=4)
     circuit.measure_all()
     counts = _run_mps_simulation(circuit, shots=8192)
     mr = _counts_to_measurement_results(counts, encoder, n_data_qubits)
@@ -195,19 +195,15 @@ def test_mps_transition_probability_nonzero_at_late_time():
 def test_mps_measure_one_link_at_late_time():
     """Measurement of a single excited link, should be nonzero at late times."""
     lattice_def = LatticeDef(1.5, 2, periodic_boundary_conds=True)
-    trunc = "T1"
-    link_bitmap = IRREP_TRUNCATIONS[trunc]
-    physical_states = PHYSICAL_PLAQUETTE_STATES["d=3/2"][trunc]
-    encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_def)
-
-    mag_ham = load_magnetic_hamiltonian("d=3/2", trunc, encoder, mag_hamiltonian_matrix_element_threshold=0.6)
+    truncation_mode, cutoff = "T", 1
+    encoder = LatticeStateEncoder.for_truncation(lattice_def, truncation_mode, cutoff)
 
     g = 1.0
     n_data_qubits = encoder.lattice_def.n_links * encoder.expected_link_bit_string_length
 
     # Evolve to a later time.
     circuit, circ_mgr, lattice = _build_time_evolved_circuit(
-        encoder, mag_ham, dt=0.25, g=g, n_steps=4)
+        encoder, dt=0.25, g=g, n_steps=4)
     horiz_link_from_origin = ((0, 0), 1)
     circ_mgr.measure_link(circuit, lattice, horiz_link_from_origin)
     counts = {(horiz_link_from_origin, meas_bit_string): n_obs for meas_bit_string, n_obs in _run_mps_simulation(circuit, shots=8192).items()} # Include address info since partial measurement.
@@ -248,7 +244,7 @@ def test_mps_measure_one_link_at_late_time():
 
 # --- d=3 integration tests ---
 
-def _build_d3_time_evolved_circuit(encoder, mag_ham, dt, g, n_steps=1) -> tuple[QuantumCircuit, LatticeCircuitManager, LatticeRegisters]:
+def _build_d3_time_evolved_circuit(encoder, dt, g, n_steps=1) -> tuple[QuantumCircuit, LatticeCircuitManager, LatticeRegisters]:
     """
     Helper: build a d=3 time-evolution circuit with n_steps Trotter steps (no ancilla).
 
@@ -256,7 +252,9 @@ def _build_d3_time_evolved_circuit(encoder, mag_ham, dt, g, n_steps=1) -> tuple[
     order used by run/functions.py.
     """
     lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
-    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circ_mgr = LatticeCircuitManager.for_truncation(
+        encoder,
+        mag_hamiltonian_matrix_element_threshold=_MAG_HAMILTONIAN_MATRIX_ELEMENT_THRESHOLD)
     circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
 
     ee_ham = electric_hamiltonian(encoder.link_bitmap)
@@ -295,26 +293,22 @@ def _d3_counts_to_measurement_results(counts: dict[str, int], encoder, n_data_qu
 def test_d3_mps_time_evolution_observables_change():
     """d=3 B3 size=2: time-evolved lattice should show changing observables."""
     lattice_def = LatticeDef(3, 2, periodic_boundary_conds=True)
-    trunc = "B3"
-    link_bitmap = IRREP_TRUNCATIONS[trunc]
-    physical_states = PHYSICAL_PLAQUETTE_STATES["d=3"][trunc]
-    encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_def)
-
-    mag_ham = load_magnetic_hamiltonian("d=3", trunc, encoder, mag_hamiltonian_matrix_element_threshold=0.6)
+    truncation_mode, cutoff = "B", 3
+    encoder = LatticeStateEncoder.for_truncation(lattice_def, truncation_mode, cutoff)
 
     g = 1.0
     n_data_qubits = encoder.lattice_def.n_links * encoder.expected_link_bit_string_length
 
     # Early time: vacuum should dominate.
     circuit_early, _, _ = _build_d3_time_evolved_circuit(
-        encoder, mag_ham, dt=0.1, g=g, n_steps=1)
+        encoder, dt=0.1, g=g, n_steps=1)
     circuit_early.measure_all()
     counts_early = _run_mps_simulation(circuit_early, shots=4096)
     mr_early = _d3_counts_to_measurement_results(counts_early, encoder, n_data_qubits)
 
     # Later time: excited states should appear.
     circuit_late, _, _ = _build_d3_time_evolved_circuit(
-        encoder, mag_ham, dt=1, g=g, n_steps=1)
+        encoder, dt=1, g=g, n_steps=1)
     circuit_late.measure_all()
     counts_late = _run_mps_simulation(circuit_late, shots=4096)
     mr_late = _d3_counts_to_measurement_results(counts_late, encoder, n_data_qubits)

@@ -26,15 +26,15 @@ from typing import Any, Set
 from ymcirc._abstract import LatticeDef
 from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.conventions import (
-    IRREP_TRUNCATIONS, LatticeStateEncoder, load_magnetic_hamiltonian, PHYSICAL_PLAQUETTE_STATES,
-    get_data_metadata)
+    LatticeStateEncoder, physical_plaquette_states)
 from ymcirc.electric_helper import convert_bitstring_to_evalue, electric_hamiltonian
 from ymcirc.lattice_registers import LatticeRegisters
 
 
 def configure_script_options(
         dimensionality_string: str,
-        truncation_string: str,
+        truncation_mode: str,
+        cutoff: int,
         lattice_size: int,
         sim_times: np.ndarray | list,
         n_trotter_steps: int,
@@ -78,15 +78,12 @@ def configure_script_options(
               "d=[dimesionality]" where "dimensionality"
               can be 3/2, 2, 3, ...
 
-              Currently supported configurations: d=3/2, T1 or T2; d=2, T1.
               See ymcirc.conventions for more info.
-        - truncation_string:
-              A string specifying what link irrep truncation to use.
-
-              Current supported configurations: 'T1' and 'T2', when using d=3/2,
-              'T1' when using d=2.
-
-              See ymcirc.conventions for more info.
+        - truncation_mode, cutoff:
+              The link irrep truncation, as pyclebsch's irreps_and_singlets
+              takes it, for example ("T", 1) or ("B", 3). pyclebsch computes
+              the physical plaquette states and magnetic matrix elements for it,
+              and validates it.
         - lattice_size:
               For 2 or more dimensions, the number of vertices in
               each direction for a (hypercubic) lattice. For d=3/2, how many
@@ -192,7 +189,8 @@ def configure_script_options(
     options["do_electric_evolution"] = do_electric_evolution
     options["do_magnetic_evolution"] = do_magnetic_evolution
     options["dimensionality_string"] = dimensionality_string
-    options["truncation_string"] = truncation_string
+    options["truncation_mode"] = truncation_mode
+    options["cutoff"] = cutoff
     options["lattice_size"] = lattice_size
     options["coupling_g"] = coupling_g
     options["givens_have_independent_params"] = givens_have_independent_params
@@ -222,36 +220,13 @@ def configure_script_options(
     options["load_circuit_from_file"] = load_circuit_from_file
 
     # Automatically set some additional options based on user input above.
-    # TODO refactor to avoid the wonky indexing necessary for B truncations.
+    # The lattice has the default F-order; pyclebsch computes the physical
+    # plaquette states and matrix elements in the F-order of the lattice.
     options["dimensions"] = 1.5 if (dimensionality_string == "d=3/2" or dimensionality_string == "d=1.5") else int(dimensionality_string[2:])
-    if options["truncation_string"] in IRREP_TRUNCATIONS.keys():
-        options["link_bitmap"] = IRREP_TRUNCATIONS[options["truncation_string"]]
-    else:
-        SEPARATOR_TRUNC_DIM = "_"
-        SEPARATOR_DIMS = ","
-        for current_trunc in IRREP_TRUNCATIONS.keys():
-            if SEPARATOR_TRUNC_DIM not in current_trunc:
-                continue
-            trunc_prefix, dim_suffix = current_trunc.split(SEPARATOR_TRUNC_DIM)
-            dims_available_for_trunc = dim_suffix.split(SEPARATOR_DIMS)
-            if trunc_prefix == options["truncation_string"] and options["dimensionality_string"] in dims_available_for_trunc:
-                options["link_bitmap"] = IRREP_TRUNCATIONS[current_trunc]
-        if not "link_bitmap" in options:
-            raise ValueError(
-                f"Failed to fetch link bitmap for specified case {options['dimensionality_string']}, {options['truncation_string']}. "
-                f"Available irrep data:\n{IRREP_TRUNCATIONS.keys()}.\n"
-                "Truncations where only specific dimensions are available are denoted with a dimensionality substring. This substring is automatically checked."
-            )
-
-    # Trigger lazy data load, then read f_order from metadata so the LatticeDef
-    # uses the same F-order convention the data was generated with.
-    _ = PHYSICAL_PLAQUETTE_STATES[options["dimensionality_string"]][options["truncation_string"]]
-    _metadata = get_data_metadata(options["dimensionality_string"], options["truncation_string"])
     options["lattice_def"] = LatticeDef(
         dimensions=options["dimensions"],
         size=options["lattice_size"],
-        periodic_boundary_conds=options["use_periodic_boundary_conds"],
-        forder=_metadata.get("f_order", None))
+        periodic_boundary_conds=options["use_periodic_boundary_conds"])
 
     return options
 
@@ -262,10 +237,10 @@ def initialize_lattice_tools(script_options: dict[str, Any]) -> tuple[
     Initialize some tools for creating a new lattice circuit.
 
     Using the parameters given in script_options, returns the tuple
-    (lattice_encoder, physical_plaquette_states, lattice_registers, circ_mgr, lattice_circuit):
+    (lattice_encoder, physical_states_for_control_pruning, lattice_registers, circ_mgr, lattice_circuit):
       - lattice_encoder: a LatticeStateEncoder for encoding/decoding
         state info on the lattice indicated by script_options.
-      - physical_plaquette_states: Either None, or a Set of encoded plaquette
+      - physical_states_for_control_pruning: Either None, or a Set of encoded plaquette
         bitstrings corresponding to valid physical states. If not None,
         then this information can be used for control pruning downstream.
       - lattice_registers: a new LatticeRegisters instance for organizing
@@ -278,37 +253,37 @@ def initialize_lattice_tools(script_options: dict[str, Any]) -> tuple[
     # Create lattice_encoder instance.
     lattice_encoder = create_lattice_encoder(script_options)
 
-    # Load mag Hamiltonian data.
-    print("Loading magnetic Hamiltonian data...")
-    mag_hamiltonian = load_magnetic_hamiltonian(
-        script_options["dimensionality_string"],
-        script_options["truncation_string"],
+    # Create the circuit manager, with the magnetic Hamiltonian.
+    print("Computing magnetic Hamiltonian data...")
+    circ_mgr = LatticeCircuitManager.for_truncation(
         lattice_encoder,
         mag_hamiltonian_matrix_element_threshold=script_options["mag_hamiltonian_matrix_element_threshold"],
         only_include_elems_connected_to_electric_vacuum=script_options["mag_hamiltonian_use_electric_vacuum_transitions_only"])
     print("Done.")
 
-    # Figure out physical states needed for control pruning.
+    # Figure out physical states needed for control pruning. pyclebsch has
+    # them in memory from building the encoder.
     if script_options["prune_controls"] is True:
-        physical_plaquette_states: Set[str] = set(
-            lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in PHYSICAL_PLAQUETTE_STATES[script_options["dimensionality_string"]][script_options["truncation_string"]])
+        physical_states_for_control_pruning: Set[str] | None = set(
+            lattice_encoder.encode_plaquette_state_as_bit_string(plaquette)
+            for plaquette in physical_plaquette_states(
+                script_options["lattice_def"], script_options["truncation_mode"], script_options["cutoff"]))
     else:
-        physical_plaquette_states = None
+        physical_states_for_control_pruning = None
 
     # Initialize the current circuit's registers.
     lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
-    circ_mgr = LatticeCircuitManager(lattice_encoder, mag_hamiltonian)
     lattice_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
 
     # Add ancilla register if needed.
     if script_options["use_ancillas"] is True:
         circ_mgr.num_ancillas = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(
             lattice_circuit, lattice_registers, control_fusion=script_options["control_fusion"],
-            physical_states_for_control_pruning=physical_plaquette_states,
+            physical_states_for_control_pruning=physical_states_for_control_pruning,
             optimize_circuits=script_options["optimize_circuits"])
         circ_mgr.add_ancilla_register_to_quantum_circuit(lattice_circuit)
 
-    return lattice_encoder, physical_plaquette_states, lattice_registers, circ_mgr, lattice_circuit
+    return lattice_encoder, physical_states_for_control_pruning, lattice_registers, circ_mgr, lattice_circuit
 
 
 def create_time_evol_circuit(script_options: dict[str, Any]) -> QuantumCircuit:
@@ -546,10 +521,8 @@ def plot_data(data: pd.DataFrame, col: str, title: str, script_options: dict[str
 
 
 def create_lattice_encoder(script_options: dict[str, Any]) -> LatticeStateEncoder:
-    lattice_encoder = LatticeStateEncoder(
-        link_bitmap=script_options["link_bitmap"],
-        physical_plaquette_states=PHYSICAL_PLAQUETTE_STATES[script_options["dimensionality_string"]][script_options["truncation_string"]],
-        lattice=script_options["lattice_def"])
+    lattice_encoder = LatticeStateEncoder.for_truncation(
+        script_options["lattice_def"], script_options["truncation_mode"], script_options["cutoff"])
 
     return lattice_encoder
 

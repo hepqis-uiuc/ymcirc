@@ -25,7 +25,8 @@ if __name__ == "__main__":
 
     script_options = configure_script_options(
         dimensionality_string="d=3/2",
-        truncation_string="T1",
+        truncation_mode="T",
+        cutoff=1,
         lattice_size=2,
         givens_have_independent_params=True,
         sim_times=[],  # Doesn't control anything in this script, but required argument.
@@ -44,7 +45,7 @@ if __name__ == "__main__":
     script_options['state_prep_method'] = "vqe"  # When there are more methods available, they will be added to configure_script_options.
 
     # Generate a descriptive prefix for all filenames based on simulation params.
-    filename_str_prefix = f"state_prep={script_options['state_prep_method']}-{script_options['lattice_def'].n_plaquettes}-plaquettes-in-d={script_options['lattice_def'].dim}-irrep_trunc={script_options['truncation_string']}-mat_elem_cut={script_options['mag_hamiltonian_matrix_element_threshold']}-vac_connected_only={script_options['mag_hamiltonian_use_electric_vacuum_transitions_only']}-vchain={script_options['use_ancillas']}-control_fusion={script_options['control_fusion']}-prune_controls={script_options['prune_controls']}"
+    filename_str_prefix = f"state_prep={script_options['state_prep_method']}-{script_options['lattice_def'].n_plaquettes}-plaquettes-in-d={script_options['lattice_def'].dim}-irrep_trunc={script_options['truncation_mode']}{script_options['cutoff']}-mat_elem_cut={script_options['mag_hamiltonian_matrix_element_threshold']}-vac_connected_only={script_options['mag_hamiltonian_use_electric_vacuum_transitions_only']}-vchain={script_options['use_ancillas']}-control_fusion={script_options['control_fusion']}-prune_controls={script_options['prune_controls']}"
 
     # Create or load state prep circuit.
     if script_options['load_circuit_from_file'] is None:

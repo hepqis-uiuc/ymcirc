@@ -1,11 +1,31 @@
 """
 A collection of utilities for building circuits.
+
+########## The magnetic Hamiltonian from the matrix elements of box ##########
+
+LatticeCircuitManager.for_truncation builds the magnetic Hamiltonian from the
+matrix elements <f| box |i> of the plaquette operator box that pyclebsch
+computes, keyed by the pair of plaquette states (f, i). It uses each one as the
+matrix element of box + box^dagger between the same states:
+<f| box + box^dagger |i> = <f| box |i> + <i| box |f>*, and the second term is
+zero whenever the first is not. The reason is triality, the integer
+(p - q) mod 3 of the SU(3) irrep (p, q), which adds (mod 3) under tensor
+products; the 3 has triality 1 and the 3bar -1. box multiplies each of the
+plaquette's four active links by U or by U^dagger, so it changes the triality
+of each one by +1 or by -1, fixed by the link's orientation around the
+plaquette, and box^dagger changes it by the opposite amount. A pair of states
+with both <f| box |i> and <i| box |f> nonzero would need +1 = -1 (mod 3) on
+every active link. For the same reason, box has no diagonal matrix elements.
+So no matrix element of box^dagger needs to be added: each pair of states
+appears once, and becomes one Givens rotation, which acts on the pair
+symmetrically.
 """
 from __future__ import annotations
 import copy
 import logging
 from pathlib import Path
 from ymcirc.conventions import (PlaquetteState, LatticeStateEncoder, ONE, THREE, THREE_BAR, MatrixElementValue, HamiltonianData)
+from ymcirc._pyclebsch_adapter import box_terms
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import (
     givens,
@@ -41,13 +61,45 @@ PlaneKeyedHamiltonianData = Dict[Plane, Dict[Tuple[str, str], Dict[Signature, fl
 
 
 class LatticeCircuitManager:
-    """Class for creating quantum simulation circuits from LatticeRegister instances."""
+    """
+    Build circuits that simulate SU(3) lattice gauge theory on one lattice.
+
+    The manager creates a circuit from the registers of a LatticeRegisters
+    instance and appends to it electric and magnetic Trotter steps
+    (apply_electric_trotter_step, apply_magnetic_trotter_step), an ancilla
+    register for the multi-controlled gates of the magnetic step, and
+    measurements of links, vertices or plaquettes. It also saves circuits to
+    disk and loads them back.
+
+    It is set up with two things for its lattice: the LatticeStateEncoder, which
+    gives the bit strings of link, vertex and plaquette states, and the matrix
+    elements of the magnetic Hamiltonian, from which the magnetic Trotter step
+    builds its Givens rotations. The electric Hamiltonian is instead passed to
+    each electric Trotter step.
+
+    To create a manager for a lattice at an irrep truncation, create its
+    encoder with LatticeStateEncoder.for_truncation(lattice, truncation_mode,
+    cutoff), then use LatticeCircuitManager.for_truncation(lattice_encoder),
+    which computes the magnetic matrix elements at the encoder's truncation.
+    The constructor instead takes them as given, for example hand-written ones.
+    """
 
     def __init__(
         self, lattice_encoder: LatticeStateEncoder, mag_hamiltonian: HamiltonianData
     ):
         """
-        Create via a LatticeStateEncoder instance and magnetic Hamiltonian matrix elements.
+        Create a circuit manager for the lattice of lattice_encoder.
+
+        Arguments:
+          - lattice_encoder: the LatticeStateEncoder of the lattice.
+          - mag_hamiltonian: the matrix elements of box + box^dagger, the
+            magnetic Hamiltonian up to a prefactor that the circuit applies
+            through its time-step and coupling parameters. One entry per pair
+            of plaquette states to be connected by a Givens rotation: the key
+            is a tuple of the pair's bit strings in lattice_encoder's
+            encoding, (s1, s2), in either order; the value is
+            <s1| box + box^dagger |s2> for each plane and plaquette signature,
+            as a MatrixElementValue (``dict[Plane, dict[Signature, float]]``).
 
         If the lattice defined by lattice_encoder is small and periodic, then the data in mag_hamiltonian
         will be filtered for consistency. "Small and periodic" means that the lattice has
@@ -152,6 +204,93 @@ class LatticeCircuitManager:
                         plane_keyed_hamiltonian_data[plane] = {}
                     plane_keyed_hamiltonian_data[plane][(bs1, bs2)] = dict(sig_dict)
         self._mag_hamiltonian = plane_keyed_hamiltonian_data
+
+    @classmethod
+    def for_truncation(
+            cls,
+            lattice_encoder: LatticeStateEncoder,
+            mag_hamiltonian_matrix_element_threshold: float = 0,
+            only_include_elems_connected_to_electric_vacuum: bool = False,
+    ) -> LatticeCircuitManager:
+        """
+        Create a circuit manager for lattice_encoder's lattice at the irrep truncation it was created for.
+
+        It computes the constructor's mag_hamiltonian for that lattice and
+        truncation, and is otherwise the constructor.
+
+        Each matrix element <f| box |i> that pyclebsch computes becomes one
+        entry of mag_hamiltonian, as the matrix element of box + box^dagger
+        between the same states; the module docstring explains why no matrix
+        elements of box^dagger need to be added.
+
+        Necessary arguments:
+          - lattice_encoder: an encoder created by
+            LatticeStateEncoder.for_truncation, which records its truncation
+            (lattice_encoder.truncation). The matrix elements are those of its
+            lattice (lattice_encoder.lattice_def) at that truncation, computed
+            by pyclebsch, or read from pyclebsch's in-memory cache if it has
+            already computed them. An encoder created from its constructor
+            records no truncation, and is refused with a ValueError.
+
+        Optional arguments:
+          - mag_hamiltonian_matrix_element_threshold: Only include matrix elements
+            whose absolute value (or leaf absolute values, for dict-valued entries)
+            is at least this value.
+          - only_include_elems_connected_to_electric_vacuum: Drop any matrix elements
+            which aren't connected to the electric vacuum state.
+        """
+        if lattice_encoder.truncation is None:
+            raise ValueError(
+                "lattice_encoder records no irrep truncation, so the magnetic Hamiltonian cannot be computed for it. "
+                "Create the encoder with LatticeStateEncoder.for_truncation, or pass the magnetic Hamiltonian's "
+                "matrix elements to the LatticeCircuitManager constructor."
+            )
+        truncation_mode, cutoff = lattice_encoder.truncation
+
+        mag_hamiltonian: HamiltonianData = {}
+        # Each matrix element of box is also that of box + box^dagger (see the
+        # module docstring).
+        box_matrix_elements = box_terms(lattice_encoder.lattice_def, truncation_mode, cutoff)
+        for (plaquette_state_1, plaquette_state_2), box_plus_box_dagger_element in box_matrix_elements.items():
+            # Apply threshold filter.
+            if mag_hamiltonian_matrix_element_threshold > 0:
+                filtered = cls._filter_matrix_element_value(box_plus_box_dagger_element, mag_hamiltonian_matrix_element_threshold)
+                if filtered is None:
+                    continue
+                box_plus_box_dagger_element = filtered
+
+            state_1_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state_1)
+            state_2_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state_2)
+            if only_include_elems_connected_to_electric_vacuum and ('1' in state_1_bitstring) and ('1' in state_2_bitstring):
+                continue
+            mag_hamiltonian[(state_1_bitstring, state_2_bitstring)] = box_plus_box_dagger_element
+
+        logger.info(f"Built magnetic Hamiltonian data for truncation mode {truncation_mode!r}, cutoff {cutoff}. There are {len(mag_hamiltonian)} encoded state-pair entries (not yet resolved per plaquette via plane+signature filtering).")
+        n_matrix_elems = len([val for plane_dict in mag_hamiltonian.values() for sig_dict in plane_dict.values() for val in sig_dict.values()])
+        logger.info(f"Built {n_matrix_elems} floats.")
+
+        return cls(lattice_encoder, mag_hamiltonian)
+
+    @staticmethod
+    def _filter_matrix_element_value(
+            value: MatrixElementValue,
+            threshold: float
+    ) -> MatrixElementValue | None:
+        """Apply a threshold filter to a MatrixElementValue.
+
+        Drops leaf floats if abs value is below threshold, prunes plane keys whose values become
+        empty after filtering, and returns None if all plane keys are pruned.
+        """
+        filtered: dict[Plane, dict[Signature, float]] = {}
+        for plane_key, plane_val in value.items():
+            filtered_sigs = {
+                sig: float(sig_val)
+                for sig, sig_val in plane_val.items()
+                if abs(sig_val) >= threshold
+            }
+            if filtered_sigs:
+                filtered[plane_key] = filtered_sigs
+        return filtered if filtered else None
 
     def __repr__(self):
         class_name = type(self).__name__
