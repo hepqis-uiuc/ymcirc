@@ -24,7 +24,7 @@ from __future__ import annotations
 import copy
 import logging
 from pathlib import Path
-from ymcirc.conventions import (PlaquetteState, LatticeStateEncoder)
+from ymcirc.conventions import (ONE, PlaquetteState, LatticeStateEncoder)
 from ymcirc._pyclebsch_adapter import box_terms
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import (
@@ -200,7 +200,9 @@ class LatticeCircuitManager:
           - mag_hamiltonian_matrix_element_threshold: Only include matrix elements
             whose absolute value is at least this value.
           - only_include_elems_connected_to_electric_vacuum: Drop any matrix elements
-            which aren't connected to the electric vacuum state.
+            which aren't connected to the electric vacuum state. A plaquette
+            state is the electric vacuum when every one of its links carries
+            the singlet (lattice_encoder stipulates the encoding of the vacuum).
         """
         if lattice_encoder.truncation is None:
             raise ValueError(
@@ -219,10 +221,11 @@ class LatticeCircuitManager:
             for (plaquette_state_1, plaquette_state_2), box_plus_box_dagger_element in box_matrix_elements_of_plaquette.items():
                 if abs(box_plus_box_dagger_element) < mag_hamiltonian_matrix_element_threshold:
                     continue
+                if only_include_elems_connected_to_electric_vacuum and not (
+                        cls._is_electric_vacuum(plaquette_state_1) or cls._is_electric_vacuum(plaquette_state_2)):
+                    continue
                 state_1_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state_1)
                 state_2_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state_2)
-                if only_include_elems_connected_to_electric_vacuum and ('1' in state_1_bitstring) and ('1' in state_2_bitstring):
-                    continue
                 encoded_matrix_elements[(state_1_bitstring, state_2_bitstring)] = box_plus_box_dagger_element
             mag_hamiltonian[plane_and_signature] = encoded_matrix_elements
 
@@ -231,6 +234,16 @@ class LatticeCircuitManager:
                     f"{n_matrix_elems} matrix elements across {len(mag_hamiltonian)} (plane, signature) pair(s).")
 
         return cls(lattice_encoder, mag_hamiltonian)
+
+    @staticmethod
+    def _is_electric_vacuum(plaquette_state: PlaquetteState) -> bool:
+        """Whether plaquette_state has the singlet on every link."""
+        # The multiplicity indices need no check. A corner whose links all
+        # carry the singlet has exactly one singlet, so its multiplicity index
+        # is 0.
+        _, active_links, control_links = plaquette_state
+        return all(link == ONE for link in active_links) and all(
+            link == ONE for corner_controls in control_links for link in corner_controls)
 
     def __repr__(self):
         class_name = type(self).__name__

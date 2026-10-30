@@ -2363,6 +2363,42 @@ def test_for_truncation_threshold_keeps_matrix_elements_at_least_as_large():
     assert kept_matrix_elements == expected
 
 
+@pytest.mark.parametrize("link_bitmap", [
+    _T1_LINK_BITMAP,
+    {ONE: "11", THREE: "10", THREE_BAR: "01"},
+    {ONE: "10", THREE: "00", THREE_BAR: "01"},
+], ids=["singlet 00", "singlet 11", "singlet 10"])
+def test_for_truncation_keeps_matrix_elements_connected_to_vacuum_whatever_the_link_bitmap(link_bitmap: IrrepBitmap):
+    """
+    With only_include_elems_connected_to_electric_vacuum, for_truncation keeps exactly the matrix elements with the electric vacuum as one of their states.
+
+    The electric vacuum has the singlet on every link. Which matrix elements
+    are kept must not depend on how the link bitmap encodes the singlet, so
+    the test runs with three link bitmaps that encode it differently. Checked
+    on a d=2 periodic lattice of size 3 at T1. In d=2, unlike d=3/2, a corner
+    whose active links carry the singlet can have two control links carrying
+    a 3 and a 3bar, so the test also fails if the control links are not
+    checked.
+    """
+    lattice_def = LatticeDef(2, 3)
+    encoder = LatticeStateEncoder.for_truncation(lattice_def, "T", 1, link_bitmap=link_bitmap)
+    vacuum: PlaquetteState = ((0, 0, 0, 0), (ONE, ONE, ONE, ONE), ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE)))
+    box_matrix_elements = box_terms(lattice_def, "T", 1)[((1, 2), _SIG_2)]
+    expected_pairs = {
+        (encoder.encode_plaquette_state_as_bit_string(final_state),
+         encoder.encode_plaquette_state_as_bit_string(initial_state))
+        for final_state, initial_state in box_matrix_elements
+        if vacuum in (final_state, initial_state)
+    }
+    assert 0 < len(expected_pairs) < len(box_matrix_elements), (
+        "Some matrix elements, but not all, should have the vacuum as one of their states.")
+
+    kept_matrix_elements = LatticeCircuitManager.for_truncation(
+        encoder, only_include_elems_connected_to_electric_vacuum=True)._mag_hamiltonian
+
+    assert set(kept_matrix_elements[((1, 2), _SIG_2)]) == expected_pairs
+
+
 @pytest.mark.parametrize("dims", [1.5, 2])
 def test_box_has_no_matrix_element_in_both_directions_or_on_the_diagonal(dims):
     """
