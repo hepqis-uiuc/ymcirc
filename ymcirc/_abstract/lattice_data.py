@@ -31,6 +31,7 @@ from pyclebsch.matrix_elements.lattice_data import (
     LatticeDef as PyclebschLatticeDef,
     LinkDirection,
     compute_plaquette_signature,
+    plaquettes_by_signature,
 )
 from pyclebsch.matrix_elements.lattice_data import (
     Plane as PyclebschPlane,
@@ -53,9 +54,11 @@ type Plane = tuple[int, int]
 # from its bottom-left vertex), the directions of ALL the half-links at that
 # vertex (both active and control links), sorted by FORDER. It is the second
 # element of pyclebsch's PlaquetteSignature, whose first element is the plane.
-# MatrixElementValue, which holds the magnetic Hamiltonian's matrix elements,
-# is keyed by plane and then by signature, so Plaquette.signature, which
-# pyclebsch computes, finds a plaquette's matrix elements.
+# The magnetic Hamiltonian's matrix elements (ymcirc.circuit.HamiltonianData)
+# are keyed by plane and signature. ymcirc's Plaquette.signature takes each
+# plaquette's signature from pyclebsch, which groups the matrix elements by
+# the same signature, so a plaquette's plane and signature look up its
+# matrix elements.
 type Signature = tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...], tuple[int, ...]]
 # The indices that locate a control link in a plaquette, as pyclebsch's
 # PlaquetteGeometry does: (vertex index, control index). The vertex index
@@ -104,13 +107,11 @@ def _duplicate_control_indices_by_plane_and_signature(
     Computed once per lattice. Callers must not modify the result.
     """
     result: dict[tuple[Plane, Signature], dict[PlaquetteControlIndices, PlaquetteControlIndices]] = {}
-    for plaquette_address, geometry in lattice.plaquettes.items():
-        plane, site_half_links = compute_plaquette_signature(plaquette_address, lattice)
-        # pyclebsch gives an empty tuple of half-links only for a plaquette the
-        # lattice lacks; plaquette_address is a key of lattice.plaquettes.
-        key = (plane, cast(Signature, site_half_links))
-        if key in result:
-            continue
+    for (plane, site_half_links), plaquette_addresses in plaquettes_by_signature(lattice).items():
+        # Plaquettes with the same signature repeat their controls in the same
+        # way (plaquettes_by_signature explains why), so the first stands for
+        # all.
+        geometry = lattice.plaquettes[plaquette_addresses[0]]
         original_indices_of_link = {}
         duplicates: dict[PlaquetteControlIndices, PlaquetteControlIndices] = {}
         for vertex_idx, (control_links, unique) in enumerate(zip(geometry.control_links, geometry.unique_controls)):
@@ -119,7 +120,12 @@ def _duplicate_control_indices_by_plane_and_signature(
                     original_indices_of_link[link] = (vertex_idx, control_idx)
                 else:
                     duplicates[(vertex_idx, control_idx)] = original_indices_of_link[link]
-        result[key] = duplicates
+        # The cast narrows pyclebsch's type (which also allows an empty tuple of
+        # half-links) to ymcirc's Signature. pyclebsch returns an empty tuple only
+        # for a plaquette the lattice lacks. Since site_half_links is a key of
+        # plaquettes_by_signature, these half-links belong to one of the
+        # lattice's plaquettes.
+        result[(plane, cast(Signature, site_half_links))] = duplicates
     return result
 
 T = TypeVar('T')
@@ -274,9 +280,9 @@ class Plaquette(Generic[T]):
 
         For each of the 4 plaquette vertices, a tuple of ALL existing
         half-link directions at that vertex (both active and control), sorted
-        by their position in the lattice's F-order. MatrixElementValue, which holds
-        the magnetic Hamiltonian's matrix elements, is keyed by plane and then
-        by signature, so the plaquette's matrix elements are found under its
+        by their position in the lattice's F-order. The magnetic Hamiltonian's
+        matrix elements (ymcirc.circuit.HamiltonianData) are keyed by plane
+        and signature, so the plaquette's matrix elements are found under its
         plane and this signature.
 
         Physically, the signature encodes whether a plaquette is in the
@@ -525,9 +531,23 @@ class LatticeDef:
         # Checked above to be one of pyclebsch's planes.
         pyclebsch_plane = cast(PyclebschPlane, plane)
         _, site_half_links = compute_plaquette_signature((site, pyclebsch_plane), self._pyclebsch_lattice)
-        # pyclebsch gives an empty tuple of half-links only for a plaquette
-        # the lattice lacks, which is refused above.
+        # The cast narrows pyclebsch's type (which also allows an empty tuple of
+        # half-links) to ymcirc's Signature. pyclebsch returns an empty tuple only
+        # for a plaquette the lattice lacks. A plaquette the lattice lacks is
+        # refused above.
         return cast(Signature, site_half_links)
+
+    def _planes_and_signatures(self) -> frozenset[tuple[Plane, Signature]]:
+        """The (plane, signature) pairs of the lattice's plaquettes, from pyclebsch's plaquettes_by_signature."""
+        # The cast narrows pyclebsch's type (which also allows an empty tuple of
+        # half-links) to ymcirc's Signature. pyclebsch returns an empty tuple only
+        # for a plaquette the lattice lacks. Since site_half_links is a key of
+        # plaquettes_by_signature, these half-links belong to one of the
+        # lattice's plaquettes.
+        return frozenset(
+            (plane, cast(Signature, site_half_links))
+            for plane, site_half_links in plaquettes_by_signature(self._pyclebsch_lattice)
+        )
 
     def _duplicate_control_indices(self, plane: Plane, signature: Signature) -> dict[PlaquetteControlIndices, PlaquetteControlIndices]:
         """

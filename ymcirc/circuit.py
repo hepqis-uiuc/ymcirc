@@ -25,7 +25,7 @@ import copy
 import logging
 from pathlib import Path
 from ymcirc.conventions import (PlaquetteState, LatticeStateEncoder)
-from ymcirc._pyclebsch_adapter import MatrixElementValue, box_terms
+from ymcirc._pyclebsch_adapter import box_terms
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import (
     givens,
@@ -52,18 +52,12 @@ logger = logging.getLogger(__name__)
 
 # Encoded plaquette state pair used as dict key in HamiltonianData.
 type EncodedPlaquetteTransition = tuple[str, str]
-# The matrix elements of the magnetic Hamiltonian, in the format
-# LatticeCircuitManager's constructor takes: a dict mapping encoded state
-# pairs to matrix element values (nested dicts keyed by plane, then by
-# signature).
-type HamiltonianData = dict[EncodedPlaquetteTransition, MatrixElementValue]
-
-# Circuit construction iterates over planes, so the constructor re-indexes
-# HamiltonianData, whose top-level key is a pair of plaquette states.
-# A dict with key hierarchy: plane -> (bs1, bs2) -> signature -> float.
-# The bit strings in the keys have their duplicate controls (on a periodic
-# axis of length 2) already removed.
-type PlaneKeyedHamiltonianData = dict[Plane, dict[tuple[str, str], dict[Signature, float]]]
+# The matrix elements of the magnetic Hamiltonian, in the format that
+# LatticeCircuitManager's constructor takes. Each key is a plane and a
+# plaquette signature. The value under each key maps pairs of encoded
+# plaquette states (EncodedPlaquetteTransition) to the matrix element
+# between them.
+type HamiltonianData = dict[tuple[Plane, Signature], dict[EncodedPlaquetteTransition, float]]
 
 
 class LatticeCircuitManager:
@@ -100,12 +94,18 @@ class LatticeCircuitManager:
           - lattice_encoder: the LatticeStateEncoder of the lattice.
           - mag_hamiltonian: the matrix elements of box + box^dagger, the
             magnetic Hamiltonian up to a prefactor that the circuit applies
-            through its time-step and coupling parameters. One entry per pair
-            of plaquette states to be connected by a Givens rotation: the key
-            is a tuple of the pair's bit strings in lattice_encoder's
-            encoding, (s1, s2), in either order; the value is
-            <s1| box + box^dagger |s2> for each plane and plaquette signature,
-            as a MatrixElementValue (``dict[Plane, dict[Signature, float]]``).
+            through its time-step and coupling parameters, as a HamiltonianData
+            instance. Each key is a (plane, signature) pair: the plane
+            and signature (Plaquette.signature) of the plaquettes that the
+            matrix elements under it apply to. Its value has one entry per
+            pair of plaquette states to be connected by a Givens rotation in
+            those plaquettes: the key is a tuple of the pair's bit strings in
+            lattice_encoder's encoding, (s1, s2), in either order; the value
+            is <s1| box + box^dagger |s2>.
+
+        The constructor refuses, with a ValueError, a (plane, signature) pair
+        that no plaquette of the lattice has, and a bit string whose length
+        is not lattice_encoder.expected_plaquette_bit_string_length.
 
         On a periodic axis of length 2, one link can be a control link at two
         vertices of a plaquette. Each such duplicate control is removed from
@@ -115,15 +115,14 @@ class LatticeCircuitManager:
         circuits leave out the duplicate's qubits in the same way. A matrix
         element in which a duplicate control has a different link state from
         the control it repeats cannot occur on the lattice, and raises a
-        ValueError. Entries whose plane and signature belong to no plaquette
-        of the lattice are kept as given; no plaquette circuit uses them.
+        ValueError.
 
         Raises a NotImplementedError for lattices that are not periodic.
         """
-        # Copies to avoid inadvertently changing the behavior of the
-        # LatticeCircuitManager instance.
+        # A copy to avoid inadvertently changing the behavior of the
+        # LatticeCircuitManager instance. The matrix elements are copied
+        # below, as they are checked.
         self._encoder = copy.deepcopy(lattice_encoder)
-        _input_hamiltonian: HamiltonianData = copy.deepcopy(mag_hamiltonian)
         self._cached_mag_evol_circuits: dict[tuple[Plane, Signature], QuantumCircuit] = {}
         self._cached_mag_evol_params = {
             "physical_states_for_control_pruning": None,
@@ -137,28 +136,38 @@ class LatticeCircuitManager:
         if not lattice_def.all_boundary_conds_periodic:
             raise NotImplementedError("Lattices with nonperiodic or mixed boundary conditions not yet supported.")
 
-        # Pivot self._mag_hamiltonian from entry-first to per-plane-first
-        # format, removing duplicate controls from the bit strings of each
-        # plane and signature.
-        plane_keyed_hamiltonian_data: PlaneKeyedHamiltonianData = {}
-        for (final_bs, initial_bs), matrix_elem_value in _input_hamiltonian.items():
-            for plane, sig_dict in matrix_elem_value.items():
-                plane_data = plane_keyed_hamiltonian_data.setdefault(plane, {})
-                for signature, value in sig_dict.items():
-                    duplicate_control_indices = lattice_def._duplicate_control_indices(plane, signature)
-                    final_bs_without_duplicates = self._bit_string_without_duplicate_controls(
-                        final_bs, duplicate_control_indices)
-                    initial_bs_without_duplicates = self._bit_string_without_duplicate_controls(
-                        initial_bs, duplicate_control_indices)
-                    if final_bs_without_duplicates is None or initial_bs_without_duplicates is None:
+        # Check the matrix elements of each plane and signature, and remove
+        # duplicate controls from their bit strings.
+        planes_and_signatures = lattice_def._planes_and_signatures()
+        bit_string_length = self._encoder.expected_plaquette_bit_string_length
+        self._mag_hamiltonian: HamiltonianData = {}
+        for (plane, signature), matrix_elements in mag_hamiltonian.items():
+            if (plane, signature) not in planes_and_signatures:
+                raise ValueError(
+                    f"The lattice {lattice_def} has no plaquette in plane {plane} with signature {signature}."
+                )
+            duplicate_control_indices = lattice_def._duplicate_control_indices(plane, signature)
+            matrix_elements_without_duplicates: dict[EncodedPlaquetteTransition, float] = {}
+            for (final_bs, initial_bs), value in matrix_elements.items():
+                for bit_string in (final_bs, initial_bs):
+                    if len(bit_string) != bit_string_length:
                         raise ValueError(
-                            f"The matrix element between {final_bs} and {initial_bs} in plane {plane}, "
-                            f"signature {signature}, has a control link whose link state differs from "
-                            "that of another control link of the plaquette that is the same link."
+                            f"The bit string {bit_string} in plane {plane}, signature {signature}, has length "
+                            f"{len(bit_string)}; the encoder's plaquette bit strings have length {bit_string_length}."
                         )
-                    key = (final_bs_without_duplicates, initial_bs_without_duplicates)
-                    plane_data.setdefault(key, {})[signature] = value
-        self._mag_hamiltonian = plane_keyed_hamiltonian_data
+                final_bs_without_duplicates = self._bit_string_without_duplicate_controls(
+                    final_bs, duplicate_control_indices)
+                initial_bs_without_duplicates = self._bit_string_without_duplicate_controls(
+                    initial_bs, duplicate_control_indices)
+                if final_bs_without_duplicates is None or initial_bs_without_duplicates is None:
+                    raise ValueError(
+                        f"The matrix element between {final_bs} and {initial_bs} in plane {plane}, "
+                        f"signature {signature}, has a control link whose link state differs from "
+                        "that of another control link of the plaquette that is the same link."
+                    )
+                key = (final_bs_without_duplicates, initial_bs_without_duplicates)
+                matrix_elements_without_duplicates[key] = value
+            self._mag_hamiltonian[(plane, signature)] = matrix_elements_without_duplicates
 
     @classmethod
     def for_truncation(
@@ -189,8 +198,7 @@ class LatticeCircuitManager:
 
         Optional arguments:
           - mag_hamiltonian_matrix_element_threshold: Only include matrix elements
-            whose absolute value (or leaf absolute values, for dict-valued entries)
-            is at least this value.
+            whose absolute value is at least this value.
           - only_include_elems_connected_to_electric_vacuum: Drop any matrix elements
             which aren't connected to the electric vacuum state.
         """
@@ -206,53 +214,30 @@ class LatticeCircuitManager:
         # Each matrix element of box is also that of box + box^dagger (see the
         # module docstring).
         box_matrix_elements = box_terms(lattice_encoder.lattice_def, truncation_mode, cutoff)
-        for (plaquette_state_1, plaquette_state_2), box_plus_box_dagger_element in box_matrix_elements.items():
-            # Apply threshold filter.
-            if mag_hamiltonian_matrix_element_threshold > 0:
-                filtered = cls._filter_matrix_element_value(box_plus_box_dagger_element, mag_hamiltonian_matrix_element_threshold)
-                if filtered is None:
+        for plane_and_signature, box_matrix_elements_of_plaquette in box_matrix_elements.items():
+            encoded_matrix_elements: dict[EncodedPlaquetteTransition, float] = {}
+            for (plaquette_state_1, plaquette_state_2), box_plus_box_dagger_element in box_matrix_elements_of_plaquette.items():
+                if abs(box_plus_box_dagger_element) < mag_hamiltonian_matrix_element_threshold:
                     continue
-                box_plus_box_dagger_element = filtered
+                state_1_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state_1)
+                state_2_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state_2)
+                if only_include_elems_connected_to_electric_vacuum and ('1' in state_1_bitstring) and ('1' in state_2_bitstring):
+                    continue
+                encoded_matrix_elements[(state_1_bitstring, state_2_bitstring)] = box_plus_box_dagger_element
+            mag_hamiltonian[plane_and_signature] = encoded_matrix_elements
 
-            state_1_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state_1)
-            state_2_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state_2)
-            if only_include_elems_connected_to_electric_vacuum and ('1' in state_1_bitstring) and ('1' in state_2_bitstring):
-                continue
-            mag_hamiltonian[(state_1_bitstring, state_2_bitstring)] = box_plus_box_dagger_element
-
-        logger.info(f"Built magnetic Hamiltonian data for truncation mode {truncation_mode!r}, cutoff {cutoff}. There are {len(mag_hamiltonian)} encoded state-pair entries (not yet resolved per plaquette via plane+signature filtering).")
-        n_matrix_elems = len([val for plane_dict in mag_hamiltonian.values() for sig_dict in plane_dict.values() for val in sig_dict.values()])
-        logger.info(f"Built {n_matrix_elems} floats.")
+        n_matrix_elems = sum(len(elements) for elements in mag_hamiltonian.values())
+        logger.info(f"Built magnetic Hamiltonian data for truncation mode {truncation_mode!r}, cutoff {cutoff}: "
+                    f"{n_matrix_elems} matrix elements across {len(mag_hamiltonian)} (plane, signature) pair(s).")
 
         return cls(lattice_encoder, mag_hamiltonian)
 
-    @staticmethod
-    def _filter_matrix_element_value(
-            value: MatrixElementValue,
-            threshold: float
-    ) -> MatrixElementValue | None:
-        """Apply a threshold filter to a MatrixElementValue.
-
-        Drops leaf floats if abs value is below threshold, prunes plane keys whose values become
-        empty after filtering, and returns None if all plane keys are pruned.
-        """
-        filtered: dict[Plane, dict[Signature, float]] = {}
-        for plane_key, plane_val in value.items():
-            filtered_sigs = {
-                sig: float(sig_val)
-                for sig, sig_val in plane_val.items()
-                if abs(sig_val) >= threshold
-            }
-            if filtered_sigs:
-                filtered[plane_key] = filtered_sigs
-        return filtered if filtered else None
-
     def __repr__(self):
         class_name = type(self).__name__
-        n_planes = len(self._mag_hamiltonian)
+        n_planes_and_signatures = len(self._mag_hamiltonian)
         n_entries = sum(len(v) for v in self._mag_hamiltonian.values())
         return (f"{class_name}({self._encoder.__repr__()}, "
-                f"<{n_entries} Hamiltonian entries across {n_planes} plane(s)>)")
+                f"<{n_entries} Hamiltonian entries across {n_planes_and_signatures} (plane, signature) pair(s)>)")
 
     def __str__(self):
         return f"Circuit manager for lattices of type {self._encoder.lattice_def}.\nAncillas: {self.num_ancillas}\nLink bitmap:{self._encoder.link_bitmap}\nVertex bitmap: {self._encoder.vertex_bitmap}"
@@ -586,9 +571,8 @@ class LatticeCircuitManager:
         there's an additional iteration over every "positive" plaquette.
         For each such plaquette, the plaquette-local magnetic Trotter step
         is appended to the circuit. This local Trotter step circuit is
-        composed of Givens rotations constructed from all Hamiltonian
-        matrix elements which match the current plaquette's plane and
-        F-order signature.
+        composed of Givens rotations constructed from the Hamiltonian
+        matrix elements under the current plaquette's plane and signature.
 
         Note that this modifies master_circuit directly rather than returning
         a new circuit!
@@ -651,17 +635,12 @@ class LatticeCircuitManager:
                 "control_fusion": control_fusion,
             }
 
-        # Plaquettes with the same (plane, signature) share the following, so
-        # each is prepared once per (plane, signature) rather than once per
-        # plaquette:
-        # - their matrix elements, picked out of self._mag_hamiltonian as the
-        #   flat list that _build_mag_evol_circuit takes;
-        # - their states for control pruning, with the duplicate controls (on
-        #   a periodic axis of length 2) removed and the states that cannot
-        #   occur there left out.
-        # (The indices of their duplicate controls are looked up per
-        # plaquette: LatticeDef computes them once per lattice.)
-        _per_plane_and_signature_hamiltonian_cache: dict[tuple[Plane, Signature], list] = {}
+        # Plaquettes with the same (plane, signature) share their states for
+        # control pruning, with the duplicate controls (on a periodic axis of
+        # length 2) removed and the states that cannot occur there left out,
+        # so these are prepared once per (plane, signature) rather than once
+        # per plaquette. (The indices of their duplicate controls are looked
+        # up per plaquette: LatticeDef computes them once per lattice.)
         _pruning_states_cache: dict[tuple[Plane, Signature], set[str] | None] = {}
 
         # Stitch magnetic Hamiltonian evolution circuit onto LatticeRegisters.
@@ -687,17 +666,9 @@ class LatticeCircuitManager:
 
             # For each plaquette, apply the the local Trotter step circuit.
             for plaquette in plaquettes:
-                # Resolve the Hamiltonian for this plaquette's plane and signature.
                 plaquette_plane: Plane = plaquette.plane
                 plaquette_signature: Signature = plaquette.signature
                 cache_key = (plaquette_plane, plaquette_signature)
-                if cache_key in _per_plane_and_signature_hamiltonian_cache:
-                    hamiltonian_current_plane_and_signature = _per_plane_and_signature_hamiltonian_cache[cache_key]
-                else:
-                    hamiltonian_current_plane_and_signature = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(
-                        self._mag_hamiltonian, plaquette_plane, plaquette_signature
-                    )
-                    _per_plane_and_signature_hamiltonian_cache[cache_key] = hamiltonian_current_plane_and_signature
                 duplicate_control_indices = self._encoder.lattice_def._duplicate_control_indices(
                     plaquette_plane, plaquette_signature)
 
@@ -725,7 +696,8 @@ class LatticeCircuitManager:
                             else None
                         )
                     plaquette_local_rotation_circuit_template = self._build_mag_evol_circuit(
-                        hamiltonian_current_plane_and_signature,
+                        [(bit_string_1, bit_string_2, value) for (bit_string_1, bit_string_2), value
+                         in self._mag_hamiltonian.get(cache_key, {}).items()],
                         control_fusion,
                         _pruning_states_cache[cache_key],
                         coupling_g=Parameter('coupling_g_mag_placeholder'),
@@ -869,32 +841,6 @@ class LatticeCircuitManager:
         logger.info(f"{len(without_duplicates)} plaquette states for control pruning without duplicate controls.")
         return without_duplicates or None
 
-    @staticmethod
-    def _resolve_hamiltonian_for_plaquette(
-            hamiltonian: PlaneKeyedHamiltonianData,
-            plane: Plane,
-            signature: Signature,
-    ) -> list[tuple[str, str, float]]:
-        """
-        'Resolve' a PlaneKeyedHamiltonianData dict to a flat list for a specific plaquette's plane and signature.
-
-        The hamiltonian is keyed per-plane-first:
-        ``plane -> (bs1, bs2) -> signature -> float``.
-        This method looks up the given plane, then filters entries by signature.
-
-        Returns:
-            A flat list of (bitstring1, bitstring2, float) tuples suitable for
-            _build_mag_evol_circuit and _sort_matrix_elements_into_lp_bins.
-        """
-        plane_data = hamiltonian.get(plane, {})
-        resolved: list[tuple[str, str, float]] = []
-        for (bs1, bs2), sig_dict in plane_data.items():
-            sig_val = sig_dict.get(signature)
-            if sig_val is not None:
-                resolved.append((bs1, bs2, float(sig_val)))
-
-        return resolved
-
     def _build_mag_evol_circuit(
         self,
         hamiltonian_for_specific_plane_and_signature: list[tuple[str, str, float]],
@@ -910,8 +856,7 @@ class LatticeCircuitManager:
 
         Arguments:
             hamiltonian_for_specific_plane_and_signature: A flat list of (bitstring1, bitstring2, float)
-                tuples — the resolved matrix elements for a specific
-                (plane, signature) combination.
+                tuples — the matrix elements of one (plane, signature) pair.
             control_fusion: Whether to fuse controls in Givens rotations.
             physical_states_for_control_pruning: Physical states for pruning.
             coupling_g: Coupling constant parameter.

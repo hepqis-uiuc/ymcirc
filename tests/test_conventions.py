@@ -828,7 +828,11 @@ def test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding(
           f"Vertex bitmap = {lattice_encoder.vertex_bitmap}")
 
     # Get the set of unique plaquette states.
-    transitions = box_terms(current_lattice, truncation_mode, cutoff).keys()
+    transitions = [
+        transition
+        for box_matrix_elements in box_terms(current_lattice, truncation_mode, cutoff).values()
+        for transition in box_matrix_elements
+    ]
     all_plaquette_states = set([
         final_and_initial_state_tuple[0] for final_and_initial_state_tuple in transitions] + [
             final_and_initial_state_tuple[1] for final_and_initial_state_tuple in transitions

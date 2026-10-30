@@ -14,10 +14,9 @@ pyclebsch's caches and the entries were evicted). Those caches are capped
 through pyclebsch itself, which is installed with ymcirc. By default,
 there is no cap. A repeated call only converts the cached results to ymcirc's
 formats again, which is cheap: the conversion regroups the entries of each
-plaquette state and re-nests the matrix elements, in one pass, with no
-Clebsch-Gordan coefficients or site factors to compute. The adapter keeps
-no second copy of the converted results, so that each call returns results
-the caller owns.
+plaquette state, in one pass, with no Clebsch-Gordan coefficients or site
+factors to compute. The adapter keeps no second copy of the converted results,
+so that each call returns results the caller owns.
 
 Cache caps can be set via pyclebsch.set_physical_plaquette_states_cache_limit(n)
 and pyclebsch.set_plaquette_matrix_elements_cache_limit(n), which keep at most
@@ -49,7 +48,6 @@ __all__ = [
     "N_COLORS",
     "PRES",
     "BoxTerms",
-    "MatrixElementValue",
     "PlaquetteState",
     "box_terms",
     "physical_plaquette_states",
@@ -77,8 +75,6 @@ PRES = 10
 # The number of corners of a plaquette.
 _N_PLAQUETTE_CORNERS = 4
 
-# Matrix element value: a nested dict keyed by plane, then signature.
-type MatrixElementValue = dict[Plane, dict[Signature, float]]
 # Tuple of 4 vertex multiplicites, tuple of 4 "active links", tuple of 4
 # per-vertex control tuples.
 type PlaquetteState = (
@@ -98,8 +94,11 @@ type PlaquetteState = (
         tuple[SiteControlLinks, SiteControlLinks, SiteControlLinks, SiteControlLinks],
     ]
 )
-# Box-term matrix elements keyed by (final, initial) plaquette states.
-type BoxTerms = dict[tuple[PlaquetteState, PlaquetteState], MatrixElementValue]
+# Box-term matrix elements: for each plane and plaquette signature, a dict
+# from (final, initial) plaquette states to the matrix element.
+type BoxTerms = dict[
+    tuple[Plane, Signature], dict[tuple[PlaquetteState, PlaquetteState], float]
+]
 
 
 def plaq_state_pyclebsch_to_ymcirc_format(
@@ -179,23 +178,31 @@ def box_terms(lattice_def: LatticeDef, truncation_mode: str, cutoff: int) -> Box
             irreps_and_singlets takes it, for example ("T", 1) or ("B", 3).
             pyclebsch validates them.
 
-    Returns {(final state, initial state): {plane: {signature: value}}}, with
-    states in ymcirc's format, where signature is the F-ordered half-link
-    directions at each corner of a plaquette (ymcirc._abstract.Signature).
-    Values are rounded to PRES decimals, and products of site factors smaller
-    than EPS are dropped. The caller owns the returned dict.
+    Returns {(plane, signature): {(final state, initial state): value}}, as
+    pyclebsch groups the matrix elements, with states in ymcirc's format,
+    where signature is the F-ordered half-link directions at each corner of a
+    plaquette (ymcirc._abstract.Signature). Values are rounded to PRES
+    decimals, and products of site factors smaller than EPS are dropped. The
+    caller owns the returned dict.
     """
     elements_by_signature = plaquette_matrix_elements_by_signature(
         lattice_def._pyclebsch_lattice, N_COLORS, truncation_mode, cutoff, EPS, PRES
     )
     result: BoxTerms = {}
     for (plane, site_half_links), elements in elements_by_signature.items():
-        for (final, initial), value in elements.items():
-            key = (
+        # pyclebsch's site half-links are ymcirc's signature. The cast narrows
+        # pyclebsch's type (which also allows an empty tuple of half-links) to
+        # ymcirc's Signature. pyclebsch returns an empty tuple only for a
+        # plaquette the lattice lacks. Since site_half_links is a key of
+        # plaquette_matrix_elements_by_signature's result, whose keys are those
+        # of plaquettes_by_signature, these half-links belong to one of the
+        # lattice's plaquettes.
+        signature = cast(Signature, site_half_links)
+        result[(plane, signature)] = {
+            (
                 plaq_state_pyclebsch_to_ymcirc_format(final),
                 plaq_state_pyclebsch_to_ymcirc_format(initial),
-            )
-            # pyclebsch's site half-links are ymcirc's signature.
-            signature = cast(Signature, site_half_links)
-            result.setdefault(key, {}).setdefault(plane, {})[signature] = value
+            ): value
+            for (final, initial), value in elements.items()
+        }
     return result

@@ -149,14 +149,13 @@ from pyclebsch.matrix_elements.lattice_data import SiteMultiplicityIndex
 from pyclebsch.su_n_operators import IrrepWeight
 from ymcirc._abstract import LatticeDef
 from ymcirc._pyclebsch_adapter import (
-    MatrixElementValue,
     PlaquetteState,
     physical_plaquette_states,
 )
 
-# IrrepWeight (pyclebsch's), MatrixElementValue, PlaquetteState and
-# physical_plaquette_states (ymcirc._pyclebsch_adapter's) are defined
-# elsewhere and available from here.
+# IrrepWeight (pyclebsch's), PlaquetteState and physical_plaquette_states
+# (ymcirc._pyclebsch_adapter's) are defined elsewhere and available from
+# here.
 __all__ = [
     "EIGHT",
     "FIFTEEN",
@@ -171,7 +170,6 @@ __all__ = [
     "IrrepBitmap",
     "IrrepWeight",
     "LatticeStateEncoder",
-    "MatrixElementValue",
     "PlaquetteState",
     "VertexMultiplicityBitmap",
     "physical_plaquette_states",
@@ -182,8 +180,8 @@ logger = logging.getLogger(__name__)
 
 
 # Useful type aliases. IrrepWeight and SiteMultiplicityIndex are pyclebsch's,
-# and PlaquetteState and MatrixElementValue are defined in
-# ymcirc._pyclebsch_adapter, which produces data in those formats.
+# and PlaquetteState is defined in ymcirc._pyclebsch_adapter, which produces
+# data in that format.
 type BitString = str
 type IrrepBitmap = dict[IrrepWeight, BitString]
 type VertexMultiplicityBitmap = dict[SiteMultiplicityIndex, BitString]
