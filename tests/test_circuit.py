@@ -1883,14 +1883,14 @@ def test_d3_B3_size3_magnetic_trotter_step():
     [
         # No axis of length 2: 4 active links and 4 * 2 * (d - 1) controls.
         (2, (4, 3), {(1, 2): 12}),
-        pytest.param(3, (3, 3, 4), {(1, 2): 20, (1, 3): 20, (2, 3): 20}, marks=pytest.mark.slow),
+        (3, (3, 3, 4), {(1, 2): 20, (1, 3): 20, (2, 3): 20}),
         # A periodic axis of length 2 along e2 of a plane (e1, e2): v3's +e2
         # control is v2's -e2 control, and v4's +e2 control is v1's -e2
         # control, so two controls are left out of the plaquette circuit.
         # Along an axis normal to the plane, a vertex's two controls start at
         # different sites and stay distinct.
         (2, (3, 2), {(1, 2): 10}),
-        pytest.param(3, (3, 3, 2), {(1, 2): 20, (1, 3): 18, (2, 3): 18}, marks=pytest.mark.slow),
+        (3, (3, 3, 2), {(1, 2): 20, (1, 3): 18, (2, 3): 18}),
     ],
 )
 def test_rectangular_periodic_lattice_magnetic_trotter_step(dims, shape, n_links_per_plaquette_circuit_by_plane):
