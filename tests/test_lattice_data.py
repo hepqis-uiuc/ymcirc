@@ -161,7 +161,7 @@ def test_links_on_periodic_axis_of_length_2_are_distinct(
 
 @pytest.mark.parametrize("forder", [_DEFAULT_FORDER, _NON_DEFAULT_FORDER])
 @pytest.mark.parametrize(("dimensions", "size"), _PERIODIC_LATTICES)
-def test_plaquette_addresses_agree_with_pyclebsch(dimensions, size, forder):
+def test_plaquette_link_addresses_agree_with_pyclebsch(dimensions, size, forder):
     """
     For every plaquette, the link addresses ymcirc assembles equal pyclebsch's, in order.
 

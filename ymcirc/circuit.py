@@ -399,7 +399,7 @@ class LatticeCircuitManager:
             - e1: First lattice direction defining the plaquette plane.
             - e2: Second lattice direction defining the plaquette plane.
         """
-        plaquette = lattice.get_plaquettes(bottom_left_vertex, e1, e2)
+        plaquette = Plaquette(lattice, bottom_left_vertex, (e1, e2))
 
         # Collect all unique registers to measure.
         seen_names = set()
