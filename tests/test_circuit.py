@@ -10,7 +10,7 @@ from ymcirc._pyclebsch_adapter import box_plus_box_dagger_matrix_elements
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import bitstring_value_of_LP_family, compute_LP_family
 from ymcirc.utilities import _flatten_circuit, _check_circuits_logically_equivalent
-from qiskit.circuit import Parameter, QuantumCircuit, QuantumRegister, AncillaRegister
+from qiskit.circuit import Parameter, ParameterExpression, ParameterVectorElement, QuantumCircuit, QuantumRegister, AncillaRegister
 from qiskit.circuit.library.standard_gates import RZGate, RYGate, MCXGate
 from qiskit.circuit.exceptions import CircuitError
 
@@ -1220,8 +1220,8 @@ def test_adding_ancilla_register_fails_if_already_exists():
     with pytest.raises(CircuitError):
         circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit)
 
-def test_apply_mag_trotter_step_independent_params_for_givens_rotations():
-    # Some minimal data to create a LatticeCircuitManager.
+def _d_3_2_three_rotation_dummy_data() -> tuple[list[PlaquetteState], PlaquetteMatrixElements]:
+    """Return dummy physical plaquette states and matrix elements for d=3/2 periodic, giving 3 Givens rotations."""
     _sig_3_2 = ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
     _plane_12 = (1, 2)
     dummy_mag_hamiltonian: PlaquetteMatrixElements = {  # There will be 3 Givens rotations and therefore 3 Parameters.
@@ -1248,6 +1248,21 @@ def test_apply_mag_trotter_step_independent_params_for_givens_rotations():
             ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
+    return dummy_phys_states, dummy_mag_hamiltonian
+
+
+def _parameters_in_order_of_first_use(circuit: QuantumCircuit) -> list[Parameter]:
+    """Return the circuit's parameters, each once, in the order of the first gate that uses it."""
+    parameters: list[Parameter] = []
+    for gate in circuit.data:
+        for gate_parameter in gate.operation.params:
+            if isinstance(gate_parameter, ParameterExpression):
+                parameters += [p for p in sorted(gate_parameter.parameters, key=str) if p not in parameters]
+    return parameters
+
+
+def test_apply_mag_trotter_step_independent_params_for_givens_rotations():
+    dummy_phys_states, dummy_mag_hamiltonian = _d_3_2_three_rotation_dummy_data()
     lattice_def = LatticeDef(1.5, 3)
     lattice_encoder = LatticeStateEncoder(_T1_LINK_BITMAP, dummy_phys_states, lattice=lattice_def)
     lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
@@ -1261,7 +1276,91 @@ def test_apply_mag_trotter_step_independent_params_for_givens_rotations():
     )
     assert len(master_circuit.parameters) == 3
     for idx, parameter in enumerate(master_circuit.parameters):
-        assert parameter.name == f'theta[{idx}]'
+        assert parameter.name == f'theta_0[{idx}]'
+
+
+def test_apply_mag_trotter_step_ordinary_steps_after_independent_params():
+    """
+    Ordinary electric and magnetic Trotter steps can follow a magnetic step with independent Givens parameters.
+
+    This evolves in time a state that the independent parameters prepare as
+    an ansatz. Since the last magnetic step caches its plaquette circuits,
+    it must not reuse those the ansatz step cached. Its rotations take its
+    own dt and coupling parameters, and the circuit holds no parameters
+    other than the ansatz's and the two later steps'.
+    """
+    dummy_phys_states, dummy_mag_hamiltonian = _d_3_2_three_rotation_dummy_data()
+    # One coefficient per Pauli string on a link's 2 qubits.
+    dummy_electric_hamiltonian: list[float] = [0.33, 0.66, 0.66, 0.99]
+    lattice_def = LatticeDef(1.5, 3)
+    lattice_encoder = LatticeStateEncoder(_T1_LINK_BITMAP, dummy_phys_states, lattice=lattice_def)
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager(lattice_encoder, dummy_mag_hamiltonian)
+
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
+    circ_mgr.apply_magnetic_trotter_step(
+        master_circuit, lattice_registers, cache_mag_evol_circuit=True, givens_have_independent_params=True)
+    circ_mgr.apply_electric_trotter_step(master_circuit, lattice_registers, dummy_electric_hamiltonian)
+    circ_mgr.apply_magnetic_trotter_step(master_circuit, lattice_registers, cache_mag_evol_circuit=True)
+
+    expected_names: set[str] = {
+        "theta_0[0]", "theta_0[1]", "theta_0[2]",
+        "dt_ee__0", "coupling_g_ee__0",
+        "dt_mag__0", "coupling_g_mag__0",
+    }
+    assert {parameter.name for parameter in master_circuit.parameters} == expected_names
+
+
+def test_apply_mag_trotter_step_refuses_second_step_with_independent_params():
+    """
+    A second magnetic step with independent Givens parameters on the same circuit is invalid.
+
+    The independent parameters make one magnetic step a variational ansatz.
+    A second such step would reuse the same parameters rather than give the
+    new layer parameters of its own, so it is refused with a
+    NotImplementedError. Note that this behavior may be changed
+    in the future.
+    """
+    dummy_phys_states, dummy_mag_hamiltonian = _d_3_2_three_rotation_dummy_data()
+    lattice_def = LatticeDef(1.5, 3)
+    lattice_encoder = LatticeStateEncoder(_T1_LINK_BITMAP, dummy_phys_states, lattice=lattice_def)
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager(lattice_encoder, dummy_mag_hamiltonian)
+
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
+    circ_mgr.apply_magnetic_trotter_step(master_circuit, lattice_registers, givens_have_independent_params=True)
+    with pytest.raises(NotImplementedError):
+        circ_mgr.apply_magnetic_trotter_step(master_circuit, lattice_registers, givens_have_independent_params=True)
+
+
+def test_independent_givens_parameters_by_plane_and_signature_refuses_circuits_without_all_of_them():
+    """
+    independent_givens_parameters_by_plane_and_signature refuses a circuit lacking some or all of the manager's independent Givens parameters.
+
+    Both circuits are invalid input, and each is refused with a ValueError
+    naming how many of the manager's 3 parameters it holds. The first is
+    built from an ordinary magnetic Trotter step, so it holds none of them.
+    The second uses only one of them, as if part of a step with
+    givens_have_independent_params True had been lost.
+    """
+    dummy_phys_states, dummy_mag_hamiltonian = _d_3_2_three_rotation_dummy_data()
+    lattice_def = LatticeDef(1.5, 3)
+    lattice_encoder = LatticeStateEncoder(_T1_LINK_BITMAP, dummy_phys_states, lattice=lattice_def)
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager(lattice_encoder, dummy_mag_hamiltonian)
+
+    ordinary_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
+    circ_mgr.apply_magnetic_trotter_step(ordinary_circuit, lattice_registers)
+    with pytest.raises(ValueError, match="holds none of"):
+        circ_mgr.independent_givens_parameters_by_plane_and_signature(ordinary_circuit)
+
+    ansatz_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
+    circ_mgr.apply_magnetic_trotter_step(ansatz_circuit, lattice_registers, givens_have_independent_params=True)
+    partial_circuit = QuantumCircuit(1)
+    partial_circuit.rz(ansatz_circuit.parameters[0], 0)
+    with pytest.raises(ValueError, match="holds 1 of this manager's 3"):
+        circ_mgr.independent_givens_parameters_by_plane_and_signature(partial_circuit)
+
 
 def test_apply_mag_trotter_step_independent_params_multiple_lp_families():
     # This dummy data creates 3 LP bins. Two of them have 2 Givens rotations, one has 3.
@@ -1309,7 +1408,68 @@ def test_apply_mag_trotter_step_independent_params_multiple_lp_families():
     )
     assert len(master_circuit.parameters) == 7
     for idx, parameter in enumerate(master_circuit.parameters):
-        assert parameter.name == f'theta[{idx}]'
+        assert parameter.name == f'theta_0[{idx}]'
+
+
+def test_apply_mag_trotter_step_independent_params_numbered_in_circuit_order():
+    """
+    Independent Givens parameters are numbered in the order the plaquette circuit applies the rotations.
+
+    The circuit visits the LP bins in Gray-code order, whatever the order of
+    the matrix elements. The matrix elements here arrive with LP fam 3 first,
+    although it is last in Gray-code order. The positions of fams 1, 2 and 3
+    in the Gray-code order in which the circuit visits LP bins are 2720,
+    40970 and 43520 (where the position index of each LP family is computed
+    by givens.gray_to_index). Numbering the parameters in the order of the
+    data would therefore give fam 3's rotations theta_0[0] to theta_0[2],
+    although the circuit applies them last. The parameters must appear in
+    the circuit in the order theta_0[0], theta_0[1], ....
+    """
+    _sig_3_2 = ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
+    _plane_12 = (1, 2)
+    dummy_mag_hamiltonian: PlaquetteMatrixElements = {
+        (_plane_12, _sig_3_2): {
+            (_d_3_2_state_from_T1_link_bit_strings("00000000", "10101010"), _d_3_2_state_from_T1_link_bit_strings("00000000", "01010101")): 0.99, #LP fam 3: PPPPPPPP + LLLLLLLL
+            (_d_3_2_state_from_T1_link_bit_strings("00000000", "01010101"), _d_3_2_state_from_T1_link_bit_strings("00000000", "10101010")): 0.99, #LP fam 3: PPPPPPPP + LLLLLLLL
+            (_d_3_2_state_from_T1_link_bit_strings("00000000", "01011010"), _d_3_2_state_from_T1_link_bit_strings("00000000", "10100101")): 0.99, #LP fam 3: PPPPPPPP + LLLLLLLL
+            (_d_3_2_state_from_T1_link_bit_strings("01010101", "00000101"), _d_3_2_state_from_T1_link_bit_strings("10100101", "00001010")): 0.99, #LP fam 1: LLLLPPPP + PPPPLLLL
+            (_d_3_2_state_from_T1_link_bit_strings("10100000", "10100101"), _d_3_2_state_from_T1_link_bit_strings("01010000", "10101010")): 0.99, #LP fam 1: LLLLPPPP + PPPPLLLL
+            (_d_3_2_state_from_T1_link_bit_strings("01010101", "01010000"), _d_3_2_state_from_T1_link_bit_strings("01011010", "10100000")): 0.99, #LP fam 2: PPPPLLLL + LLLLPPPP
+            (_d_3_2_state_from_T1_link_bit_strings("00001010", "01010000"), _d_3_2_state_from_T1_link_bit_strings("00000101", "10100000")): 0.99, #LP fam 2: PPPPLLLL + LLLLPPPP
+        }
+    }
+    dummy_phys_states: list[PlaquetteState] = [
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, ONE, THREE_BAR),
+            ((ONE,), (ONE,), (ONE,), (ONE,))
+        ),
+        (
+            (0, 0, 0, 0),
+            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
+        ),
+        (
+            (0, 0, 0, 0),
+            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+            ((THREE,), (THREE,), (ONE,), (ONE,))
+        )
+    ]
+    lattice_def = LatticeDef(1.5, 3)
+    lattice_encoder = LatticeStateEncoder(_T1_LINK_BITMAP, dummy_phys_states, lattice=lattice_def)
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager(lattice_encoder, dummy_mag_hamiltonian)
+
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
+    circ_mgr.apply_magnetic_trotter_step(
+        master_circuit,
+        lattice_registers,
+        givens_have_independent_params=True
+    )
+    expected_order: list[str] = [f"theta_0[{m}]" for m in range(7)]
+    assert [parameter.name for parameter in _parameters_in_order_of_first_use(master_circuit)] == expected_order
+    assert circ_mgr.independent_givens_parameters_by_plane_and_signature(master_circuit)[(_plane_12, _sig_3_2)] == tuple(
+        _parameters_in_order_of_first_use(master_circuit))
 
 
 def test_magnetic_trotter_step_does_not_depend_on_matrix_element_order():
@@ -2042,7 +2202,8 @@ _D3_WIRING_MATRIX_ELEMENT_BY_PLANE = {(1, 2): 0.11, (1, 3): 0.22, (2, 3): 0.33}
 # half-links at every vertex (Signature in ymcirc._abstract.lattice_data).
 # The magnetic matrix elements are keyed by (plane, signature), so the dummy
 # matrix elements must use it to be applied.
-_D3_WIRING_SIGNATURE = ((1, 2, 3, -1, -2, -3),) * 4
+_D3_WIRING_SIGNATURE: Signature = (
+    (1, 2, 3, -1, -2, -3), (1, 2, 3, -1, -2, -3), (1, 2, 3, -1, -2, -3), (1, 2, 3, -1, -2, -3))
 # The initial and final active links encode to 000 100 110 111 and
 # 100 011 000 001, after the four vertex bits. They first differ at position
 # 4 (the first bit of l1), and then at positions 7, 8, 9 (all of l2), 10, 11
@@ -2332,6 +2493,69 @@ def test_apply_magnetic_trotter_step_d_3_wiring(size: int, checked_vertices: lis
             # exact in floating point, so the RY angle equals the matrix
             # element exactly and no tolerance is needed.
             assert built["RY angle"] == expected["RY angle"]
+
+
+def test_apply_magnetic_trotter_step_independent_params_d_3():
+    """
+    With independent Givens parameters, each (plane, signature) has a parameter vector of its own, shared by its plaquettes.
+
+    On the d=3 periodic lattice of size 2, every plaquette has the same
+    signature, so the three planes give three (plane, signature) pairs. The
+    d=3 wiring data have one Givens rotation for each. The 24 plaquettes'
+    rotations must therefore use 3 parameters, one per plane. All 8
+    plaquettes of a plane share its parameter, and each parameter is the
+    only element of a vector whose name no other vector has.
+    """
+    dummy_phys_states, dummy_mag_hamiltonian = _d3_wiring_dummy_data()
+    lattice_def = LatticeDef(3, 2)
+    lattice_encoder = LatticeStateEncoder(_T2_LINK_BITMAP, dummy_phys_states, lattice=lattice_def)
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager(lattice_encoder, dummy_mag_hamiltonian)
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
+    circ_mgr.apply_magnetic_trotter_step(
+        master_circuit,
+        lattice_registers,
+        optimize_circuits=False,
+        givens_have_independent_params=True
+    )
+
+    # One rotation per plaquette, visited by vertex, then by plane
+    # (LatticeDef.plaquette_addresses), so the plane of the rotation_index-th
+    # rotation is planes[rotation_index % len(planes)].
+    planes: list[Plane] = sorted(_D3_WIRING_CONTROLS_BY_PLANE)
+    n_plaquettes = 2**3 * len(planes)
+    assert len(master_circuit.data) == _D3_WIRING_GATES_PER_ROTATION * n_plaquettes
+    parameters_by_plane: dict[Plane, set[Parameter]] = {plane: set() for plane in planes}
+    for rotation_index in range(n_plaquettes):
+        plane = planes[rotation_index % len(planes)]
+        first_gate = rotation_index * _D3_WIRING_GATES_PER_ROTATION
+        for gate in master_circuit.data[first_gate:first_gate + _D3_WIRING_GATES_PER_ROTATION]:
+            for gate_parameter in gate.operation.params:
+                if isinstance(gate_parameter, ParameterExpression):
+                    parameters_by_plane[plane] |= gate_parameter.parameters
+
+    assert all(len(parameters) == 1 for parameters in parameters_by_plane.values()), parameters_by_plane
+    parameter_of_each_plane = [next(iter(parameters_by_plane[plane])) for plane in planes]
+    assert all(isinstance(parameter, ParameterVectorElement) for parameter in parameter_of_each_plane)
+    vectors = [parameter.vector for parameter in parameter_of_each_plane]
+    assert len({vector.name for vector in vectors}) == len(planes)
+    assert all(len(vector) == 1 for vector in vectors)
+    assert len(master_circuit.parameters) == len(planes)
+
+    # The mapping gives each (plane, signature) the parameters its plaquettes
+    # use. The (plane, signature) pairs differ only in their planes, so their
+    # sorted order, which numbers the vectors, is (1, 2), (1, 3), (2, 3).
+    expected_names_by_plane: dict[Plane, list[str]] = {
+        (1, 2): ["theta_0[0]"],
+        (1, 3): ["theta_1[0]"],
+        (2, 3): ["theta_2[0]"],
+    }
+    mapping = circ_mgr.independent_givens_parameters_by_plane_and_signature(master_circuit)
+    assert set(mapping) == {(plane, _D3_WIRING_SIGNATURE) for plane in planes}
+    for plane in planes:
+        parameters = mapping[(plane, _D3_WIRING_SIGNATURE)]
+        assert set(parameters) == parameters_by_plane[plane]
+        assert [parameter.name for parameter in parameters] == expected_names_by_plane[plane]
 
 
 # --- Building the magnetic Hamiltonian from the matrix elements of box + box^dagger ---

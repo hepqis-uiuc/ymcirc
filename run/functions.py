@@ -113,9 +113,11 @@ def configure_script_options(
         - coupling_g:
               The value of the coupling constant in the Hamiltonian.
         - givens_have_independent_params:
-             If true, overrides coupling and dt parameters for the magnetic Trotter step.
-             instead, each Givens rotation in the plaquette evolution circuit has its
-             own theta Parameter.
+             If true, the magnetic Trotter step is a variational ansatz. Each Givens
+             rotation then takes a free angle parameter in place of the coupling and
+             dt, shared by the plaquettes with the same plane and signature. A circuit
+             holds at most one such step (see
+             LatticeCircuitManager.apply_magnetic_trotter_step).
         - mag_hamiltonian_matrix_element_threshold:
               A number between zero and
               one. All magnetic Hamiltonian matrix elements less than the

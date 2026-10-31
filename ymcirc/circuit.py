@@ -112,6 +112,7 @@ class LatticeCircuitManager:
             "physical_states_for_control_pruning": None,
             "optimize_circuits": None,
             "control_fusion": None,
+            "givens_have_independent_params": None,
         }
         # Parameter for the number of ancillas used in circuit. Initialized to 0.
         self._num_ancillas = 0
@@ -134,6 +135,62 @@ class LatticeCircuitManager:
                  self._encoder.encode_plaquette_state_as_bit_string(initial_state, plane, signature)): value
                 for (final_state, initial_state), value in matrix_elements.items()
             }
+
+        # Each (plane, signature) of the lattice's plaquettes has a vector of
+        # independent Givens parameters, for magnetic Trotter steps with
+        # givens_have_independent_params. The vector has one parameter per
+        # matrix element, that is, per Givens rotation of the plaquette
+        # circuit. The vectors are numbered in the sorted order of the (plane,
+        # signature) pairs. They are created once, so that every plaquette
+        # circuit built for a (plane, signature) uses the same Parameter
+        # objects.
+        self._givens_parameter_vectors: dict[tuple[Plane, Signature], ParameterVector] = {
+            plane_and_signature: ParameterVector(
+                f"theta_{index}", len(self._encoded_mag_hamiltonian.get(plane_and_signature, {})))
+            for index, plane_and_signature in enumerate(sorted(planes_and_signatures))
+        }
+
+    def independent_givens_parameters_by_plane_and_signature(
+            self, circuit: QuantumCircuit) -> dict[tuple[Plane, Signature], tuple[Parameter, ...]]:
+        """
+        The independent Givens parameters in circuit, by (plane, signature).
+
+        ONLY FOR A CIRCUIT BUILT WITH
+        apply_magnetic_trotter_step(..., givens_have_independent_params=True).
+        Such a step adds the parameters returned by this method to the circuit.
+        Any other circuit holds none of them, and this method raises a ValueError
+        on them. It also raises a ValueError for a circuit that holds some of the
+        parameters but not all, since such a circuit has somehow lost part of its
+        magnetic step.
+
+        For each (plane, signature) of the lattice's plaquettes, the returned
+        dict gives the parameters that every plaquette with that plane and
+        signature uses, one per Givens rotation, in the order its plaquette
+        circuit applies the rotations (LP bins in Gray-code order). They are
+        the elements of one ParameterVector, named theta_<k>, where k
+        numbers the (plane, signature) pairs in sorted order (by plane, then
+        by signature). Its m-th parameter is named theta_<k>[m]. A (plane,
+        signature) with no matrix elements has no parameters. The numbering
+        depends on the lattice, so values found for these parameters apply
+        only to this lattice. The caller owns the returned dict.
+        """
+        independent_givens_parameters = {
+            parameter for vector in self._givens_parameter_vectors.values() for parameter in vector}
+        n_independent_givens_parameters_in_circuit = len(independent_givens_parameters.intersection(circuit.parameters))
+        if n_independent_givens_parameters_in_circuit == 0 and independent_givens_parameters:
+            raise ValueError(
+                "circuit holds none of this manager's independent Givens parameters. Only a magnetic Trotter step "
+                "applied with givens_have_independent_params=True adds them to a circuit.")
+        if n_independent_givens_parameters_in_circuit < len(independent_givens_parameters):
+            raise ValueError(
+                f"circuit holds {n_independent_givens_parameters_in_circuit} of this manager's "
+                f"{len(independent_givens_parameters)} independent "
+                "Givens parameters. A magnetic Trotter step with givens_have_independent_params=True adds all of "
+                "them, so part of that step is missing from circuit.")
+        return {
+            plane_and_signature: tuple(vector)
+            for plane_and_signature, vector in self._givens_parameter_vectors.items()
+        }
 
     @classmethod
     def for_truncation(
@@ -219,7 +276,13 @@ class LatticeCircuitManager:
         n_params_list = [0,] * len(name_prefixes)
         if len(circ.parameters) > 0:
             for param in circ.parameters:
-                param_prefix, param_num = param.name.split(separator)
+                # Only names of the form <prefix><separator><step number>
+                # number Trotter steps. Others, such as the independent Givens
+                # parameters theta_<k>[m], are skipped.
+                name_parts = param.name.split(separator)
+                if len(name_parts) != 2 or not name_parts[1].isdigit():
+                    continue
+                param_prefix, param_num = name_parts
                 for idx, name_prefix in enumerate(name_prefixes):
                     logger.debug(f"{idx}: {param_prefix} == {name_prefix}?")
                     if param_prefix == name_prefix:
@@ -532,11 +595,17 @@ class LatticeCircuitManager:
         already exist in master_circuit. If 'n' is different for the dt
         and coupling_g parameters, an error is raised.
 
-        If givens_have_independent_params is True, then for each plaquette,
-        each Givens rotation will take the single angle parameter theta[m]
-        where m is zero-indexed and ranges over all the Givens rotations
-        present in the mag_hamiltonian argument used to create the
-        LatticeCircuitManager instance.
+        If givens_have_independent_params is True, the step is a variational
+        ansatz. Each Givens rotation then takes a free angle parameter in
+        place of dt and the coupling. Plaquettes with the same plane and
+        signature have the same rotations and share the same parameters.
+        independent_givens_parameters_by_plane_and_signature(master_circuit)
+        returns them. A circuit holds at most one such step. Ordinary
+        electric and magnetic Trotter steps may come before or after it, for
+        example to evolve in time the state the ansatz prepares, but a second
+        step with givens_have_independent_params True on the same circuit
+        raises a NotImplementedError, since it would reuse the same
+        parameters.
 
         The step iterates over the plaquettes that exist, in the order
         lattice.plaquette_addresses lists them (lexicographically).
@@ -574,11 +643,24 @@ class LatticeCircuitManager:
           - cache_mag_evol_circuit: Optional boolean argument to cache the magnetic Hamiltonian
                                     evolution circuit(s) once generated, and forevermore use the cache.
           - givens_have_independent_params: Optional boolean argument with the default set to False.
-                                            If True, then each individual Givens rotation subcircuit
-                                            will be controlled by a unique parameter.
+                                            If True, the step is the variational ansatz described
+                                            above.
         Returns:
           None (master_circuit has the magnetic Trotter step appended)
         """
+        # TODO: Extend the ansatz to multiple layers, each with independent
+        # Givens parameters of its own (and possibly parameterized electric
+        # layers between them), as in a Hamiltonian variational ansatz. Until
+        # then, a second layer would reuse the first layer's parameters, so
+        # it is refused.
+        if givens_have_independent_params:
+            givens_parameters = {
+                parameter for vector in self._givens_parameter_vectors.values() for parameter in vector}
+            if not givens_parameters.isdisjoint(master_circuit.parameters):
+                raise NotImplementedError(
+                    "master_circuit already holds a magnetic Trotter step with independent Givens parameters. "
+                    "A circuit can hold only one such step, since a second one would reuse the same parameters.")
+
         # Construct the dt and coupling parameters for the current magnetic Trotter step,
         name_prefixes = ['dt_mag', 'coupling_g_mag']
         step_num_separator = '__'
@@ -597,6 +679,7 @@ class LatticeCircuitManager:
                 physical_states_for_control_pruning
                 != self._cached_mag_evol_params["physical_states_for_control_pruning"]
             )
+            or (givens_have_independent_params != self._cached_mag_evol_params["givens_have_independent_params"])
         )
         if mag_evol_recomputation_needed:
             self._cached_mag_evol_circuits = {}
@@ -604,6 +687,7 @@ class LatticeCircuitManager:
                 "physical_states_for_control_pruning": physical_states_for_control_pruning,
                 "optimize_circuits": optimize_circuits,
                 "control_fusion": control_fusion,
+                "givens_have_independent_params": givens_have_independent_params,
             }
 
         # Plaquettes with the same (plane, signature) share their states for
@@ -624,20 +708,10 @@ class LatticeCircuitManager:
             # Plaquettes with the same plane and signature have the same
             # matrix elements and the same duplicate controls, so they share
             # one template, also on open and mixed lattices.
-            # When givens_have_independent_params is True, the template must
-            # be reused across all plaquettes so that the same theta[m]
-            # Parameter instances are shared (not duplicated). So always
-            # consult the in-memory cache in that case.
-            # NOTE: This logic only works when every plaquette in the lattice
-            # has the same plane and signature. Plaquettes with different
-            # planes or signatures have different matrix elements and
-            # therefore different Givens rotations, so each (plane, signature)
-            # gets its own template, and with it its own ParameterVector. But
-            # every template names its vector "theta" (see
-            # _build_mag_evol_circuit), so different vectors with the same
-            # name end up in master_circuit. Will need to handle that case
-            # down the road, by giving each (plane, signature) a vector with
-            # a name of its own.
+            # When givens_have_independent_params is True, the template has no
+            # step-specific parameters to assign, so every plaquette with this
+            # (plane, signature) uses the same template, and the cache is
+            # always consulted.
             use_cache = cache_mag_evol_circuit or givens_have_independent_params
             if use_cache and (cache_key in self._cached_mag_evol_circuits):
                 logger.info(f"Fetching cached magnetic evolution circuit for cache_key={cache_key}.")
@@ -655,7 +729,8 @@ class LatticeCircuitManager:
                     coupling_g=Parameter('coupling_g_mag_placeholder'),
                     dt=Parameter('dt_mag_placeholder'),
                     optimize_circuits=optimize_circuits,
-                    use_independent_params_for_each_givens_rot=givens_have_independent_params
+                    independent_givens_parameters=(
+                        tuple(self._givens_parameter_vectors[cache_key]) if givens_have_independent_params else None)
                 )
                 if use_cache:
                     self._cached_mag_evol_circuits[cache_key] = plaquette_local_rotation_circuit_template
@@ -801,7 +876,7 @@ class LatticeCircuitManager:
         coupling_g: Parameter,
         dt: Parameter,
         optimize_circuits: bool,
-        use_independent_params_for_each_givens_rot: bool = False
+        independent_givens_parameters: tuple[Parameter, ...] | None = None
     ) -> QuantumCircuit:
         """
         Build the magnetic time-evolution circuit for a plaquette.
@@ -814,9 +889,10 @@ class LatticeCircuitManager:
             coupling_g: Coupling constant parameter.
             dt: Time step parameter.
             optimize_circuits: Whether to transpile with optimization.
-            use_independent_params_for_each_givens_rot: If True, coupling_g
-                and dt are ignored and a unique theta[m] parameter is assigned
-                per Givens rotation.
+            independent_givens_parameters: If given, coupling_g and dt are
+                ignored, and the m-th Givens rotation the circuit applies
+                takes the m-th of these parameters as its angle. There must
+                be one per matrix element.
         """
         n_givens_rotations = len(hamiltonian_for_specific_plane_and_signature)
         logger.info(f"There are {n_givens_rotations} primitive Givens rotation circuits to be constructed for the plaquette.")
@@ -829,15 +905,6 @@ class LatticeCircuitManager:
             coupling_g,
             dt,
         )
-        # If specified by function arguments, replace each Givens rotation
-        # angle with an independent theta Parameter.
-        if use_independent_params_for_each_givens_rot is True:
-            rot_angle_param_vector_iterator = iter(ParameterVector("theta", n_givens_rotations))
-            lp_bin = {
-                lp_fam: [(bit_string_1, bit_string_2, next(rot_angle_param_vector_iterator))
-                         for (bit_string_1, bit_string_2, old_angle) in lp_bin[lp_fam]]
-                for lp_fam in lp_bin.keys()
-            }
         # Visit the LP bins in Gray order, whether or not control fusion is on.
         # Rotations in one LP bin commute, so with the bin order fixed, the
         # circuit's unitary does not depend on the order of the input data.
@@ -848,6 +915,17 @@ class LatticeCircuitManager:
                 key=lambda x: gray_to_index(bitstring_value_of_LP_family(x)),
             )
         }
+        # If specified by function arguments, replace each Givens rotation
+        # angle with an independent parameter. This follows the sort above,
+        # so that the parameters are in the order the circuit applies the
+        # rotations.
+        if independent_givens_parameters is not None:
+            rot_angle_parameter_iterator = iter(independent_givens_parameters)
+            lp_bin = {
+                lp_fam: [(bit_string_1, bit_string_2, next(rot_angle_parameter_iterator))
+                         for (bit_string_1, bit_string_2, old_angle) in lp_bin[lp_fam]]
+                for lp_fam in lp_bin.keys()
+            }
 
         # Iterate over all LP bins and apply givens rotation.
         # Also logs progress of circuit construction at INFO level.
