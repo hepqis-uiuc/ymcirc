@@ -7,7 +7,7 @@ from ymcirc._abstract.lattice_data import (
     LatticeData, LatticeDef, Plaquette, DimensionalitySpecifier, LatticeVector,
     LinkAddress)
 from pyclebsch.matrix_elements.lattice_data import SiteMultiplicityIndex
-from pyclebsch.su_n_operators import IrrepWeight
+from pyclebsch.su_n_operators import IrrepWeight, calc_casimir
 from ymcirc.conventions import LatticeStateEncoder
 from ymcirc.lattice_registers import LatticeRegisters
 
@@ -482,8 +482,8 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         """
         Return the electric Casimir energy for the specified link.
 
-        Returns gt_pattern_iweight_to_casimir(irrep) for the link's irrep,
-        or None if the decoded to an unphysical state.
+        Returns the quadratic Casimir of the link's irrep (pyclebsch's
+        calc_casimir), or None if the link decoded to an unphysical state.
 
         The optional argument unphys_mode customizes the behavior for unphysical links.
         Options are to emit a warning, raise an error, or silently return.
@@ -499,8 +499,6 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
               other value, None will be silently returned for unphysical
               or unmeasured links.
         """
-        from ymcirc.electric_helper import gt_pattern_iweight_to_casimir # TODO: import in method to avoid circuilar import; kinda nasty and would be nice to avoid
-
         # Deal with unphysical/unmeasured cases first.
         link_state = self.get_link(link_address)
         if link_state is None:
@@ -518,7 +516,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
                     pass
             return None
         
-        return gt_pattern_iweight_to_casimir(link_state)
+        return calc_casimir(link_state)
 
     def get_lattice_electric_energy(self, average_result: bool = False, unphys_mode: str | None = 'warn', skip_unmeasured: bool = True) -> float:
         """

@@ -70,21 +70,33 @@ type Signature = tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...], tuple[
 # this order and cannot check it. A state listed in another F-order is read as
 # a different state. Every control link is listed, including one that repeats
 # another control of the plaquette on a periodic axis of length 2. The module
-# docstring of ymcirc.conventions describes the format, with diagrams. The
-# multiplicity indices are None in a state decoded by an encoder that has no
-# vertex bits.
-type PlaquetteState = (
-    tuple[
-        tuple[SiteMultiplicityIndex, SiteMultiplicityIndex, SiteMultiplicityIndex, SiteMultiplicityIndex],
-        tuple[IrrepWeight, IrrepWeight, IrrepWeight, IrrepWeight],
-        tuple[SiteControlLinks, SiteControlLinks, SiteControlLinks, SiteControlLinks],
-    ]
-    | tuple[
-        tuple[None, None, None, None],
-        tuple[IrrepWeight, IrrepWeight, IrrepWeight, IrrepWeight],
-        tuple[SiteControlLinks, SiteControlLinks, SiteControlLinks, SiteControlLinks],
-    ]
-)
+# docstring of ymcirc.conventions describes the format, with diagrams. A state
+# always holds 4 integer multiplicity indices. An encoder leaves them out of
+# the bit string when every physical plaquette state it is built from has
+# all its multiplicity indices 0. Every vertex of the lattice then takes the
+# same value, and vertex bits would carry no information.
+type PlaquetteState = tuple[
+    tuple[SiteMultiplicityIndex, SiteMultiplicityIndex, SiteMultiplicityIndex, SiteMultiplicityIndex],
+    tuple[IrrepWeight, IrrepWeight, IrrepWeight, IrrepWeight],
+    tuple[SiteControlLinks, SiteControlLinks, SiteControlLinks, SiteControlLinks],
+]
+# A plaquette state decoded from a bit string, as
+# LatticeStateEncoder.decode_bit_string_to_plaquette_state returns it. It has
+# the layout and tuple lengths of PlaquetteState, but a multiplicity index or
+# irrep is None in two cases.
+# - Its bits are a code the encoder does not use. A link bitmap of n bits has
+#   2^n codes, and a truncation can have fewer irreps (T1 has 3 irreps in 2
+#   bits). Vertex bits can likewise have unused codes (multiplicity indices 0
+#   to 2 in 2 bits). A circuit simulated with noise, or run on hardware, can
+#   evolve a register into an unused code, which decodes to None.
+# - The encoder has no vertex bits (see PlaquetteState). Every multiplicity
+#   index is then None, because the bit string holds no bits to decode it
+#   from, even though every state the encoder was built from has 0 there.
+type DecodedPlaquetteState = tuple[
+    tuple[SiteMultiplicityIndex | None, ...],
+    tuple[IrrepWeight | None, ...],
+    tuple[tuple[IrrepWeight | None, ...], ...],
+]
 # Matrix elements between plaquette states, as
 # box_plus_box_dagger_matrix_elements in ymcirc._pyclebsch_adapter returns
 # them and ymcirc.circuit's LatticeCircuitManager takes them. For each plane

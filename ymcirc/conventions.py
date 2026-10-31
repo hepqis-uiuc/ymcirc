@@ -171,7 +171,7 @@ import logging
 import numpy as np
 from pyclebsch.matrix_elements.lattice_data import SiteMultiplicityIndex
 from pyclebsch.su_n_operators import IrrepWeight
-from ymcirc._abstract import LatticeDef, Plane, PlaquetteState, Signature
+from ymcirc._abstract import DecodedPlaquetteState, LatticeDef, Plane, PlaquetteState, Signature
 from ymcirc._abstract.lattice_data import DuplicateControlIndices, PlaquetteControlIndices
 from ymcirc._pyclebsch_adapter import physical_plaquette_states
 
@@ -673,7 +673,8 @@ class LatticeStateEncoder:
 
         return bit_string_encoding
 
-    def decode_bit_string_to_plaquette_state(self, bit_string: str, plane: Plane, signature: Signature) -> PlaquetteState:
+    def decode_bit_string_to_plaquette_state(
+            self, bit_string: str, plane: Plane, signature: Signature) -> DecodedPlaquetteState:
         """
         Decode bit_string, the encoding of a state of a plaquette with this plane and signature, as a plaquette state.
 
@@ -705,7 +706,8 @@ class LatticeStateEncoder:
         encode_plaquette_state_as_bit_string writes them. If unable to decode
         to physical state data, returns None for that degree of freedom. If
         the encoder has no vertex bits, every multiplicity index is returned
-        as None.
+        as None. The result is a DecodedPlaquetteState (ymcirc._abstract),
+        which allows these None values.
 
         This is the inverse of encode_plaquette_state_as_bit_string. Controls
         that the bit string leaves out because they repeat an earlier control

@@ -1,5 +1,5 @@
 import pytest
-from ymcirc._abstract import LatticeDef, PlaquetteState, Signature
+from ymcirc._abstract import DecodedPlaquetteState, LatticeDef, PlaquetteState, Signature
 from ymcirc.conventions import (
     ONE, THREE,
     THREE_BAR, SIX, SIX_BAR, EIGHT,
@@ -1319,7 +1319,7 @@ def test_encoding_depends_on_the_plane_through_duplicate_controls():
         == expected_bit_string_in_plane_1_3
 
     _, active_links, control_links = state
-    decoded_state: PlaquetteState = ((None, None, None, None), active_links, control_links)
+    decoded_state: DecodedPlaquetteState = ((None, None, None, None), active_links, control_links)
     assert encoder.decode_bit_string_to_plaquette_state(
         expected_bit_string_in_plane_1_2, (1, 2), _SIG_D3_PERIODIC) == decoded_state
     assert encoder.decode_bit_string_to_plaquette_state(

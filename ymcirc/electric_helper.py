@@ -7,7 +7,8 @@ decomposition by the electric Casimir (according to the link_bitmap).
 """
 from __future__ import annotations
 import logging
-from ymcirc.conventions import (IrrepWeight, BitString, IrrepBitmap,
+from pyclebsch.su_n_operators import calc_casimir
+from ymcirc.conventions import (BitString, IrrepBitmap,
                                 LatticeStateEncoder)
 from ymcirc.parsed_lattice_result import ParsedLatticeResult
 
@@ -42,23 +43,10 @@ def _diagonal_pauli_string(bit_string: str, N: int,
     return pauliz_list
 
 
-def gt_pattern_iweight_to_casimir(gt_tuple: IrrepWeight) -> float:
-    """
-    Generate the Casimir eigenvalue from a GT-pattern i-Weight.
-
-    Physically, this corresponds to the electric energy of a particular single-link state.
-
-    See arXiv:2101.10227, eq 3.
-    """
-    p = gt_tuple[0] - gt_tuple[1]
-    q = gt_tuple[1]
-    return (p**2 + q**2 + p * q + 3 * p + 3 * q) / 3.0
-
-
 def casimirs(link_bitmap: IrrepBitmap) -> list[float]:
     """Generate a list of Casimir eigenvalues from link bitmap i-Weights."""
     return [
-        gt_pattern_iweight_to_casimir(irrep)
+        calc_casimir(irrep)
         for irrep in list(link_bitmap.keys())
     ]
 
@@ -101,7 +89,7 @@ def convert_bitstring_to_evalue(
             else:
                 if not isinstance(current_link_iweight, tuple):
                     raise TypeError(f"Non-iweight encountered in electric energy computation: {current_link_iweight} of type {type(current_link_iweight)}.")
-                evalue += gt_pattern_iweight_to_casimir(current_link_iweight)
+                evalue += calc_casimir(current_link_iweight)
 
     return evalue
 
@@ -110,7 +98,7 @@ def electric_hamiltonian(link_bitmap: IrrepBitmap) -> list[float]:
     """Give the total Pauli decomposition."""
     N = len(list(link_bitmap.values())[0])
     casimir_values = [
-        gt_pattern_iweight_to_casimir(irrep)
+        calc_casimir(irrep)
         for irrep in list(link_bitmap.keys())
     ]
     pauli_strings = [

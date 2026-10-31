@@ -106,9 +106,7 @@ def plaq_state_ymcirc_to_pyclebsch_format(
 ) -> PyclebschPlaquetteState:
     """Convert a plaquette state from ymcirc's format to pyclebsch's (the inverse of plaq_state_pyclebsch_to_ymcirc_format)."""
     vertices, a_links, c_links = plaq_state
-    # ymcirc's type allows multiplicity indices of None, which no state that
-    # pyclebsch computes has.
-    return cast(PyclebschPlaquetteState, (*a_links, *c_links, *vertices))
+    return (*a_links, *c_links, *vertices)
 
 
 def physical_plaquette_states(

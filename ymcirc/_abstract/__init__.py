@@ -1,4 +1,5 @@
 from ymcirc._abstract.lattice_data import (
+    DecodedPlaquetteState,
     LatticeData,
     LatticeDef,
     Plane,
@@ -9,6 +10,7 @@ from ymcirc._abstract.lattice_data import (
 )
 
 __all__ = [
+    "DecodedPlaquetteState",
     "LatticeData",
     "LatticeDef",
     "Plane",
