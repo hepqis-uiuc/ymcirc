@@ -1165,6 +1165,20 @@ def test_for_truncation_uses_registered_bitmap(dims, truncation_mode, cutoff, ex
     assert encoder.link_bitmap == expected_link_bitmap
 
 
+def test_for_truncation_uses_registered_bitmap_d_2_open_B6():
+    """
+    On d=2 2x2 open at B6, the encoder uses the registered bitmap for 1, 3, 3bar and 8.
+
+    Every vertex of that lattice has two links, so a singlet there is an
+    irrep with its conjugate, and B6 keeps those whose two quadratic
+    Casimirs sum to at most 6: 1, 3 and 3bar, and 8 (Casimir 3), but not 6
+    (Casimir 10/3).
+    """
+    expected_link_bitmap: IrrepBitmap = {ONE: "00", THREE: "10", THREE_BAR: "01", EIGHT: "11"}
+    encoder = LatticeStateEncoder.for_truncation(LatticeDef(2, 2, False), "B", 6)
+    assert encoder.link_bitmap == expected_link_bitmap
+
+
 def test_for_truncation_records_truncation():
     """The encoder records the truncation it was created for; one created from its constructor records none."""
     lattice = LatticeDef(1.5, 3)

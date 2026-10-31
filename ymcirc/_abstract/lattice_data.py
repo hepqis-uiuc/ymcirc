@@ -415,10 +415,17 @@ class LatticeDef:
                 a tuple, the number of unique vertices in each lattice direction,
                 for d=2 and d=3 only.
             periodic_boundary_conds:
-                If a bool, controls boundary conditions in every lattice direction
-                (for d=3/2, along the chain; it is always open vertically). Tuples,
-                for boundary conditions in each lattice direction, are not yet
-                supported.
+                Whether each lattice direction is periodic. In d=2 and d=3,
+                a bool applies to every direction. A tuple holds one bool
+                per direction. A tuple whose entries are all equal is
+                stored as that bool. In d=3/2, only a bool is accepted. It
+                applies to the direction along the chain. The direction
+                across the chain is always open.
+
+        A d=3/2 lattice of size L is the d=2 lattice of shape (L, 2) whose
+        boundary conditions are (periodic_boundary_conds, False). The two have
+        the same vertices, links and plaquettes. The d=3/2 lattice reports dim
+        1.5 and size L.
             forder:
                 Half-link ordering convention, passed to pyclebsch when it
                 computes the lattice's plaquette states and matrix elements.
@@ -427,11 +434,13 @@ class LatticeDef:
                 (1, 2, 3, -1, -2, -3) if None.
 
         Raises a NotImplementedError for more than three dimensions, which
-        pyclebsch does not support, and for tuples of boundary conditions; a
-        TypeError for an F-order that is not a sequence (a set or an
-        iterator, whose order is not reliable), or is a string; and a
-        ValueError for an F-order that is not a permutation of the six
-        directions.
+        pyclebsch does not support. Raises a ValueError for a tuple of
+        boundary conditions whose length is not the number of directions, for
+        any tuple of boundary conditions in d=3/2, and for an F-order that is
+        not a permutation of the six directions. Raises a TypeError for
+        boundary conditions that are not a bool or a tuple of bools, and for
+        an F-order that is not a sequence (a set or an iterator, whose order
+        is not reliable) or is a string.
         """
         # Set up lattice configuration.
         self._validate_lattice_params(
@@ -439,6 +448,11 @@ class LatticeDef:
             size,
             periodic_boundary_conds
         )
+        # A tuple whose entries are all equal is stored as that bool, so that
+        # each lattice has one stored form. __eq__, and ParsedLatticeResult's
+        # __eq__ and __hash__, compare the stored form.
+        if isinstance(periodic_boundary_conds, tuple) and len(set(periodic_boundary_conds)) == 1:
+            periodic_boundary_conds = periodic_boundary_conds[0]
         self._periodic_boundary_conds = periodic_boundary_conds
 
         # Validate and store forder.
@@ -479,9 +493,6 @@ class LatticeDef:
                                  dim: DimensionalitySpecifier,
                                  size: int | tuple[int, ...],
                                  periodic_boundary_conds: bool | tuple[bool, ...]):
-        if isinstance(periodic_boundary_conds, Iterable):
-            raise NotImplementedError("Tuples for boundary conditions not yet supported.")
-
         is_d_three_halves = dim == "3/2" or isclose(float(dim), 1.5)
         if not (is_d_three_halves or (isinstance(dim, int) and dim > 1)):
             raise ValueError(f"A {dim}-dimensional lattice doesn't make sense.")
@@ -499,21 +510,36 @@ class LatticeDef:
             raise ValueError("Lattice must have at least two vertices in each "
                              f"dimension. A size = {size} doesn't make sense.")
 
-        if not isinstance(periodic_boundary_conds, bool):
+        if isinstance(periodic_boundary_conds, tuple):
+            if is_d_three_halves:
+                raise ValueError(
+                    "A d=3/2 lattice takes one boundary condition, a bool, for the axis along the chain "
+                    "(it is always open across the chain). For other boundary conditions, use the d=2 "
+                    f"lattice of shape (L, 2). Encountered: {periodic_boundary_conds}.")
+            if len(periodic_boundary_conds) != dim:
+                raise ValueError(
+                    f"A d={dim} lattice needs one boundary condition per axis. Encountered: {periodic_boundary_conds}.")
+            if not all(isinstance(periodic, bool) for periodic in periodic_boundary_conds):
+                raise TypeError(f"Cannot interpret boundary conditions as booleans: {periodic_boundary_conds}.")
+        elif not isinstance(periodic_boundary_conds, bool):
             raise TypeError(f"Cannot interpret boundary condition as boolean: {periodic_boundary_conds}.")
 
     def _configure_lattice(self, dim: DimensionalitySpecifier, size: int | tuple[int, ...]):
         if dim == "3/2" or isclose(float(dim), 1.5):
-            # _validate_lattice_params refuses any other size for d=3/2.
+            # A d=3/2 lattice of size L is the d=2 lattice of shape (L, 2),
+            # open along axis 2. _validate_lattice_params refuses any other
+            # size, and any boundary condition other than a bool, for d=3/2.
             assert isinstance(size, int)
+            assert isinstance(self._periodic_boundary_conds, bool)
             self._shape: tuple[int, ...] = (size, VERTICAL_NUM_VERTICES_D_THREE_HALVES)
             self._dim: float | int = 1.5
-            # The chain is never periodic vertically.
-            self._periodic_axes: tuple[bool, ...] = (bool(self._periodic_boundary_conds), False)
+            self._periodic_axes: tuple[bool, ...] = (self._periodic_boundary_conds, False)
         else:
             self._dim = int(dim)
             self._shape = tuple(size) if isinstance(size, Iterable) else (size,) * self._dim
-            self._periodic_axes = (bool(self._periodic_boundary_conds),) * self._dim
+            self._periodic_axes = (
+                self._periodic_boundary_conds if isinstance(self._periodic_boundary_conds, tuple)
+                else (self._periodic_boundary_conds,) * self._dim)
 
         # The geometry, from pyclebsch's lattice of the same shape and
         # boundary conditions, with length 1 and open along missing axes. After
@@ -730,9 +756,13 @@ class LatticeDef:
         """
         Return whether the lattice has periodic boundary conditions.
 
-        A bool, as given to the constructor: for d=3/2, whether the chain is
-        periodic along its length (it is always open vertically). Tuples of
-        boundary conditions, one per direction, are not yet supported.
+        In d=2 and d=3, a bool means that every direction has that boundary
+        condition. A tuple holds one bool per direction. Since the
+        constructor stores a tuple whose entries are all equal as that bool,
+        a tuple is returned only when the directions differ.
+
+        In d=3/2, the bool says whether the direction along the chain is
+        periodic. The direction across the chain is always open.
         """
         return self._periodic_boundary_conds
 
@@ -816,12 +846,11 @@ class LatticeDef:
 
         That is: "(vertex vector, positive direction index)".
 
-        In d=3/2, the "top" pbc links in the above diagram are omitted
-        because they do not exist on that lattice.
+        Links the lattice does not have are omitted. In d=3/2, these are the
+        "top" pbc links in the above diagram. Along an open axis, they are the
+        links that would leave the last vertex on that axis.
         """
         logger.debug("Constructing lattice traversal data.")
-        if self.all_boundary_conds_periodic is False:
-            raise NotImplementedError("Iteration through nonperiodic lattices not yet supported.")
 
         all_vertex_addresses_sorted = sorted(self.vertex_addresses)
         all_addresses_traversal_order = []

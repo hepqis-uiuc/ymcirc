@@ -612,41 +612,41 @@ def test_inconsistent_size_arg(
             lattice_encoder=lattice_encoder)
 
 
-# TODO disable skip once nonperiodic boundary conditions are implemented.
-@pytest.mark.skip
-def test_inconsistent_boundary_conds_arg(
-        T1_link_bitmap,
-        good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed
-):
-    print("Checking case where ParsedLatticeResult is initialized with wrong bcs...")
-    link_bitmap = T1_link_bitmap
-    physical_plaquette_states = good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed
-    lattice = LatticeDef(1.5, 2, periodic_boundary_conds=False)
-    lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
-    global_meas_bit_string = "110001101000"
+def test_inconsistent_boundary_conds_arg_periodic_result_open_encoder():
+    """
+    Invalid: a periodic ParsedLatticeResult with an encoder for the open lattice of the same shape.
 
-    with pytest.raises(ValueError):
+    The d=3/2 lattice of size 2 has 6 links when periodic and 4 when open.
+    With T1's 2 bits per link and no vertex bits, the bit string has the 12
+    bits the periodic lattice needs, so only a comparison of the boundary
+    conditions refuses it. A ValueError naming the boundary conditions is
+    expected.
+    """
+    lattice_encoder = LatticeStateEncoder.for_truncation(LatticeDef(1.5, 2, periodic_boundary_conds=False), "T", 1)
+    with pytest.raises(ValueError, match="boundary conditions"):
         ParsedLatticeResult(
             dimensions=1.5,
             size=2,
-            global_lattice_measurement_bit_string=global_meas_bit_string,
+            global_lattice_measurement_bit_string="0" * 12,
             lattice_encoder=lattice_encoder)
 
-    print("Checking case where LatticeStateEncoder is initialized with wrong bcs...")
-    link_bitmap = T1_link_bitmap
-    physical_plaquette_states = good_physical_plaquette_states_d_3_2_T1_no_vertex_data_needed
-    lattice = LatticeDef(1.5, 2)
-    lattice_encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice)
-    global_meas_bit_string = "110001101000"
 
-    with pytest.raises(ValueError):
+def test_inconsistent_boundary_conds_arg_open_result_periodic_encoder():
+    """
+    Invalid: an open ParsedLatticeResult with an encoder for the periodic lattice of the same shape.
+
+    As in the previous test, but the other way around: the bit string has
+    the 8 bits the open lattice needs. A ValueError naming the boundary
+    conditions is expected.
+    """
+    lattice_encoder = LatticeStateEncoder.for_truncation(LatticeDef(1.5, 2), "T", 1)
+    with pytest.raises(ValueError, match="boundary conditions"):
         ParsedLatticeResult(
             dimensions=1.5,
             size=2,
-            global_lattice_measurement_bit_string=global_meas_bit_string,
+            global_lattice_measurement_bit_string="0" * 8,
             lattice_encoder=lattice_encoder,
-            periodic_boundary_conds=False
-        )
+            periodic_boundary_conds=False)
 
 
 def test_global_bit_string_has_bad_chars(

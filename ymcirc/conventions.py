@@ -221,8 +221,8 @@ FIFTEEN: IrrepWeight = (3, 1, 0)
 FIFTEEN_BAR: IrrepWeight = (3, 2, 0)
 
 # Irrep encoding bitmaps, keyed by the set of irreps on a lattice's links.
-# The codes are chosen by hand: they decide which Givens rotations share an LP
-# family. LatticeStateEncoder.for_truncation looks up the entry for a lattice
+# The bit strings are chosen by hand. They decide which Givens rotations share
+# an LP family. LatticeStateEncoder.for_truncation looks up the entry for a lattice
 # and truncation.
 #
 # Each entry is the set of link irreps that some supported truncation produces.
@@ -235,11 +235,23 @@ FIFTEEN_BAR: IrrepWeight = (3, 2, 0)
 # quadratic Casimirs sum to at most c (with C2(3) = 4/3, so C2(15) = 16/3 and
 # C2(10) = 6). In d=3/2 every site has three links, and the cheapest singlet
 # there that contains a 10 is 10 x 6bar x 3bar, whose Casimirs sum to 32/3. So
-# at B10, 10 and 10bar appear on no link, and the third entry needs no codes
-# for them; it fills all eight codes of three bits. They first appear at
-# B11, whose set has no entry: LatticeStateEncoder.for_truncation raises a
-# ValueError for it unless given codes to use as link_bitmap, and making codes
-# the default means adding an entry here, with codes chosen by hand.
+# at B10, 10 and 10bar appear on no link, and the third entry needs no bit
+# strings for them. It uses all eight bit strings of three bits. They first
+# appear at B11, whose set has no entry. LatticeStateEncoder.for_truncation
+# raises a ValueError for B11 unless given a link bitmap as link_bitmap.
+# Making one the default means adding an entry here, with bit strings chosen
+# by hand.
+#
+# Other lattices and truncations can give other sets. Higher cutoffs do (B11,
+# above), and so do open lattices, where a vertex at a boundary has fewer
+# links. One such set has an entry:
+# - {1, 3, 3bar, 8}: B6 on the open d=2 lattice of size 2. Every vertex there
+#   has two links, and a singlet of two links is an irrep with its
+#   conjugate, whose Casimirs are equal. So B6 keeps the irreps whose
+#   Casimir is at most 3, among them 8 (Casimir 3) but not 6 (Casimir 10/3).
+#   The bit strings of 1, 3 and 3bar are those of the entry for {1, 3,
+#   3bar}, and 8's has both bits set, as it has all three set in the entry
+#   for {1, 3, 3bar, 6, 6bar, 8}.
 IRREP_TRUNCATIONS: dict[frozenset[IrrepWeight], IrrepBitmap] = {
     frozenset({ONE, THREE, THREE_BAR}): {
         ONE: "00",
@@ -263,6 +275,12 @@ IRREP_TRUNCATIONS: dict[frozenset[IrrepWeight], IrrepBitmap] = {
         EIGHT: "111",
         FIFTEEN: "101",
         FIFTEEN_BAR: "010"
+    },
+    frozenset({ONE, THREE, THREE_BAR, EIGHT}): {
+        ONE: "00",
+        THREE: "10",
+        THREE_BAR: "01",
+        EIGHT: "11"
     },
 }
 
@@ -318,9 +336,9 @@ class LatticeStateEncoder:
         list of physical plaquette states, if a physical plaquette state has
         numbers of control links at its vertices that no plaquette of the
         lattice has, or if an irrep on a link of a
-        physical plaquette state has no code in the link bitmap (the error
-        names those irreps). The link bitmap may have codes for irreps that
-        appear on no link.
+        physical plaquette state has no bit string in the link bitmap (the
+        error names those irreps). The link bitmap may have bit strings for
+        irreps that appear on no link.
 
         The physical plaquette states of all the lattice's planes and
         signatures may be passed together. Encoding and decoding take a

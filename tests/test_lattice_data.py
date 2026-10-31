@@ -289,6 +289,126 @@ def test_plaquette_addresses(dimensions, size, periodic, expected_plaquette_addr
     assert lattice.plaquette_addresses == expected_plaquette_addresses
 
 
+def test_boundary_conditions_per_axis_d_2():
+    """
+    A d=2 lattice of shape (3, 2), periodic along axis 1 and open along axis 2.
+
+    Every vertex has a link along axis 1 (3 vertices around a periodic axis),
+    and only the vertices with y = 0 have one along axis 2 (2 vertices along
+    an open axis): 9 links.
+    """
+    lattice = LatticeDef(2, (3, 2), periodic_boundary_conds=(True, False))
+    expected_link_addresses: list[LinkAddress] = [
+        ((0, 0), 1),
+        ((0, 0), 2),
+        ((0, 1), 1),
+        ((1, 0), 1),
+        ((1, 0), 2),
+        ((1, 1), 1),
+        ((2, 0), 1),
+        ((2, 0), 2),
+        ((2, 1), 1),
+    ]
+    assert lattice.link_addresses == expected_link_addresses
+    assert lattice.periodic_boundary_conds == (True, False)
+    assert lattice.all_boundary_conds_periodic is False
+
+
+def test_boundary_conditions_per_axis_d_3():
+    """
+    A d=3 lattice of shape (3, 3, 2), periodic along axes 1 and 2 and open along axis 3.
+
+    Each of the 18 vertices has a link along axes 1 and 2, and the 9 with
+    z = 0 one along axis 3: 45 links. Every vertex has a plaquette in plane
+    (1, 2), and only those with z = 0 in planes (1, 3) and (2, 3): 36
+    plaquettes.
+    """
+    lattice = LatticeDef(3, (3, 3, 2), periodic_boundary_conds=(True, True, False))
+    assert (lattice.n_links, lattice.n_plaquettes) == (45, 36)
+
+
+@pytest.mark.parametrize(
+    ("dimensions", "periodic_boundary_conds", "expected_periodic_boundary_conds"),
+    [
+        (2, (True, True), True),
+        (2, (False, False), False),
+        (3, (True, True, True), True),
+        (3, (False, False, False), False),
+    ],
+)
+def test_boundary_conditions_tuple_with_equal_entries_stored_as_bool(
+    dimensions, periodic_boundary_conds, expected_periodic_boundary_conds
+):
+    """
+    A tuple of boundary conditions whose entries are all equal is stored as that bool.
+
+    The lattice then equals the one built with the bool. Comparisons of
+    lattices, and the equality and hashing of results parsed on them
+    (ParsedLatticeResult), then do not depend on which of the two forms a
+    caller passed.
+    """
+    lattice = LatticeDef(dimensions, 2, periodic_boundary_conds=periodic_boundary_conds)
+    assert lattice.periodic_boundary_conds is expected_periodic_boundary_conds
+    assert lattice == LatticeDef(
+        dimensions, 2, periodic_boundary_conds=expected_periodic_boundary_conds
+    )
+
+
+@pytest.mark.parametrize(
+    ("dimensions", "size", "periodic_boundary_conds"),
+    [
+        (2, (3, 2), (True,)),
+        (2, (3, 2), (True, False, False)),
+        (3, 2, (True, False)),
+    ],
+)
+def test_boundary_conditions_tuple_of_wrong_length_refused(
+    dimensions, size, periodic_boundary_conds
+):
+    """Invalid: a tuple of boundary conditions whose length is not the number of axes. A ValueError is expected."""
+    with pytest.raises(ValueError):
+        LatticeDef(dimensions, size, periodic_boundary_conds=periodic_boundary_conds)
+
+
+@pytest.mark.parametrize("periodic_boundary_conds", [(True, False), (True,)])
+def test_boundary_conditions_tuple_refused_for_d_3_2(periodic_boundary_conds):
+    """
+    Invalid: a tuple of boundary conditions for d=3/2, which takes a bool only, since it is always open across the chain.
+
+    A ValueError is expected, whose message points to the d=2 lattice of
+    shape (L, 2) for other boundary conditions.
+    """
+    with pytest.raises(ValueError, match=r"use the d=2 lattice of shape \(L, 2\)"):
+        LatticeDef(1.5, 3, periodic_boundary_conds=periodic_boundary_conds)
+
+
+def test_boundary_conditions_tuple_of_non_bools_refused():
+    """Invalid: a tuple of boundary conditions whose entries are not bools. A TypeError is expected."""
+    with pytest.raises(TypeError):
+        # A deliberate argument of the wrong type.
+        LatticeDef(2, (3, 2), periodic_boundary_conds=(1, 0))  # ty: ignore[invalid-argument-type]
+
+
+@pytest.mark.parametrize("periodic", [True, False])
+@pytest.mark.parametrize("length", [2, 3])
+def test_d_3_2_is_d_2_two_vertices_tall(length, periodic):
+    """
+    A d=3/2 lattice of size L is the d=2 lattice of shape (L, 2), open along axis 2.
+
+    The two have the same vertices, links and plaquettes, and each plaquette
+    the same signature.
+    """
+    d_3_2 = LatticeDef(1.5, length, periodic_boundary_conds=periodic)
+    d_2 = LatticeDef(2, (length, 2), periodic_boundary_conds=(periodic, False))
+    assert d_3_2.vertex_addresses == d_2.vertex_addresses
+    assert d_3_2.link_addresses == d_2.link_addresses
+    assert d_3_2.plaquette_addresses == d_2.plaquette_addresses
+    for bottom_left_vertex, plane in d_3_2.plaquette_addresses:
+        assert d_3_2._plaquette_signature(
+            bottom_left_vertex, plane
+        ) == d_2._plaquette_signature(bottom_left_vertex, plane)
+
+
 def test_more_than_three_dimensions_not_supported():
     """pyclebsch, whose geometry LatticeDef takes, supports at most three dimensions."""
     with pytest.raises(NotImplementedError):

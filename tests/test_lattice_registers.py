@@ -130,6 +130,33 @@ def test_get_register_traversal_order(dims):
     assert expected_register_traversal_order_dict[dims] == lattice.get_traversal_order()
 
 
+def test_get_register_traversal_order_d_3_open():
+    """
+    The traversal order, which orders the registers of a circuit, on the d=3 lattice of shape (3, 2, 2) with open boundaries.
+
+    Each vertex, in lexicographic order, is followed by the links leaving it
+    in the positive directions that exist: along axis k only if its k-th
+    coordinate is below the last on that axis (2 for axis 1, 1 for axes 2
+    and 3). That gives 20 links.
+    """
+    lattice = LatticeRegisters(dimensions=3, size=(3, 2, 2), periodic_boundary_conds=False)
+    expected_traversal_order = [
+        ((0, 0, 0), [((0, 0, 0), 1), ((0, 0, 0), 2), ((0, 0, 0), 3)]),
+        ((0, 0, 1), [((0, 0, 1), 1), ((0, 0, 1), 2)]),
+        ((0, 1, 0), [((0, 1, 0), 1), ((0, 1, 0), 3)]),
+        ((0, 1, 1), [((0, 1, 1), 1)]),
+        ((1, 0, 0), [((1, 0, 0), 1), ((1, 0, 0), 2), ((1, 0, 0), 3)]),
+        ((1, 0, 1), [((1, 0, 1), 1), ((1, 0, 1), 2)]),
+        ((1, 1, 0), [((1, 1, 0), 1), ((1, 1, 0), 3)]),
+        ((1, 1, 1), [((1, 1, 1), 1)]),
+        ((2, 0, 0), [((2, 0, 0), 2), ((2, 0, 0), 3)]),
+        ((2, 0, 1), [((2, 0, 1), 2)]),
+        ((2, 1, 0), [((2, 1, 0), 3)]),
+        ((2, 1, 1), []),
+    ]
+    assert lattice.get_traversal_order() == expected_traversal_order
+
+
 @pytest.mark.parametrize("dims", [3/2, 2, 3])
 def test_link_and_vertex_register_initialization(dims: DimensionalitySpecifier):
     """

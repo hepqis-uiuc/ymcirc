@@ -38,7 +38,7 @@ def configure_script_options(
         sim_times: np.ndarray | list,
         n_trotter_steps: int,
         n_shots: int | None,
-        use_periodic_boundary_conds: bool = True,
+        use_periodic_boundary_conds: bool | tuple[bool, ...] = True,
         serialized_circ_dir: Path | str | None = None,
         plots_dir: Path | str | None = None,
         sim_results_dir: Path | str | None = None,
@@ -97,7 +97,11 @@ def configure_script_options(
               How many shots to use if simulating circuit execution. If None,
               no circuit simulations will be run.
         - use_periodic_boundary_conds:
-              Use periodic boundary conditions if True.
+              Whether each lattice direction is periodic, passed to LatticeDef
+              as periodic_boundary_conds. A bool applies to every direction (in
+              d=3/2, to the direction along the chain). In d=2 and d=3, a tuple
+              gives one bool per direction, such as (True, False) for a d=2
+              lattice periodic along axis 1 and open along axis 2.
         - serialized_circ_dir:
               Directory for read/write of circuit QASM/QPY files.
         - plots_dir:
@@ -317,6 +321,19 @@ def create_time_evol_circuit(script_options: dict[str, Any]) -> QuantumCircuit:
                 electric_gray_order=script_options["electric_gray_order"])
 
     return master_circuit
+
+
+def periodic_boundary_conds_str(lattice_def: LatticeDef) -> str:
+    """
+    The boundary conditions of lattice_def, for file names.
+
+    "True" or "False" when every direction has the same boundary condition,
+    otherwise one value per direction joined by "-", such as "True-False".
+    """
+    periodic_boundary_conds = lattice_def.periodic_boundary_conds
+    if isinstance(periodic_boundary_conds, tuple):
+        return "-".join(str(periodic) for periodic in periodic_boundary_conds)
+    return str(periodic_boundary_conds)
 
 
 def save_circuit(circuit: QuantumCircuit, simulation_identifier: str, script_options: dict[str, Any]) -> None:

@@ -143,9 +143,6 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
 
     def get_vertex(self, lattice_vector: LatticeVector) -> QuantumRegister:
         """Return the QuantumRegister for the vertex specified by lattice_vector."""
-        if not self.all_boundary_conds_periodic:
-            raise NotImplementedError()
-
         return self._vertex_registers[self._wrap_periodic_axes(lattice_vector)]
 
     def get_link(self, link_address: LinkAddress) -> QuantumRegister:

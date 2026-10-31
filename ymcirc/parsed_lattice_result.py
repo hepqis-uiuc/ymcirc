@@ -69,7 +69,15 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         """Parse through global_lattice_measurement_bitstring and convert to i-weights."""
         super().__init__(dimensions, size, periodic_boundary_conds, forder=lattice_encoder.lattice_def.forder)
 
-        # Do some validation.
+        # Do some validation. The boundary conditions are compared first: a
+        # lattice with other boundary conditions has other links, so a bit
+        # string meant for it can fail the length check with a message that
+        # does not name the cause.
+        if self.periodic_boundary_conds != lattice_encoder.lattice_def.periodic_boundary_conds:
+            raise ValueError(
+                f"Specified boundary conditions {self.periodic_boundary_conds}, but using a "
+                f"{LatticeStateEncoder.__name__} for a lattice with boundary conditions "
+                f"{lattice_encoder.lattice_def.periodic_boundary_conds}.")
         expected_num_bits = self.n_links * lattice_encoder.expected_link_bit_string_length + self.n_vertices * lattice_encoder.expected_vertex_bit_string_length
         has_non_binary_char = any(char not in ['0', '1'] for char in global_lattice_measurement_bit_string)
         if expected_num_bits != len(global_lattice_measurement_bit_string):

@@ -10,7 +10,7 @@ sys.path.append(parent_dir)
 
 import logging
 from run.functions import (
-    config_ymcirc_logger, configure_script_options, initialize_lattice_tools, save_circuit,
+    config_ymcirc_logger, configure_script_options, initialize_lattice_tools, periodic_boundary_conds_str, save_circuit,
     load_circuit
 )
 from pathlib import Path
@@ -45,7 +45,7 @@ if __name__ == "__main__":
     script_options['state_prep_method'] = "vqe"  # When there are more methods available, they will be added to configure_script_options.
 
     # Generate a descriptive prefix for all filenames based on simulation params.
-    filename_str_prefix = f"state_prep={script_options['state_prep_method']}-{script_options['lattice_def'].n_plaquettes}-plaquettes-in-d={script_options['lattice_def'].dim}-shape={'x'.join(str(length) for length in script_options['lattice_def'].shape)}-irrep_trunc={script_options['truncation_mode']}{script_options['cutoff']}-mat_elem_cut={script_options['mag_hamiltonian_matrix_element_threshold']}-vac_connected_only={script_options['mag_hamiltonian_use_electric_vacuum_transitions_only']}-vchain={script_options['use_ancillas']}-control_fusion={script_options['control_fusion']}-prune_controls={script_options['prune_controls']}"
+    filename_str_prefix = f"state_prep={script_options['state_prep_method']}-{script_options['lattice_def'].n_plaquettes}-plaquettes-in-d={script_options['lattice_def'].dim}-shape={'x'.join(str(length) for length in script_options['lattice_def'].shape)}-pbc={periodic_boundary_conds_str(script_options['lattice_def'])}-irrep_trunc={script_options['truncation_mode']}{script_options['cutoff']}-mat_elem_cut={script_options['mag_hamiltonian_matrix_element_threshold']}-vac_connected_only={script_options['mag_hamiltonian_use_electric_vacuum_transitions_only']}-vchain={script_options['use_ancillas']}-control_fusion={script_options['control_fusion']}-prune_controls={script_options['prune_controls']}"
 
     # Create or load state prep circuit.
     if script_options['load_circuit_from_file'] is None:

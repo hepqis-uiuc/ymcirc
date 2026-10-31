@@ -100,8 +100,6 @@ class LatticeCircuitManager:
         are not those of its signature, or in which a duplicate control
         carries a different irrep from the control it repeats
         (lattice_encoder checks both when it encodes the state).
-
-        Raises a NotImplementedError for lattices that are not periodic.
         """
         # A copy to avoid inadvertently changing the behavior of the
         # LatticeCircuitManager instance. The matrix elements are copied
@@ -118,8 +116,6 @@ class LatticeCircuitManager:
         self._num_ancillas = 0
 
         lattice_def = self._encoder.lattice_def
-        if not lattice_def.all_boundary_conds_periodic:
-            raise NotImplementedError("Lattices with nonperiodic or mixed boundary conditions not yet supported.")
 
         # Check the plane and signature of each group of matrix elements, and
         # encode their states.
