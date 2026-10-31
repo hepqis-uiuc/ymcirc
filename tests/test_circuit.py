@@ -1847,6 +1847,26 @@ def test_pruning_states_lose_duplicate_controls_d3():
         assert {len(stripped_state) for stripped_state in stripped_set} == {expected_qubits_in_stripped_state}
 
 
+def test_apply_magnetic_trotter_step_refuses_pruning_states_lacking_a_plane_d3():
+    """
+    apply_magnetic_trotter_step refuses states for control pruning that lack a plane and signature of the lattice.
+
+    The input is invalid: on d=3 size=2, the states of plane (1, 2) are
+    removed from the physical plaquette states, so that only those of planes
+    (1, 3) and (2, 3) are passed. The lattice has plaquettes in plane
+    (1, 2), so apply_magnetic_trotter_step is expected to raise a ValueError
+    naming that plane.
+    """
+    circ_mgr, encoder = _make_d3_size2_circ_mgr()
+    states_for_control_pruning = physical_plaquette_states(encoder.lattice_def, "B", 3)
+    del states_for_control_pruning[((1, 2), _SIG_3_DEFAULT_FORDER)]
+    lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
+    circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
+    with pytest.raises(ValueError, match=r"no states for plane \(1, 2\)"):
+        circ_mgr.apply_magnetic_trotter_step(
+            circuit, lattice, physical_states_for_control_pruning=states_for_control_pruning)
+
+
 def test_d3_hamiltonian_has_three_planes():
     """After __init__, the magnetic Hamiltonian for d=3 size=2 has one key per plane, each with the one signature of size 2."""
     circ_mgr, _ = _make_d3_size2_circ_mgr()
