@@ -22,7 +22,7 @@ from qiskit import transpile
 from qiskit_aer import AerSimulator
 from qiskit.circuit import QuantumCircuit
 from typing import Any
-from ymcirc._abstract import LatticeDef
+from ymcirc._abstract import LatticeDef, Plane, PlaquetteState, Signature
 from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.conventions import (
     LatticeStateEncoder, physical_plaquette_states)
@@ -231,7 +231,8 @@ def configure_script_options(
 
 
 def initialize_lattice_tools(script_options: dict[str, Any]) -> tuple[
-        LatticeStateEncoder, set[str], LatticeRegisters, LatticeCircuitManager, QuantumCircuit]:
+        LatticeStateEncoder, dict[tuple[Plane, Signature], set[PlaquetteState]] | None, LatticeRegisters,
+        LatticeCircuitManager, QuantumCircuit]:
     """
     Initialize some tools for creating a new lattice circuit.
 
@@ -239,8 +240,9 @@ def initialize_lattice_tools(script_options: dict[str, Any]) -> tuple[
     (lattice_encoder, physical_states_for_control_pruning, lattice_registers, circ_mgr, lattice_circuit):
       - lattice_encoder: a LatticeStateEncoder for encoding/decoding
         state info on the lattice indicated by script_options.
-      - physical_states_for_control_pruning: Either None, or a Set of encoded plaquette
-        bitstrings corresponding to valid physical states. If not None,
+      - physical_states_for_control_pruning: Either None, or the physical
+        plaquette states of each plane and signature of the lattice's
+        plaquettes, as physical_plaquette_states returns them. If not None,
         then this information can be used for control pruning downstream.
       - lattice_registers: a new LatticeRegisters instance for organizing
         QuantumRegister instances in the lattice circuit.
@@ -263,10 +265,9 @@ def initialize_lattice_tools(script_options: dict[str, Any]) -> tuple[
     # Figure out physical states needed for control pruning. pyclebsch has
     # them in memory from building the encoder.
     if script_options["prune_controls"] is True:
-        physical_states_for_control_pruning: set[str] | None = set(
-            lattice_encoder.encode_plaquette_state_as_bit_string(plaquette)
-            for plaquette in physical_plaquette_states(
-                script_options["lattice_def"], script_options["truncation_mode"], script_options["cutoff"]))
+        physical_states_for_control_pruning: dict[tuple[Plane, Signature], set[PlaquetteState]] | None = \
+            physical_plaquette_states(
+                script_options["lattice_def"], script_options["truncation_mode"], script_options["cutoff"])
     else:
         physical_states_for_control_pruning = None
 

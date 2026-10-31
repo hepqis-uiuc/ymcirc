@@ -164,7 +164,7 @@ def test_plaquette_addresses_agree_with_pyclebsch(dimensions, size, forder):
     """
     For every plaquette, the link addresses ymcirc assembles equal pyclebsch's, in order.
 
-    ymcirc's Plaquette assembles the active links, then each corner's control
+    ymcirc's Plaquette assembles the active links, then each vertex's control
     links in F-order, which is the layout of a plaquette's bit string.
     pyclebsch lays out its plaquette states the same way, so the matrix
     elements it computes refer to these links in this order.
@@ -185,7 +185,7 @@ def test_plaquette_addresses_agree_with_pyclebsch(dimensions, size, forder):
         ]
         pyclebsch_addresses = [
             *geometry.active_links,
-            *(link for corner_links in geometry.control_links for link in corner_links),
+            *(link for vertex_links in geometry.control_links for link in vertex_links),
         ]
         assert ymcirc_addresses == pyclebsch_addresses, f"Plaquette {(site, plane)}."
         assert [_padded_to_three_axes(v) for v in plaquette.vertices] == list(

@@ -2,7 +2,8 @@ import warnings
 import pytest
 from ymcirc._abstract import LatticeDef
 from ymcirc.parsed_lattice_result import ParsedLatticeResult
-from ymcirc.conventions import LatticeStateEncoder, IrrepWeight, PlaquetteState, ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT
+from ymcirc._abstract import PlaquetteState
+from ymcirc.conventions import LatticeStateEncoder, IrrepWeight, ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT
 
 
 # Create some test data.
@@ -1051,7 +1052,7 @@ def test_from_partial_measurement_d2_plaquette_control_link_ordering(
     d=2 vertices have 2 control link directions each. This test ensures
     that a plaquette rebuilt from a partial measurement has its control
     links in the same order as the plaquette read from the full
-    measurement: at each vertex, sorted by the lattice's FORDER (see
+    measurement: at each vertex, sorted by the lattice's F-order (see
     Plaquette.control_links_per_vertex).
     """
     encoder = LatticeStateEncoder(
@@ -1070,13 +1071,19 @@ def test_from_partial_measurement_d2_plaquette_control_link_ordering(
 
     # Construct plaquette bitstring directly from bit-level data in canonical order:
     # |v1 v2 v3 v4 l1 l2 l3 l4 c1... c2... c3... c4...|
+    # On the 2x2 periodic lattice, four controls are the same links as
+    # earlier controls, and the bit string leaves them out: (vertex index,
+    # control index) of each, counting from 0.
+    duplicate_controls: set[tuple[int, int]] = {(1, 0), (2, 1), (3, 0), (3, 1)}
     plaq_bitstring = ""
     for v_bs in full_plaq_bs.vertices:
         plaq_bitstring += v_bs
     for l_bs in full_plaq_bs.active_links:
         plaq_bitstring += l_bs
-    for c_bs in full_plaq_bs.control_links_ordered:
-        plaq_bitstring += c_bs
+    for vertex_idx, vertex_controls_bs in enumerate(full_plaq_bs.control_links_per_vertex):
+        for control_idx, c_bs in enumerate(vertex_controls_bs):
+            if (vertex_idx, control_idx) not in duplicate_controls:
+                plaq_bitstring += c_bs
 
     # Reconstruct from partial measurement and verify control links match.
     plr_partial = ParsedLatticeResult.from_partial_measurement(

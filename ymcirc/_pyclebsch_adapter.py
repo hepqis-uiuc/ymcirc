@@ -33,23 +33,24 @@ from pyclebsch.matrix_elements.lattice_data import (
     PlaquetteState as PyclebschPlaquetteState,
 )
 from pyclebsch.matrix_elements.lattice_data import (
-    SiteControlLinks,
-    SiteMultiplicityIndex,
     physical_plaquette_states_by_signature,
 )
 from pyclebsch.matrix_elements.plaquette_matrix_elements import (
     plaquette_matrix_elements_by_signature,
 )
-from pyclebsch.su_n_operators import IrrepWeight
 
-from ymcirc._abstract import LatticeDef, Plane, Signature
+from ymcirc._abstract import (
+    LatticeDef,
+    Plane,
+    PlaquetteMatrixElements,
+    PlaquetteState,
+    Signature,
+)
 
 __all__ = [
     "N_COLORS",
     "PRES",
-    "BoxTerms",
-    "PlaquetteState",
-    "box_terms",
+    "box_plus_box_dagger_matrix_elements",
     "physical_plaquette_states",
     "plaq_state_pyclebsch_to_ymcirc_format",
     "plaq_state_ymcirc_to_pyclebsch_format",
@@ -72,33 +73,8 @@ PRES = 10
 # sum of products of Clebsch-Gordan coefficients, a site factor or a matrix
 # element smaller than it in magnitude.
 
-# The number of corners of a plaquette.
-_N_PLAQUETTE_CORNERS = 4
-
-# Tuple of 4 vertex multiplicites, tuple of 4 "active links", tuple of 4
-# per-vertex control tuples.
-type PlaquetteState = (
-    tuple[
-        tuple[
-            SiteMultiplicityIndex,
-            SiteMultiplicityIndex,
-            SiteMultiplicityIndex,
-            SiteMultiplicityIndex,
-        ],
-        tuple[IrrepWeight, IrrepWeight, IrrepWeight, IrrepWeight],
-        tuple[SiteControlLinks, SiteControlLinks, SiteControlLinks, SiteControlLinks],
-    ]
-    | tuple[
-        tuple[None, None, None, None],
-        tuple[IrrepWeight, IrrepWeight, IrrepWeight, IrrepWeight],
-        tuple[SiteControlLinks, SiteControlLinks, SiteControlLinks, SiteControlLinks],
-    ]
-)
-# Box-term matrix elements: for each plane and plaquette signature, a dict
-# from (final, initial) plaquette states to the matrix element.
-type BoxTerms = dict[
-    tuple[Plane, Signature], dict[tuple[PlaquetteState, PlaquetteState], float]
-]
+# The number of vertices of a plaquette.
+_N_PLAQUETTE_VERTICES = 4
 
 
 def plaq_state_pyclebsch_to_ymcirc_format(
@@ -108,18 +84,18 @@ def plaq_state_pyclebsch_to_ymcirc_format(
     Convert a plaquette state from pyclebsch's format to ymcirc's.
 
     pyclebsch writes a plaquette state as a flat tuple: the four active links,
-    the four corners' tuples of control links, and the four corners' singlet
+    the four vertices' tuples of control links, and the four vertices' singlet
     multiplicity indices. ymcirc groups the same entries, in the same order
     within each group, as (multiplicity indices, active links, control links).
 
     Raises a ValueError if plaq_state does not have four multiplicity indices.
     """
-    a_links = tuple(plaq_state[:_N_PLAQUETTE_CORNERS])
-    c_links = tuple(plaq_state[_N_PLAQUETTE_CORNERS : 2 * _N_PLAQUETTE_CORNERS])
-    vertices = tuple(plaq_state[2 * _N_PLAQUETTE_CORNERS :])
-    if len(vertices) != _N_PLAQUETTE_CORNERS:
+    a_links = tuple(plaq_state[:_N_PLAQUETTE_VERTICES])
+    c_links = tuple(plaq_state[_N_PLAQUETTE_VERTICES : 2 * _N_PLAQUETTE_VERTICES])
+    vertices = tuple(plaq_state[2 * _N_PLAQUETTE_VERTICES :])
+    if len(vertices) != _N_PLAQUETTE_VERTICES:
         raise ValueError(
-            f"Expected {_N_PLAQUETTE_CORNERS} sites. Site count: '{len(vertices)}'."
+            f"Expected {_N_PLAQUETTE_VERTICES} sites. Site count: '{len(vertices)}'."
         )
 
     return (vertices, a_links, c_links)
@@ -137,7 +113,7 @@ def plaq_state_ymcirc_to_pyclebsch_format(
 
 def physical_plaquette_states(
     lattice_def: LatticeDef, truncation_mode: str, cutoff: int
-) -> list[PlaquetteState]:
+) -> dict[tuple[Plane, Signature], set[PlaquetteState]]:
     """
     Return the physical (gauge-invariant) plaquette states of a lattice, in ymcirc's format.
 
@@ -150,24 +126,41 @@ def physical_plaquette_states(
             irreps_and_singlets takes it, for example ("T", 1) or ("B", 3).
             pyclebsch validates them.
 
-    The states of every plaquette signature of the lattice are returned
-    together, each state once. The caller owns the returned list.
+    Returns {(plane, signature): states}, as pyclebsch groups the states,
+    where signature is the F-ordered half-link directions at each vertex of a
+    plaquette (ymcirc._abstract.Signature). A state of a plaquette lists every
+    control link at every vertex, including the controls that repeat another
+    (on a periodic axis of length 2), which carry the same irrep as the
+    control they repeat. One state can appear under several keys. The caller
+    owns the returned dict.
     """
     states_by_signature = physical_plaquette_states_by_signature(
         lattice_def._pyclebsch_lattice, N_COLORS, truncation_mode, cutoff
     )
-    return list(
-        {
-            plaq_state_pyclebsch_to_ymcirc_format(state)
-            for signature_states in states_by_signature.values()
-            for state in signature_states
+    result: dict[tuple[Plane, Signature], set[PlaquetteState]] = {}
+    for (plane, site_half_links), states in states_by_signature.items():
+        # The cast narrows pyclebsch's type (which also allows an empty tuple of
+        # half-links) to ymcirc's Signature. pyclebsch returns an empty tuple only
+        # for a plaquette the lattice lacks. Since site_half_links is a key of
+        # physical_plaquette_states_by_signature's result, whose keys are those
+        # of plaquettes_by_signature, these half-links belong to one of the
+        # lattice's plaquettes.
+        signature = cast(Signature, site_half_links)
+        result[(plane, signature)] = {
+            plaq_state_pyclebsch_to_ymcirc_format(state) for state in states
         }
-    )
+    return result
 
 
-def box_terms(lattice_def: LatticeDef, truncation_mode: str, cutoff: int) -> BoxTerms:
+def box_plus_box_dagger_matrix_elements(
+    lattice_def: LatticeDef, truncation_mode: str, cutoff: int
+) -> PlaquetteMatrixElements:
     """
-    Return the matrix elements of the plaquette operator (the box term) of a lattice.
+    Return the matrix elements of box + box^dagger on a lattice, box being the plaquette operator.
+
+    box + box^dagger is the magnetic Hamiltonian of one plaquette, up to a
+    prefactor (ymcirc.circuit's magnetic Trotter step applies it through its
+    time-step and coupling parameters).
 
     Arguments:
         lattice_def: a ymcirc LatticeDef. pyclebsch computes the matrix
@@ -178,17 +171,39 @@ def box_terms(lattice_def: LatticeDef, truncation_mode: str, cutoff: int) -> Box
             irreps_and_singlets takes it, for example ("T", 1) or ("B", 3).
             pyclebsch validates them.
 
-    Returns {(plane, signature): {(final state, initial state): value}}, as
-    pyclebsch groups the matrix elements, with states in ymcirc's format,
-    where signature is the F-ordered half-link directions at each corner of a
-    plaquette (ymcirc._abstract.Signature). Values are rounded to PRES
-    decimals, and products of site factors smaller than EPS are dropped. The
-    caller owns the returned dict.
+    Returns {(plane, signature): {(f, i): <f| box + box^dagger |i>}}, as
+    pyclebsch groups the matrix elements, where f and i are plaquette states
+    of the plaquettes with that plane and signature, in ymcirc's format
+    (ymcirc._abstract.PlaquetteState). f is the final and i the initial
+    state of the matrix element <f| box |i> that pyclebsch computes (see
+    below for information about <f| box^dagger |i>). signature is the
+    F-ordered half-link directions at each vertex of a plaquette
+    (ymcirc._abstract.Signature). Each pair of plaquette states with a
+    nonzero matrix element appears once, in one order, and no state
+    is paired with itself. Values are rounded to PRES decimals, and products
+    of site factors smaller than EPS are dropped. The caller owns the
+    returned dict.
+
+    pyclebsch computes the matrix elements <f| box |i> of box alone. Each one
+    is also the matrix element of box + box^dagger between the same states
+    for the reason that in
+
+    <f| box + box^dagger |i> = <f| box |i> + <i| box |f>*,
+
+    the second term is zero whenever the first is not. One way to see
+    this is to make use of how the triality (the integer (p - q) mod 3 of the
+    SU(3) irrep (p, q)) changes under action by box. box multiplies each of the
+    plaquette's four active links by U or by U^dagger, so it changes
+    the triality of each one by +/-1 (mod 3), fixed by the link's
+    orientation around the plaquette. box^dagger changes each active
+    link's triality by the opposite amount. A pair of states with both
+    <f| box |i> and <i| box |f> nonzero would need +1 = -1 (mod 3) on every
+    active link. For the same reason, box has no diagonal matrix elements.
     """
     elements_by_signature = plaquette_matrix_elements_by_signature(
         lattice_def._pyclebsch_lattice, N_COLORS, truncation_mode, cutoff, EPS, PRES
     )
-    result: BoxTerms = {}
+    result: PlaquetteMatrixElements = {}
     for (plane, site_half_links), elements in elements_by_signature.items():
         # pyclebsch's site half-links are ymcirc's signature. The cast narrows
         # pyclebsch's type (which also allows an empty tuple of half-links) to

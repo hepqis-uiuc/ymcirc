@@ -1,31 +1,19 @@
 """
 A collection of utilities for building circuits.
 
-########## The magnetic Hamiltonian from the matrix elements of box ##########
-
-LatticeCircuitManager.for_truncation builds the magnetic Hamiltonian from the
-matrix elements <f| box |i> of the plaquette operator box that pyclebsch
-computes, keyed by the pair of plaquette states (f, i). It uses each one as the
-matrix element of box + box^dagger between the same states:
-<f| box + box^dagger |i> = <f| box |i> + <i| box |f>*, and the second term is
-zero whenever the first is not. The reason is triality, the integer
-(p - q) mod 3 of the SU(3) irrep (p, q), which adds (mod 3) under tensor
-products; the 3 has triality 1 and the 3bar -1. box multiplies each of the
-plaquette's four active links by U or by U^dagger, so it changes the triality
-of each one by +1 or by -1, fixed by the link's orientation around the
-plaquette, and box^dagger changes it by the opposite amount. A pair of states
-with both <f| box |i> and <i| box |f> nonzero would need +1 = -1 (mod 3) on
-every active link. For the same reason, box has no diagonal matrix elements.
-So no matrix element of box^dagger needs to be added: each pair of states
-appears once, and becomes one Givens rotation, which acts on the pair
+The magnetic Trotter step is built from the matrix elements of
+box + box^dagger, box being the plaquette operator, in which each pair of
+plaquette states appears once (box_plus_box_dagger_matrix_elements in
+ymcirc._pyclebsch_adapter computes them, and its docstring says why each pair
+appears once). Each pair becomes one Givens rotation, which acts on the pair
 symmetrically.
 """
 from __future__ import annotations
 import copy
 import logging
 from pathlib import Path
-from ymcirc.conventions import (ONE, PlaquetteState, LatticeStateEncoder)
-from ymcirc._pyclebsch_adapter import box_terms
+from ymcirc.conventions import (ONE, LatticeStateEncoder)
+from ymcirc._pyclebsch_adapter import box_plus_box_dagger_matrix_elements
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import (
     givens,
@@ -36,8 +24,8 @@ from ymcirc.givens import (
     compute_p_tilde,
     gray_to_index,
 )
-from typing import cast
-from ymcirc._abstract.lattice_data import PlaquetteControlIndices, Plaquette, LinkAddress, LatticeVector, Plane, Signature
+from ymcirc._abstract.lattice_data import (
+    Plaquette, PlaquetteMatrixElements, PlaquetteState, LinkAddress, LatticeVector, Plane, Signature)
 from ymcirc.utilities import eta_update, fmt_td
 from qiskit import transpile
 from qiskit.circuit import Parameter, ParameterVector, QuantumCircuit, QuantumRegister, AncillaRegister, ClassicalRegister
@@ -50,14 +38,8 @@ import numpy as np
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
 
-# Encoded plaquette state pair used as dict key in HamiltonianData.
-type EncodedPlaquetteTransition = tuple[str, str]
-# The matrix elements of the magnetic Hamiltonian, in the format that
-# LatticeCircuitManager's constructor takes. Each key is a plane and a
-# plaquette signature. The value under each key maps pairs of encoded
-# plaquette states (EncodedPlaquetteTransition) to the matrix element
-# between them.
-type HamiltonianData = dict[tuple[Plane, Signature], dict[EncodedPlaquetteTransition, float]]
+# A pair of plaquette states, each encoded as a bit string.
+type _EncodedPlaquetteTransition = tuple[str, str]
 
 
 class LatticeCircuitManager:
@@ -85,37 +67,39 @@ class LatticeCircuitManager:
     """
 
     def __init__(
-        self, lattice_encoder: LatticeStateEncoder, mag_hamiltonian: HamiltonianData
+        self, lattice_encoder: LatticeStateEncoder, mag_hamiltonian: PlaquetteMatrixElements
     ):
         """
         Create a circuit manager for the lattice of lattice_encoder.
 
         Arguments:
           - lattice_encoder: the LatticeStateEncoder of the lattice.
-          - mag_hamiltonian: the matrix elements of box + box^dagger, the
-            magnetic Hamiltonian up to a prefactor that the circuit applies
-            through its time-step and coupling parameters, as a HamiltonianData
-            instance. Each key is a (plane, signature) pair: the plane
-            and signature (Plaquette.signature) of the plaquettes that the
-            matrix elements under it apply to. Its value has one entry per
-            pair of plaquette states to be connected by a Givens rotation in
-            those plaquettes: the key is a tuple of the pair's bit strings in
-            lattice_encoder's encoding, (s1, s2), in either order; the value
-            is <s1| box + box^dagger |s2>.
+          - mag_hamiltonian: the matrix elements of box + box^dagger as a
+            PlaquetteMatrixElements instance (the format that
+            box_plus_box_dagger_matrix_elements in ymcirc._pyclebsch_adapter
+            returns). box + box^dagger is the magnetic Hamiltonian up to a
+            prefactor that the circuit applies through its time-step and
+            coupling parameters. Each key is the plane and signature
+            (Plaquette.signature) of the plaquettes whose matrix elements are
+            under it. Its value has one entry per pair of plaquette states
+            that a Givens rotation connects in those plaquettes. The entry's
+            key is the pair of states (s1, s2) in either order, each state
+            listing all its control links. The entry's value is
+            <s1| box + box^dagger |s2>.
 
-        The constructor refuses, with a ValueError, a (plane, signature) pair
-        that no plaquette of the lattice has, and a bit string whose length
-        is not lattice_encoder.expected_plaquette_bit_string_length.
+        The constructor encodes the states with lattice_encoder, for the
+        plane and signature they are listed under. On a periodic axis of
+        length 2, one link can be a control link at two vertices of a
+        plaquette; the encoding leaves such duplicate controls out
+        (LatticeStateEncoder.encode_plaquette_state_as_bit_string), and the
+        plaquette circuits leave out the duplicate's qubits in the same way.
 
-        On a periodic axis of length 2, one link can be a control link at two
-        vertices of a plaquette. Each such duplicate control is removed from
-        the bit strings of mag_hamiltonian, keeping the first instance, as
-        pyclebsch's unique controls of the plaquette's plane and signature
-        say (LatticeDef._duplicate_control_indices); the plaquette
-        circuits leave out the duplicate's qubits in the same way. A matrix
-        element in which a duplicate control has a different link state from
-        the control it repeats cannot occur on the lattice, and raises a
-        ValueError.
+        The constructor raises a ValueError for a (plane, signature) pair
+        that no plaquette of the lattice has. It also raises a ValueError
+        for a plaquette state whose numbers of control links at its vertices
+        are not those of its signature, or in which a duplicate control
+        carries a different irrep from the control it repeats
+        (lattice_encoder checks both when it encodes the state).
 
         Raises a NotImplementedError for lattices that are not periodic.
         """
@@ -136,38 +120,20 @@ class LatticeCircuitManager:
         if not lattice_def.all_boundary_conds_periodic:
             raise NotImplementedError("Lattices with nonperiodic or mixed boundary conditions not yet supported.")
 
-        # Check the matrix elements of each plane and signature, and remove
-        # duplicate controls from their bit strings.
+        # Check the plane and signature of each group of matrix elements, and
+        # encode their states.
         planes_and_signatures = lattice_def._planes_and_signatures()
-        bit_string_length = self._encoder.expected_plaquette_bit_string_length
-        self._mag_hamiltonian: HamiltonianData = {}
+        self._encoded_mag_hamiltonian: dict[tuple[Plane, Signature], dict[_EncodedPlaquetteTransition, float]] = {}
         for (plane, signature), matrix_elements in mag_hamiltonian.items():
             if (plane, signature) not in planes_and_signatures:
                 raise ValueError(
                     f"The lattice {lattice_def} has no plaquette in plane {plane} with signature {signature}."
                 )
-            duplicate_control_indices = lattice_def._duplicate_control_indices(plane, signature)
-            matrix_elements_without_duplicates: dict[EncodedPlaquetteTransition, float] = {}
-            for (final_bs, initial_bs), value in matrix_elements.items():
-                for bit_string in (final_bs, initial_bs):
-                    if len(bit_string) != bit_string_length:
-                        raise ValueError(
-                            f"The bit string {bit_string} in plane {plane}, signature {signature}, has length "
-                            f"{len(bit_string)}; the encoder's plaquette bit strings have length {bit_string_length}."
-                        )
-                final_bs_without_duplicates = self._bit_string_without_duplicate_controls(
-                    final_bs, duplicate_control_indices)
-                initial_bs_without_duplicates = self._bit_string_without_duplicate_controls(
-                    initial_bs, duplicate_control_indices)
-                if final_bs_without_duplicates is None or initial_bs_without_duplicates is None:
-                    raise ValueError(
-                        f"The matrix element between {final_bs} and {initial_bs} in plane {plane}, "
-                        f"signature {signature}, has a control link whose link state differs from "
-                        "that of another control link of the plaquette that is the same link."
-                    )
-                key = (final_bs_without_duplicates, initial_bs_without_duplicates)
-                matrix_elements_without_duplicates[key] = value
-            self._mag_hamiltonian[(plane, signature)] = matrix_elements_without_duplicates
+            self._encoded_mag_hamiltonian[(plane, signature)] = {
+                (self._encoder.encode_plaquette_state_as_bit_string(final_state, plane, signature),
+                 self._encoder.encode_plaquette_state_as_bit_string(initial_state, plane, signature)): value
+                for (final_state, initial_state), value in matrix_elements.items()
+            }
 
     @classmethod
     def for_truncation(
@@ -180,12 +146,8 @@ class LatticeCircuitManager:
         Create a circuit manager for lattice_encoder's lattice at the irrep truncation it was created for.
 
         It computes the constructor's mag_hamiltonian for that lattice and
-        truncation, and is otherwise the constructor.
-
-        Each matrix element <f| box |i> that pyclebsch computes becomes one
-        entry of mag_hamiltonian, as the matrix element of box + box^dagger
-        between the same states; the module docstring explains why no matrix
-        elements of box^dagger need to be added.
+        truncation, with box_plus_box_dagger_matrix_elements in
+        ymcirc._pyclebsch_adapter, and is otherwise the constructor.
 
         Necessary arguments:
           - lattice_encoder: an encoder created by
@@ -212,22 +174,18 @@ class LatticeCircuitManager:
             )
         truncation_mode, cutoff = lattice_encoder.truncation
 
-        mag_hamiltonian: HamiltonianData = {}
-        # Each matrix element of box is also that of box + box^dagger (see the
-        # module docstring).
-        box_matrix_elements = box_terms(lattice_encoder.lattice_def, truncation_mode, cutoff)
-        for plane_and_signature, box_matrix_elements_of_plaquette in box_matrix_elements.items():
-            encoded_matrix_elements: dict[EncodedPlaquetteTransition, float] = {}
-            for (plaquette_state_1, plaquette_state_2), box_plus_box_dagger_element in box_matrix_elements_of_plaquette.items():
+        mag_hamiltonian: PlaquetteMatrixElements = {}
+        all_matrix_elements = box_plus_box_dagger_matrix_elements(lattice_encoder.lattice_def, truncation_mode, cutoff)
+        for plane_and_signature, matrix_elements_of_plaquette in all_matrix_elements.items():
+            kept_matrix_elements: dict[tuple[PlaquetteState, PlaquetteState], float] = {}
+            for (plaquette_state_1, plaquette_state_2), box_plus_box_dagger_element in matrix_elements_of_plaquette.items():
                 if abs(box_plus_box_dagger_element) < mag_hamiltonian_matrix_element_threshold:
                     continue
                 if only_include_elems_connected_to_electric_vacuum and not (
                         cls._is_electric_vacuum(plaquette_state_1) or cls._is_electric_vacuum(plaquette_state_2)):
                     continue
-                state_1_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state_1)
-                state_2_bitstring = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state_2)
-                encoded_matrix_elements[(state_1_bitstring, state_2_bitstring)] = box_plus_box_dagger_element
-            mag_hamiltonian[plane_and_signature] = encoded_matrix_elements
+                kept_matrix_elements[(plaquette_state_1, plaquette_state_2)] = box_plus_box_dagger_element
+            mag_hamiltonian[plane_and_signature] = kept_matrix_elements
 
         n_matrix_elems = sum(len(elements) for elements in mag_hamiltonian.values())
         logger.info(f"Built magnetic Hamiltonian data for truncation mode {truncation_mode!r}, cutoff {cutoff}: "
@@ -238,17 +196,17 @@ class LatticeCircuitManager:
     @staticmethod
     def _is_electric_vacuum(plaquette_state: PlaquetteState) -> bool:
         """Whether plaquette_state has the singlet on every link."""
-        # The multiplicity indices need no check. A corner whose links all
+        # The multiplicity indices need no check. A vertex whose links all
         # carry the singlet has exactly one singlet, so its multiplicity index
         # is 0.
         _, active_links, control_links = plaquette_state
         return all(link == ONE for link in active_links) and all(
-            link == ONE for corner_controls in control_links for link in corner_controls)
+            link == ONE for vertex_controls in control_links for link in vertex_controls)
 
     def __repr__(self):
         class_name = type(self).__name__
-        n_planes_and_signatures = len(self._mag_hamiltonian)
-        n_entries = sum(len(v) for v in self._mag_hamiltonian.values())
+        n_planes_and_signatures = len(self._encoded_mag_hamiltonian)
+        n_entries = sum(len(v) for v in self._encoded_mag_hamiltonian.values())
         return (f"{class_name}({self._encoder.__repr__()}, "
                 f"<{n_entries} Hamiltonian entries across {n_planes_and_signatures} (plane, signature) pair(s)>)")
 
@@ -291,7 +249,7 @@ class LatticeCircuitManager:
             master_circuit: QuantumCircuit,
             lattice: LatticeRegisters,
             control_fusion: bool = False,
-            physical_states_for_control_pruning: None | set[str] = None,
+            physical_states_for_control_pruning: None | dict[tuple[Plane, Signature], set[PlaquetteState]] = None,
             optimize_circuits: bool = False) -> int:
         """
         Computes the number of ancilla qubits needed to perform v-chain synthesis in the master_circuit
@@ -309,17 +267,17 @@ class LatticeCircuitManager:
           - control_fusion: Optional boolian argument with the default set to False. If it's set
                             to be True, then redundant controls are removed from the Givens rotations
                             of each LP family. LP families are visited in Gray-code order either way.
-          - physical_states_for_control_pruning: the physical plaquette states, encoded as bit strings
-                                                 with all their controls. The set may hold the states
-                                                 of every plane and signature together, as the encoded
-                                                 result of physical_plaquette_states does. If provided,
-                                                 control pruning of the multi-controlled gates inside
-                                                 the Givens rotations is attempted. The caller need not
-                                                 filter them: for each plane and signature, the step
-                                                 removes duplicate controls (on a periodic axis of
-                                                 length 2) and leaves out states that cannot occur
-                                                 there because their duplicate controls disagree. If
-                                                 None, no control pruning is attempted.
+          - physical_states_for_control_pruning: the physical plaquette states of each plane and
+                                                 signature of the lattice's plaquettes, each state with
+                                                 all its control links, as physical_plaquette_states in
+                                                 ymcirc.conventions returns them. If provided, control
+                                                 pruning of the multi-controlled gates inside the Givens
+                                                 rotations is attempted; the states are encoded for each
+                                                 plane and signature as the matrix elements are. A
+                                                 ValueError is raised if a plane and signature of the
+                                                 lattice's plaquettes is missing, or if the encoder
+                                                 refuses a state. If None, no control pruning is
+                                                 attempted.
           - optimize_circuits: if True, run the qiskit transpiler on each
                                internal givens rotation with the maximum
                                optimization level before composing with
@@ -558,7 +516,7 @@ class LatticeCircuitManager:
         master_circuit: QuantumCircuit,
         lattice: LatticeRegisters,
         optimize_circuits: bool = True,
-        physical_states_for_control_pruning: None | set[str] = None,
+        physical_states_for_control_pruning: None | dict[tuple[Plane, Signature], set[PlaquetteState]] = None,
         control_fusion: bool = False,
         cache_mag_evol_circuit: bool = False,
         givens_have_independent_params: bool = False
@@ -599,17 +557,17 @@ class LatticeCircuitManager:
                                internal givens rotation with the maximum
                                optimization level before composing with
                                master_circuit.
-          - physical_states_for_control_pruning: the physical plaquette states, encoded as bit strings
-                                                 with all their controls. The set may hold the states
-                                                 of every plane and signature together, as the encoded
-                                                 result of physical_plaquette_states does. If provided,
-                                                 control pruning of the multi-controlled gates inside
-                                                 the Givens rotations is attempted. The caller need not
-                                                 filter them: for each plane and signature, the step
-                                                 removes duplicate controls (on a periodic axis of
-                                                 length 2) and leaves out states that cannot occur
-                                                 there because their duplicate controls disagree. If
-                                                 None, no control pruning is attempted.
+          - physical_states_for_control_pruning: the physical plaquette states of each plane and
+                                                 signature of the lattice's plaquettes, each state with
+                                                 all its control links, as physical_plaquette_states in
+                                                 ymcirc.conventions returns them. If provided, control
+                                                 pruning of the multi-controlled gates inside the Givens
+                                                 rotations is attempted; the states are encoded for each
+                                                 plane and signature as the matrix elements are. A
+                                                 ValueError is raised if a plane and signature of the
+                                                 lattice's plaquettes is missing, or if the encoder
+                                                 refuses a state. If None, no control pruning is
+                                                 attempted.
           - control_fusion: Optional boolean argument with the default set to False. If it's set
                             to be True, then redundant controls are removed from the Givens rotations
                             of each LP family. LP families are visited in Gray-code order either way.
@@ -649,12 +607,9 @@ class LatticeCircuitManager:
             }
 
         # Plaquettes with the same (plane, signature) share their states for
-        # control pruning, with the duplicate controls (on a periodic axis of
-        # length 2) removed and the states that cannot occur there left out,
-        # so these are prepared once per (plane, signature) rather than once
-        # per plaquette. (The indices of their duplicate controls are looked
-        # up per plaquette: LatticeDef computes them once per lattice.)
-        _pruning_states_cache: dict[tuple[Plane, Signature], set[str] | None] = {}
+        # control pruning, so these are encoded once per (plane, signature)
+        # rather than once per plaquette.
+        encoded_pruning_states: dict[tuple[Plane, Signature], set[str] | None] = {}
 
         # Stitch magnetic Hamiltonian evolution circuit onto LatticeRegisters.
         # Vertex iteration loop.
@@ -701,18 +656,14 @@ class LatticeCircuitManager:
                     plaquette_local_rotation_circuit_template = self._cached_mag_evol_circuits[cache_key]
                 else:
                     logger.info(f"Building magnetic evolution circuit for cache_key={cache_key}.")
-                    if cache_key not in _pruning_states_cache:
-                        _pruning_states_cache[cache_key] = (
-                            self._pruning_states_without_duplicate_controls(
-                                physical_states_for_control_pruning, duplicate_control_indices)
-                            if physical_states_for_control_pruning is not None
-                            else None
-                        )
+                    if cache_key not in encoded_pruning_states:
+                        encoded_pruning_states[cache_key] = self._encoded_pruning_states(
+                            physical_states_for_control_pruning, plaquette_plane, plaquette_signature)
                     plaquette_local_rotation_circuit_template = self._build_mag_evol_circuit(
                         [(bit_string_1, bit_string_2, value) for (bit_string_1, bit_string_2), value
-                         in self._mag_hamiltonian.get(cache_key, {}).items()],
+                         in self._encoded_mag_hamiltonian.get(cache_key, {}).items()],
                         control_fusion,
-                        _pruning_states_cache[cache_key],
+                        encoded_pruning_states[cache_key],
                         coupling_g=Parameter('coupling_g_mag_placeholder'),
                         dt=Parameter('dt_mag_placeholder'),
                         optimize_circuits=optimize_circuits,
@@ -827,32 +778,32 @@ class LatticeCircuitManager:
             case _:
                 raise ValueError(f"Unsupported file type: {filename.suffix}")
 
-    def _pruning_states_without_duplicate_controls(
+    def _encoded_pruning_states(
         self,
-        physical_states_for_control_pruning: set[str],
-        duplicate_control_indices: dict[PlaquetteControlIndices, PlaquetteControlIndices],
+        physical_states_for_control_pruning: None | dict[tuple[Plane, Signature], set[PlaquetteState]],
+        plane: Plane,
+        signature: Signature,
     ) -> set[str] | None:
         """
-        Return the states for control pruning with the controls at duplicate_control_indices removed.
+        Return the states for control pruning of the plaquettes with this plane and signature, encoded.
 
-        duplicate_control_indices maps the indices (PlaquetteControlIndices)
-        of each duplicate control of the plaquettes (on a periodic axis of
-        length 2) to the indices of the earlier control it repeats, as
-        LatticeDef._duplicate_control_indices returns them.
-        A state in which a removed control differs from the control it
-        repeats is not a state of these plaquettes (it can be a state of a
-        plaquette in another plane), and is left out. Returns None if no state
-        is left, so that no control pruning is attempted.
+        Returns None if physical_states_for_control_pruning is None, or if it
+        holds no state for this plane and signature, so that no control
+        pruning is attempted. Raises a ValueError if
+        physical_states_for_control_pruning lacks this plane and signature.
         """
-        if not duplicate_control_indices:
-            return physical_states_for_control_pruning
-        bit_strings_or_none = (
-            self._bit_string_without_duplicate_controls(plaquette_string, duplicate_control_indices)
-            for plaquette_string in physical_states_for_control_pruning
-        )
-        without_duplicates = {bit_string for bit_string in bit_strings_or_none if bit_string is not None}
-        logger.info(f"{len(without_duplicates)} plaquette states for control pruning without duplicate controls.")
-        return without_duplicates or None
+        if physical_states_for_control_pruning is None:
+            return None
+        if (plane, signature) not in physical_states_for_control_pruning:
+            raise ValueError(
+                f"'physical_states_for_control_pruning' has no states for plane {plane} and signature {signature}, "
+                f"which a plaquette of the {type(self).__name__}'s lattice has. Pass the physical plaquette states "
+                "of every plane and signature of the lattice, as physical_plaquette_states returns them.")
+        encoded_states = {
+            self._encoder.encode_plaquette_state_as_bit_string(state, plane, signature)
+            for state in physical_states_for_control_pruning[(plane, signature)]
+        }
+        return encoded_states or None
 
     def _build_mag_evol_circuit(
         self,
@@ -957,39 +908,6 @@ class LatticeCircuitManager:
                 )
 
         return plaquette_local_rotation_circuit
-
-    def _bit_string_without_duplicate_controls(
-            self,
-            plaquette_bit_string: str,
-            duplicate_control_indices: dict[PlaquetteControlIndices, PlaquetteControlIndices],
-    ) -> str | None:
-        """
-        Return plaquette_bit_string with the controls at duplicate_control_indices removed.
-
-        duplicate_control_indices maps the indices (PlaquetteControlIndices)
-        of each control that repeats another control of the plaquette (the
-        same link) to the indices of the control it repeats, as
-        LatticeDef._duplicate_control_indices gives them. Returns None if the bit string gives a removed control a
-        different link state from the control it repeats: no state of the
-        lattice does that.
-        """
-        if not duplicate_control_indices:
-            return plaquette_bit_string
-        vertices, active_links, controls = self._encoder.decode_bit_string_to_plaquette_state(plaquette_bit_string)
-        if any(controls[duplicate_vertex_idx][duplicate_control_idx] != controls[original_vertex_idx][original_control_idx]
-               for (duplicate_vertex_idx, duplicate_control_idx), (original_vertex_idx, original_control_idx)
-               in duplicate_control_indices.items()):
-            return None
-        controls_without_duplicates = tuple(
-            tuple(link for control_idx, link in enumerate(vertex_controls)
-                  if (vertex_idx, control_idx) not in duplicate_control_indices)
-            for vertex_idx, vertex_controls in enumerate(controls)
-        )
-        # controls_without_duplicates has one tuple per vertex, four in all,
-        # as controls does.
-        return self._encoder.encode_plaquette_state_as_bit_string(
-            cast(PlaquetteState, (vertices, active_links, controls_without_duplicates)),
-            override_n_c_links_validation=True)
 
     @staticmethod
     def _rename_registers_strip_prefix(orig_circ: QuantumCircuit, prefix: str) -> QuantumCircuit:

@@ -39,7 +39,7 @@ IRREP_TRUNCATIONS lists which truncations each entry covers. A truncation
 whose set of irreps has no entry needs a link bitmap passed to
 for_truncation.
 
-Each link bitmap is a dictionary which maps length-3 tuples to unique bit strings.
+Each link bitmap is a dictionary which maps 3-tuples to unique bit strings.
 The tuples represent "i-Weights", which are a way of uniquely labeling
 SU(N) irreps which come from working with the Gelfand-Tsetlin pattern calculus.
 See Arne et al for more details (https://doi.org/10.1063/1.3521562).
@@ -59,20 +59,30 @@ There are generically "leftover" states when encoding a particular truncation
 into a set of qubits (i.e. the state space of a link in a particular truncation
 is usually not of dimension 2^n). These are omitted from the link bitmaps.
 
-There is also generically a multiplicity index associated with each lattice vertex
-denoting which singlet state the vertex is in. The multiplicity index is needed because
-there are generically multiple ways to create singlets from link assignments in arbitrary dimension,
-and for arbitrary irrep truncations, there will be complete link assignments
-which yield various "multiplicites" of singlets.
+There is also generically a multiplicity index associated with each lattice
+vertex denoting which singlet state the vertex is in. The multiplicity index is
+needed because there are generically multiple ways to create singlets from link
+assignments in arbitrary dimension, and for arbitrary irrep truncations, there
+will be complete link assignments which yield various "multiplicities" of
+singlets.
 
 ########## Physical plaquette states, and singlet multiplicities ##########
 
 The function physical_plaquette_states(lattice_def, truncation_mode, cutoff)
-returns a list of all the single-plaquette gauge-invariant states of a
-lattice at a truncation, computed by pyclebsch. For example, for a periodic
-d=2 lattice of size 3 at T1:
+returns all the single-plaquette gauge-invariant states of a lattice at a
+truncation, computed by pyclebsch. The states are grouped by the plane and the
+signature of the plaquettes they belong to. A plaquette's signature
+(ymcirc._abstract.Signature, given by Plaquette.signature) lists the half-link
+directions at each of its vertices. It fixes how many control links each vertex
+has, so plaquettes at an open boundary have signatures of their own. On a
+periodic lattice, every plaquette of a plane has the same signature. For
+example, a periodic d=2 lattice of size 3 has one plane and one signature, so
 
 physical_plaquette_states(LatticeDef(2, 3), "T", 1)
+
+returns {((1, 2), ((1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2),
+(1, 2, -1, -2))): states}, with states the set of the plaquette states
+described below.
 
 Each plaquette state takes the form of a tuple of tuples:
 
@@ -82,15 +92,27 @@ plaquette = (
     c_links
 )
 
-The first two elements of plaquette are length-4 tuples consisting of multiplicity integers
-(zero-indexed) and the four "active" link i-Weights for the plaquette state. For example:
+The first two elements of plaquette are 4-tuples consisting of multiplicity
+integers (zero-indexed) and the four "active" link i-Weights for the plaquette
+state. For example:
 
 vertex_multiplicities = (0, 0, 0, 2)
 a_links = (ONE, ONE, THREE, THREE)
 
-The final element of a plaquette is a tuple of per-vertex control link tuples. Each
-inner tuple contains the i-Weights for the control links at that vertex, sorted by
-the FORDER convention. The number of controls per-vertex is 2*(d - 1).
+The final element of a plaquette is a tuple of per-vertex "control" link tuples.
+A vertex's control links are its half-links other than the plaquette's two
+active links there. Each inner tuple contains the i-Weights for the control
+links at that vertex, in the lattice's F-order. On a periodic lattice, each
+vertex has 2*(d - 1) controls. A vertex on an open boundary has one control
+fewer for each half-link it lacks. The plaquette's signature gives the number
+of controls at each vertex.
+
+The names "active" and "control" come from the plaquette operator, a Wilson
+loop in the fundamental representation. The plaquette operator changes the
+states of the four active links only. Which changes satisfy Gauss's law at the
+plaquette's vertices depends on the states of the control links, which the
+plaquette operator leaves unchanged. A plaquette's Givens rotations are
+therefore controlled on the qubits of its control links.
 
 In d=3/2 (1 control per vertex):
 
@@ -104,7 +126,7 @@ c_links = ((c_v1,), (c_v2,), (c_v3,), (c_v4,))
           |            |
  c_v1 --- v1 ----l1--- v2 --- c_v2
 
-In d=2 (2 controls per vertex, with default FORDER [1,2,3,-1,-2,-3]):
+In d=2 (2 controls per vertex, with the default F-order (1, 2, 3, -1, -2, -3)):
 
 c_links = (
     (c_v1_dir-1, c_v1_dir-2),   # v1: dirs (-1, -2)
@@ -127,14 +149,16 @@ For some lattices and truncations (d=3/2 at T1, for example), no vertex has a
 singlet multiplicity greater than one, so every multiplicity index is 0 and
 those data can be ignored; the encoder's vertex bitmap is then empty.
 
-On a periodic axis of length 2, one link can be a control link at two vertices
-of a plaquette. For example, on a periodic d=3/2 lattice of size 2 (2
-plaquettes), the control link of v2 is that of v1, and the control link of v4
-is that of v3. The encoder encodes plaquette states with all their controls.
-ymcirc.circuit's LatticeCircuitManager removes the duplicates from the bit
-strings: a matrix element in which two copies of one link have different link
-states raises a ValueError, and a state for control pruning in which they do is
-left out.
+Some control links of a plaquette repeat another of its control links. The
+encoder leaves these repeats out of the plaquette's bit string. Such repeats
+occur on a periodic axis of length 2, where one link can be a control link at
+two vertices of a plaquette. For example, on a periodic d=3/2 lattice of size
+2 (2 plaquettes), the control link of v2 is that of v1, and the control link
+of v4 is that of v3. Which controls repeat depends on the plaquette's plane as
+well as its signature. Encoding and decoding therefore take both. A plaquette
+state lists all its controls, repeats included. Encoding raises a ValueError
+for a state in which two copies of one link carry different irreps. Decoding
+puts the repeats back.
 
 The matrix elements of the magnetic Hamiltonian between these states are
 computed, for the same lattice and truncation, by
@@ -147,13 +171,11 @@ import logging
 import numpy as np
 from pyclebsch.matrix_elements.lattice_data import SiteMultiplicityIndex
 from pyclebsch.su_n_operators import IrrepWeight
-from ymcirc._abstract import LatticeDef
-from ymcirc._pyclebsch_adapter import (
-    PlaquetteState,
-    physical_plaquette_states,
-)
+from ymcirc._abstract import LatticeDef, Plane, PlaquetteState, Signature
+from ymcirc._abstract.lattice_data import DuplicateControlIndices, PlaquetteControlIndices
+from ymcirc._pyclebsch_adapter import physical_plaquette_states
 
-# IrrepWeight (pyclebsch's), PlaquetteState and physical_plaquette_states
+# IrrepWeight (pyclebsch's) and physical_plaquette_states
 # (ymcirc._pyclebsch_adapter's) are defined elsewhere and available from
 # here.
 __all__ = [
@@ -170,7 +192,6 @@ __all__ = [
     "IrrepBitmap",
     "IrrepWeight",
     "LatticeStateEncoder",
-    "PlaquetteState",
     "VertexMultiplicityBitmap",
     "physical_plaquette_states",
 ]
@@ -178,10 +199,12 @@ __all__ = [
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
 
+# A plaquette's two active links meet at each of its vertices.
+_N_ACTIVE_LINKS_PER_VERTEX = 2
+
 
 # Useful type aliases. IrrepWeight and SiteMultiplicityIndex are pyclebsch's,
-# and PlaquetteState is defined in ymcirc._pyclebsch_adapter, which produces
-# data in that format.
+# and PlaquetteState is defined in ymcirc._abstract.lattice_data.
 type BitString = str
 type IrrepBitmap = dict[IrrepWeight, BitString]
 type VertexMultiplicityBitmap = dict[SiteMultiplicityIndex, BitString]
@@ -249,7 +272,7 @@ def _link_irreps(physical_plaquette_states: list[PlaquetteState]) -> frozenset[I
     return frozenset(
         link
         for _, a_links, c_links in physical_plaquette_states
-        for link in (*a_links, *(c_link for corner in c_links for c_link in corner))
+        for link in (*a_links, *(c_link for vertex in c_links for c_link in vertex))
     )
 
 
@@ -275,7 +298,10 @@ class LatticeStateEncoder:
         - physical_plaquette_states: a list of physical plaquette states.
         - lattice: a ymcirc LatticeDef or child class. This provides information
             about the size of the lattice, boundary conditions, dimensionality, etc.
-            The F-order convention is inherited from lattice.forder.
+            The encoder takes the F-order, the order of the half-links at a
+            vertex, from lattice.forder. Plaquette states list each vertex's
+            control links in that order, and bit strings keep it
+            (encode_plaquette_state_as_bit_string).
 
         The link bitmap is assumed to have unique bit strings as values,
         and the desired link iWeight tuple as keys as keys. A multiplicity bitmap is
@@ -287,12 +313,19 @@ class LatticeStateEncoder:
         Control links in plaquette states use a per-vertex nested format:
         c_links = ((c_at_v1, ...), (c_at_v2, ...), (c_at_v3, ...), (c_at_v4, ...))
 
-        A ValueError is raised if there are inconsistent length bit strings among the values
-        of the link bitmap dictionary, if there are duplicate entries in the
-        list of physical plaquette states, or if an irrep on a link of a
+        A ValueError is raised if there are inconsistent length bit strings among the
+        values of the link bitmap dictionary, if there are duplicate entries in the
+        list of physical plaquette states, if a physical plaquette state has
+        numbers of control links at its vertices that no plaquette of the
+        lattice has, or if an irrep on a link of a
         physical plaquette state has no code in the link bitmap (the error
         names those irreps). The link bitmap may have codes for irreps that
         appear on no link.
+
+        The physical plaquette states of all the lattice's planes and
+        signatures may be passed together. Encoding and decoding take a
+        plaquette's plane and signature, which fix the layout of its bit
+        string (encode_plaquette_state_as_bit_string).
 
         LatticeStateEncoder.for_truncation creates the encoder for a lattice
         at an irrep truncation, using pyclebsch to either compute
@@ -306,13 +339,6 @@ class LatticeStateEncoder:
         link_bitmap_has_unique_values = len(set(bit_string for bit_string in link_bitmap.values())) \
             == len([bit_string for bit_string in link_bitmap.values()])
         plaquette_states_are_unique = len(physical_plaquette_states) == len(set(physical_plaquette_states))
-        # Count total controls across all vertices in the nested format.
-        _count_total_controls = lambda c_links: sum(len(vc) for vc in c_links)
-        first_total_controls = _count_total_controls(physical_plaquette_states[0][2])
-        consistent_num_controls_in_plaquette_states = all(
-            _count_total_controls(plaquette[2]) == first_total_controls
-            for plaquette in physical_plaquette_states
-        )
         if link_bitmap_has_unique_values is False:
             raise ValueError("Argument link_bitmap must be a dict with unique values. "
                              f"Encountered: {link_bitmap}")
@@ -321,8 +347,28 @@ class LatticeStateEncoder:
                              f" with unique values. Encountered: {physical_plaquette_states}.")
         if not isinstance(lattice, LatticeDef):
             raise TypeError(f"The lattice argument must be an instance of {LatticeDef.__name__}. Received: {type(lattice)}.")
-        if consistent_num_controls_in_plaquette_states is not True:
-            raise ValueError("All physical plaquette states must have the same number of controls.")
+        # The duplicate controls of each plane and signature of the lattice's
+        # plaquettes. Its keys are the lattice's planes and signatures.
+        self._duplicate_control_indices_by_plane_and_signature: dict[
+            tuple[Plane, Signature], DuplicateControlIndices
+        ] = {
+            (plane, signature): lattice._duplicate_control_indices(plane, signature)
+            for plane, signature in lattice._planes_and_signatures()
+        }
+        # The constructor's states don't say which signature they belong to, so each
+        # state's numbers of control links at its vertices are checked against those
+        # of every signature of the lattice. Encoding checks a state against its own
+        # signature.
+        n_controls_at_vertices_of_each_lattice_plaquette = {
+            LatticeStateEncoder._n_controls_at_plaquette_vertices(signature)
+            for _, signature in self._duplicate_control_indices_by_plane_and_signature
+        }
+        for plaquette in physical_plaquette_states:
+            _, _, c_links = plaquette
+            if tuple(len(vertex_controls) for vertex_controls in c_links) not in n_controls_at_vertices_of_each_lattice_plaquette:
+                raise ValueError(
+                    f"The plaquette state {plaquette} has a number of control links at its vertices that no plaquette "
+                    f"of {lattice} has. The plaquettes there have {sorted(n_controls_at_vertices_of_each_lattice_plaquette)}.")
         irreps_without_code = _link_irreps(physical_plaquette_states) - link_bitmap.keys()
         if irreps_without_code:
             raise ValueError(
@@ -343,12 +389,6 @@ class LatticeStateEncoder:
                 for multiplicity_index in range(max_zero_indexed_multiplicity + 1)
             }
         self._expected_link_bit_string_length = len(list(link_bitmap.values())[0])
-        n_total_control_links = first_total_controls
-        if not n_total_control_links == lattice.n_control_links_per_plaquette:
-            raise ValueError(f"Expected {lattice.n_control_links_per_plaquette} total plaquette controls from lattice. Encountered a plaquette states with {n_total_control_links} total controls.")
-        self._expected_plaquette_bit_string_length = \
-            (4 * (self._expected_vertex_bit_string_length + self._expected_link_bit_string_length)) \
-            + (n_total_control_links * self._expected_link_bit_string_length)
 
         # Check all bitmaps for consistency of length of bit string encodings.
         if any(len(bit_string) != self._expected_vertex_bit_string_length for bit_string in vertex_bitmap.values()):
@@ -413,7 +453,8 @@ class LatticeStateEncoder:
              on the provided lattice with the given truncation_mode and cutoff.
              The irrep(s) missing from link_bitmap appear(s) in the error message.
         """
-        states = physical_plaquette_states(lattice, truncation_mode, cutoff)
+        # The states of every plane and signature together, each state once.
+        states = list(set().union(*physical_plaquette_states(lattice, truncation_mode, cutoff).values()))
         if link_bitmap is None:
             link_irreps = _link_irreps(states)
             if link_irreps not in IRREP_TRUNCATIONS:
@@ -464,11 +505,6 @@ class LatticeStateEncoder:
     def link_bitmap(self) -> IrrepBitmap:
         """Return a copy of the link_bitmap in use."""
         return copy.deepcopy(self._link_bitmap)
-
-    @property
-    def expected_plaquette_bit_string_length(self) -> int:
-        """Return the length of plaquette bit strings the encoder expects."""
-        return self._expected_plaquette_bit_string_length
 
     @property
     def expected_link_bit_string_length(self) -> int:
@@ -527,18 +563,33 @@ class LatticeStateEncoder:
 
     def encode_plaquette_state_as_bit_string(
             self,
-            plaquette: PlaquetteState,
-            override_n_c_links_validation: bool = False
+            plaquette_state: PlaquetteState,
+            plane: Plane,
+            signature: Signature,
     ) -> str:
         """
-        Convert plaquette to a bit string encoding.
+        Encode plaquette_state, a state of a plaquette with this plane and signature, as a bit string.
 
-        Plaquette states take the form of a length-3 tuple. The first element of
-        this tuple is a length-4 tuple of integers representing multiplicity indices
-        associated to each vertex. The second element is a length-4 tuple of
-        i-weights which label irreps on the "active" links of the plaquette.
-        The third element is a tuple of 4 per-vertex control tuples, each containing
-        the i-weights for the control links at that vertex sorted by FORDER.
+        Plaquette states take the form of a 3-tuple. The first element of
+        this tuple is a 4-tuple of integers representing multiplicity indices
+        associated to each vertex. The second element is a 4-tuple of
+        i-weights which label irreps on the active links of the plaquette.
+        The third element is a 4-tuple of per-vertex control tuples. Each lists
+        the i-weights of the control links at that vertex in the F-order of
+        the encoder's lattice (self.lattice_def.forder), as pyclebsch's
+        states do. The encoder writes the controls into the bit string in the
+        order given. It cannot check that order, so the caller must list them
+        in the F-order of the encoder's lattice (see PlaquetteState in
+        ymcirc._abstract). The F-order also fixes the order of half-links in
+        the signature and the positions of the duplicate controls.
+
+        The signature (Plaquette.signature) fixes the number of control links
+        at each vertex. On a periodic axis of length 2, one link can be a
+        control link at two vertices of a plaquette, depending on the plane as
+        well as the signature (LatticeDef._duplicate_control_indices).
+        plaquette_state gives every control at every vertex, duplicates
+        included. The bit string keeps the first instance of each link and
+        leaves out the duplicates.
 
         Assumes the ordering convention:
 
@@ -564,26 +615,36 @@ class LatticeStateEncoder:
 
         in a bit string instead.
 
-        Finally, if the argument override_n_c_links_validation is True, then no validation on the total
-        number of control links will be performed. This is useful (for example) for a plaquette state
-        whose duplicate controls have been removed: on a periodic axis of length 2, one link can be a
-        control link at two vertices of a plaquette.
+        Raises a ValueError if the lattice has no plaquette with this plane
+        and signature, if a vertex of plaquette_state has a different number of
+        control links from the one the signature gives, or if a duplicate
+        control carries a different irrep from the control it repeats (no
+        state of the lattice does that).
         """
-        if len(plaquette) != 3:
+        if len(plaquette_state) != 3:
             raise ValueError(
                 "Plaquette states should be a tuple of three tuples corresponding to vertices, active links, and control links."
-                f" Encountered a plaquette with len(plaquette) = {len(plaquette)}.")
+                f" Encountered a plaquette state with len(plaquette_state) = {len(plaquette_state)}.")
 
-        vertices = plaquette[0]
-        a_links = plaquette[1]
-        c_links = plaquette[2]
+        vertices, a_links, c_links = plaquette_state
         if len(vertices) != 4:
             raise ValueError(f"Encountered {len(vertices)} vertex multiplicities instead of 4.")
         if len(a_links) != 4:
             raise ValueError(f"Encountered {len(a_links)} active links instead of 4.")
-        total_c_links = sum(len(vc) for vc in c_links)
-        if total_c_links != self._lattice.n_control_links_per_plaquette and (override_n_c_links_validation is False):
-            raise ValueError(f"Encountered {total_c_links} control links instead of {self._lattice.n_control_links_per_plaquette}.")
+        duplicate_control_indices = self._duplicate_control_indices(plane, signature)
+        n_controls_at_plaquette_vertices = LatticeStateEncoder._n_controls_at_plaquette_vertices(signature)
+        if tuple(len(vertex_controls) for vertex_controls in c_links) != n_controls_at_plaquette_vertices:
+            raise ValueError(
+                f"The plaquette state {plaquette_state} has {tuple(len(vertex_controls) for vertex_controls in c_links)} "
+                f"control links at its vertices; plaquettes in plane {plane} with signature {signature} have "
+                f"{n_controls_at_plaquette_vertices}.")
+        for (duplicate_vertex_idx, duplicate_control_idx), (original_vertex_idx, original_control_idx) \
+                in duplicate_control_indices.items():
+            if c_links[duplicate_vertex_idx][duplicate_control_idx] != c_links[original_vertex_idx][original_control_idx]:
+                raise ValueError(
+                    f"In the plaquette state {plaquette_state}, the control link at vertex {duplicate_vertex_idx + 1}, "
+                    f"position {duplicate_control_idx}, is the same link as that at vertex {original_vertex_idx + 1}, "
+                    f"position {original_control_idx}, in plane {plane}, but carries a different irrep.")
 
         bit_string_encoding = ""
 
@@ -595,24 +656,35 @@ class LatticeStateEncoder:
         for a_link in a_links:
             if not (len(a_link) == 3 and all(isinstance(elem, int) for elem in a_link)):
                 raise ValueError("Link data must take the form of an SU(3) i-Weight. "
-                                 "They should be length-3 tuples of ints. "
+                                 "They should be 3-tuples of ints. "
                                  f"Encountered:\n{a_link}.")
             bit_string_encoding += self._link_bitmap[a_link]
-        for vertex_controls in c_links:
-            for c_link in vertex_controls:
+        for vertex_idx, vertex_controls in enumerate(c_links):
+            for control_idx, c_link in enumerate(vertex_controls):
                 if not (len(c_link) == 3 and all(isinstance(elem, int) for elem in c_link)):
                     raise ValueError("Link data must take the form of an SU(3) i-Weight. "
-                                     "They should be length-3 tuples of ints. "
+                                     "They should be 3-tuples of ints. "
                                      f"Encountered:\n{c_link}.")
+                if (vertex_idx, control_idx) in duplicate_control_indices:
+                    continue
                 bit_string_encoding += self._link_bitmap[c_link]
 
         logging.debug(f"Extracted plaquette data. Proceeding to encode.")
 
         return bit_string_encoding
 
-    def decode_bit_string_to_plaquette_state(self, bit_string: str) -> PlaquetteState:
+    def decode_bit_string_to_plaquette_state(self, bit_string: str, plane: Plane, signature: Signature) -> PlaquetteState:
         """
-        Decode bit string to a plaquette state in terms of iWeights.
+        Decode bit_string, the encoding of a state of a plaquette with this plane and signature, as a plaquette state.
+
+        bit_string must have been encoded by an encoder that matches this
+        one: the same lattice, F-order included, the same link bitmap and the
+        same vertex bitmap. Such an encoder is, for example, the one used to
+        build the circuit that measured bit_string. The decoder cannot check
+        this. Decoding saved measurement results, for example, with an
+        encoder rebuilt with a different F-order or link bitmap reads each
+        bit string as a different state, with no error unless the lengths
+        differ.
 
         State ordering convention starts at bottom left vertex and goes
 
@@ -628,22 +700,28 @@ class LatticeStateEncoder:
         |            |
         v1 ----l1--- v2
 
-        The controls are grouped per-vertex, with each vertex's controls sorted
-        by FORDER. If unable to decode to physical state data, returns None for
-        that degree of freedom.
+        The controls are grouped per vertex, each vertex's in the F-order of
+        the encoder's lattice (self.lattice_def.forder), the order in which
+        encode_plaquette_state_as_bit_string writes them. If unable to decode
+        to physical state data, returns None for that degree of freedom. If
+        the encoder has no vertex bits, every multiplicity index is returned
+        as None.
 
-        Raises NotImplementedError if the lattice does not use periodic boundary
-        conditions, since decoding logic for nonperiodic lattices is not yet
-        implemented.
+        This is the inverse of encode_plaquette_state_as_bit_string. Controls
+        that the bit string leaves out because they repeat an earlier control
+        of the plaquette (on a periodic axis of length 2) are put back, with
+        the irrep of the control they repeat.
+
+        Raises a ValueError if the lattice has no plaquette with this plane
+        and signature, or if bit_string does not have the length of a state
+        of those plaquettes.
         """
-        if not self._lattice.periodic_boundary_conds:
-            raise NotImplementedError(
-                "Decoding plaquette states for nonperiodic lattices is not yet supported."
-            )
-        # Validate input.
-        if self._expected_plaquette_bit_string_length != len(bit_string):
-            raise ValueError("Vertex and link bitmaps are inconsistent with length of\n"
-                             f"bit string {bit_string}. Expected n_bits: {self._expected_plaquette_bit_string_length}; encountered n_bits: {len(bit_string)}.")
+        duplicate_control_indices = self._duplicate_control_indices(plane, signature)
+        n_controls_at_plaquette_vertices = LatticeStateEncoder._n_controls_at_plaquette_vertices(signature)
+        expected_length = self._plaquette_bit_string_length(plane, signature)
+        if len(bit_string) != expected_length:
+            raise ValueError(f"The bit string {bit_string} has length {len(bit_string)}; states of plaquettes in "
+                             f"plane {plane} with signature {signature} have length {expected_length}.")
 
         # Parse input into vertex, active link, and control link substrings.
         idx_first_a_link_bit = 4 * self._expected_vertex_bit_string_length
@@ -664,17 +742,31 @@ class LatticeStateEncoder:
                 a_links_substring, self._expected_link_bit_string_length)
         )
 
-        # Decode control links and group into per-vertex tuples.
-        decoded_c_links_flat = [
+        # Decode control links, then put back the duplicates the bit string
+        # leaves out, and group the controls per vertex.
+        decoded_c_links_in_bit_string = [
             self.decode_bit_string_to_link_state(encoded_link) for encoded_link in
             LatticeStateEncoder._split_string_evenly(
                 c_links_substring, self._expected_link_bit_string_length)
         ]
-        # Number of controls per vertex for periodic lattices.
-        n_controls_per_vertex = int(2 * (self._lattice.dim - 1))
+        # Every control link of the plaquette, as (vertex index, control index), in
+        # the order of the bit string.
+        control_indices: list[PlaquetteControlIndices] = [
+            (vertex_idx, control_idx)
+            for vertex_idx, n_controls in enumerate(n_controls_at_plaquette_vertices)
+            for control_idx in range(n_controls)
+        ]
+        # The bit string holds the controls that are not duplicates, in this order.
+        non_duplicate_control_indices = [
+            indices for indices in control_indices if indices not in duplicate_control_indices]
+        control_link_irreps: dict[PlaquetteControlIndices, IrrepWeight | None] = dict(
+            zip(non_duplicate_control_indices, decoded_c_links_in_bit_string, strict=True))
+        # Each duplicate is the same link as the control it repeats.
+        for duplicate, original in duplicate_control_indices.items():
+            control_link_irreps[duplicate] = control_link_irreps[original]
         decoded_c_links = tuple(
-            tuple(decoded_c_links_flat[i:i + n_controls_per_vertex])
-            for i in range(0, len(decoded_c_links_flat), n_controls_per_vertex)
+            tuple(control_link_irreps[(vertex_idx, control_idx)] for control_idx in range(n_controls))
+            for vertex_idx, n_controls in enumerate(n_controls_at_plaquette_vertices)
         )
 
         decoded_plaquette = (
@@ -684,6 +776,41 @@ class LatticeStateEncoder:
         )
 
         return decoded_plaquette
+
+    def _duplicate_control_indices(
+            self, plane: Plane, signature: Signature
+    ) -> DuplicateControlIndices:
+        """
+        The duplicate controls of the plaquettes with this plane and signature, as LatticeDef._duplicate_control_indices gives them.
+
+        Raises a ValueError if the lattice has no plaquette with this plane
+        and signature.
+        """
+        try:
+            return self._duplicate_control_indices_by_plane_and_signature[(plane, signature)]
+        except KeyError:
+            raise ValueError(
+                f"The lattice {self._lattice} has no plaquette in plane {plane} with signature {signature}."
+            ) from None
+
+    @staticmethod
+    def _n_controls_at_plaquette_vertices(signature: Signature) -> tuple[int, int, int, int]:
+        """
+        The number of control links at each vertex of a plaquette with this signature.
+
+        A vertex's control links are its half-links other than its active links.
+        """
+        v1, v2, v3, v4 = signature
+        return (len(v1) - _N_ACTIVE_LINKS_PER_VERTEX, len(v2) - _N_ACTIVE_LINKS_PER_VERTEX,
+                len(v3) - _N_ACTIVE_LINKS_PER_VERTEX, len(v4) - _N_ACTIVE_LINKS_PER_VERTEX)
+
+    def _plaquette_bit_string_length(self, plane: Plane, signature: Signature) -> int:
+        """The length of the bit strings of states of the plaquettes with this plane and signature."""
+        duplicate_control_indices = self._duplicate_control_indices(plane, signature)
+        n_controls_at_plaquette_vertices = LatticeStateEncoder._n_controls_at_plaquette_vertices(signature)
+        n_controls_in_bit_string = sum(n_controls_at_plaquette_vertices) - len(duplicate_control_indices)
+        return (4 * (self._expected_vertex_bit_string_length + self._expected_link_bit_string_length)
+                + n_controls_in_bit_string * self._expected_link_bit_string_length)
 
     @staticmethod
     def _split_string_evenly(string, split_length) -> list[str]:

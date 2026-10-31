@@ -6,7 +6,7 @@ plaquettes; d=2; or d=3), its length along each axis, its boundary
 conditions, and its F-order, the order of the half-links at a site.
 LatticeDef takes from pyclebsch's LatticeDef
 (https://github.com/hepqis-uiuc/pyclebsch) which sites, links and plaquettes
-exist, each plaquette's signature (the half-links at its corners), and which
+exist, each plaquette's signature (the half-links at its vertices), and which
 of a plaquette's control links repeat another of its control links. pyclebsch
 also computes, on that same lattice, the physical plaquette states and matrix
 elements ymcirc uses. Only LatticeDef.get_traversal_order orders the sites and links,
@@ -30,12 +30,15 @@ from collections.abc import Iterable, Sequence
 from pyclebsch.matrix_elements.lattice_data import (
     LatticeDef as PyclebschLatticeDef,
     LinkDirection,
+    SiteControlLinks,
+    SiteMultiplicityIndex,
     compute_plaquette_signature,
     plaquettes_by_signature,
 )
 from pyclebsch.matrix_elements.lattice_data import (
     Plane as PyclebschPlane,
 )
+from pyclebsch.su_n_operators import IrrepWeight
 
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
@@ -52,14 +55,44 @@ type DimensionalitySpecifier = int | float | str  # Allows specification of d = 
 type Plane = tuple[int, int]
 # A signature holds, for each of a plaquette's 4 vertices (counter-clockwise
 # from its bottom-left vertex), the directions of ALL the half-links at that
-# vertex (both active and control links), sorted by FORDER. It is the second
+# vertex (both active and control links), in the lattice's F-order. It is the second
 # element of pyclebsch's PlaquetteSignature, whose first element is the plane.
-# The magnetic Hamiltonian's matrix elements (ymcirc.circuit.HamiltonianData)
+# The magnetic Hamiltonian's matrix elements (PlaquetteMatrixElements, below)
 # are keyed by plane and signature. ymcirc's Plaquette.signature takes each
 # plaquette's signature from pyclebsch, which groups the matrix elements by
 # the same signature, so a plaquette's plane and signature look up its
 # matrix elements.
 type Signature = tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...], tuple[int, ...]]
+# A plaquette state holds the singlet multiplicity indices at the plaquette's 4
+# vertices, the irreps on its 4 active links, and, for each vertex, the irreps
+# on its control links in the lattice's F-order. A state does not record the
+# directions of its control links. Code that takes states therefore relies on
+# this order and cannot check it. A state listed in another F-order is read as
+# a different state. Every control link is listed, including one that repeats
+# another control of the plaquette on a periodic axis of length 2. The module
+# docstring of ymcirc.conventions describes the format, with diagrams. The
+# multiplicity indices are None in a state decoded by an encoder that has no
+# vertex bits.
+type PlaquetteState = (
+    tuple[
+        tuple[SiteMultiplicityIndex, SiteMultiplicityIndex, SiteMultiplicityIndex, SiteMultiplicityIndex],
+        tuple[IrrepWeight, IrrepWeight, IrrepWeight, IrrepWeight],
+        tuple[SiteControlLinks, SiteControlLinks, SiteControlLinks, SiteControlLinks],
+    ]
+    | tuple[
+        tuple[None, None, None, None],
+        tuple[IrrepWeight, IrrepWeight, IrrepWeight, IrrepWeight],
+        tuple[SiteControlLinks, SiteControlLinks, SiteControlLinks, SiteControlLinks],
+    ]
+)
+# Matrix elements between plaquette states, as
+# box_plus_box_dagger_matrix_elements in ymcirc._pyclebsch_adapter returns
+# them and ymcirc.circuit's LatticeCircuitManager takes them. For each plane
+# and plaquette signature, a dict from pairs of plaquette states to the
+# matrix element between them.
+type PlaquetteMatrixElements = dict[
+    tuple[Plane, Signature], dict[tuple[PlaquetteState, PlaquetteState], float]
+]
 # The indices that locate a control link in a plaquette, as pyclebsch's
 # PlaquetteGeometry does: (vertex index, control index). The vertex index
 # (0-3) counts the plaquette's vertices counter-clockwise from the
@@ -68,6 +101,15 @@ type Signature = tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...], tuple[
 # the control index is the link's place in that vertex's list. For example,
 # (1, 0) is the first control link of the second vertex.
 type PlaquetteControlIndices = tuple[int, int]
+# The control links of a plaquette that repeat an earlier control link of the
+# plaquette, on a periodic axis of length 2. Each key gives the indices of a
+# repeat. Its value gives the indices of the link's first occurrence, which a
+# plaquette's bit string keeps and the repeat's position leaves out. For
+# example, on a periodic d=3/2 lattice of size 2 it is
+# {(1, 0): (0, 0), (3, 0): (2, 0)}. The first control of the second vertex is
+# the first control of the first vertex. The first control of the fourth
+# vertex is the first control of the third vertex.
+type DuplicateControlIndices = dict[PlaquetteControlIndices, PlaquetteControlIndices]
 
 # Constants
 VERTICAL_DIR_LABEL: int = 2
@@ -100,20 +142,20 @@ def _pyclebsch_lattice(
 
 @cache
 def _duplicate_control_indices_by_plane_and_signature(
-        lattice: PyclebschLatticeDef) -> dict[tuple[Plane, Signature], dict[PlaquetteControlIndices, PlaquetteControlIndices]]:
+        lattice: PyclebschLatticeDef) -> dict[tuple[Plane, Signature], DuplicateControlIndices]:
     """
     LatticeDef._duplicate_control_indices for every plane and signature of a pyclebsch LatticeDef.
 
     Computed once per lattice. Callers must not modify the result.
     """
-    result: dict[tuple[Plane, Signature], dict[PlaquetteControlIndices, PlaquetteControlIndices]] = {}
+    result: dict[tuple[Plane, Signature], DuplicateControlIndices] = {}
     for (plane, site_half_links), plaquette_addresses in plaquettes_by_signature(lattice).items():
         # Plaquettes with the same signature repeat their controls in the same
         # way (plaquettes_by_signature explains why), so the first stands for
         # all.
         geometry = lattice.plaquettes[plaquette_addresses[0]]
         original_indices_of_link = {}
-        duplicates: dict[PlaquetteControlIndices, PlaquetteControlIndices] = {}
+        duplicates: DuplicateControlIndices = {}
         for vertex_idx, (control_links, unique) in enumerate(zip(geometry.control_links, geometry.unique_controls)):
             for control_idx, link in enumerate(control_links):
                 if control_idx in unique:
@@ -161,9 +203,9 @@ class Plaquette(Generic[T]):
 
      Attributes:
         active_links (tuple):
-            Retrieve a length-4 tuple of the CCW-ordered data on the links in the Plaquette.
+            Retrieve a 4-tuple of the CCW-ordered data on the links in the Plaquette.
         vertices (tuple):
-            Retrieve a length-4 tuple of the CCW-ordered data on the vertices in the Plaquette.
+            Retrieve a 4-tuple of the CCW-ordered data on the vertices in the Plaquette.
         control_links (dict):
             Retrieve a nested dictionary with four entries. The key of each entry is one of the four
             vertex labels in the Plaquette, and the entry is a dict whose keys are  all the link labels
@@ -171,7 +213,7 @@ class Plaquette(Generic[T]):
         bottom_left_vertex (LatticeVector):
             Retrieve the lattice coordinate of the "v1" vertex in the plaquette.
         plane (tuple[int, int]):
-            Retrieve a length-2 tuple of lattice unit vectors defining the plane of the lattice.
+            Retrieve a 2-tuple of lattice unit vectors defining the plane of the lattice.
     """
 
     def __init__(
@@ -244,11 +286,11 @@ class Plaquette(Generic[T]):
 
     @property
     def control_links_per_vertex(self) -> tuple[tuple[T, ...], ...]:
-        """Retrieve control link data grouped by vertex in FORDER-sorted order.
+        """Retrieve control link data grouped by vertex, each vertex's in the lattice's F-order.
 
-        Returns a tuple of 4 tuples, one per vertex (CCW from bottom-left).
+        Returns a 4-tuple of tuples, one per vertex (CCW from bottom-left).
         Each inner tuple contains the control link data at that vertex,
-        sorted by the FORDER convention.
+        sorted by the lattice's F-order.
         """
         forder = self._lattice.forder
         result = []
@@ -261,7 +303,7 @@ class Plaquette(Generic[T]):
 
     @property
     def control_links_ordered(self) -> tuple[T, ...]:
-        """Retrieve control links as a flat tuple in FORDER-sorted, vertex-by-vertex order.
+        """Retrieve control links as a flat tuple, vertex by vertex, each vertex's in the lattice's F-order.
 
         Control links are ordered by iterating over vertices counter-clockwise
         starting from the bottom-left vertex. Within each vertex, control links
@@ -281,7 +323,7 @@ class Plaquette(Generic[T]):
         For each of the 4 plaquette vertices, a tuple of ALL existing
         half-link directions at that vertex (both active and control), sorted
         by their position in the lattice's F-order. The magnetic Hamiltonian's
-        matrix elements (ymcirc.circuit.HamiltonianData) are keyed by plane
+        matrix elements (ymcirc._abstract.PlaquetteMatrixElements) are keyed by plane
         and signature, so the plaquette's matrix elements are found under its
         plane and this signature.
 
@@ -296,7 +338,7 @@ class Plaquette(Generic[T]):
 
     @property
     def control_link_dirs_per_vertex(self) -> tuple[tuple[int, ...], ...]:
-        """Per-vertex control link directions sorted by FORDER.
+        """Per-vertex control link directions sorted by the lattice's F-order.
 
         For each of the 4 plaquette vertices, returns a tuple of the
         non-active link directions that exist at that vertex, sorted
@@ -549,7 +591,7 @@ class LatticeDef:
             for plane, site_half_links in plaquettes_by_signature(self._pyclebsch_lattice)
         )
 
-    def _duplicate_control_indices(self, plane: Plane, signature: Signature) -> dict[PlaquetteControlIndices, PlaquetteControlIndices]:
+    def _duplicate_control_indices(self, plane: Plane, signature: Signature) -> DuplicateControlIndices:
         """
         Where the plaquettes with this plane and signature repeat a control link.
 
@@ -557,9 +599,8 @@ class LatticeDef:
         vertices of a plaquette. For each vertex of a plaquette, pyclebsch's
         PlaquetteGeometry.unique_controls gives the controls that no earlier
         vertex has; every control it leaves out is a duplicate, the same
-        link as a control of an earlier vertex. This returns a dict that
-        maps the indices (PlaquetteControlIndices) of each duplicate to the
-        indices of the earlier control it repeats. Plaquettes with the same
+        link as a control of an earlier vertex. Returns the duplicates as a
+        DuplicateControlIndices. Plaquettes with the same
         plane and signature repeat their controls in the same way
         (pyclebsch.matrix_elements.lattice_data.plaquettes_by_signature
         explains why), so one plaquette of them stands for all.
@@ -613,21 +654,6 @@ class LatticeDef:
     def n_links(self) -> int:
         """Retrieve the total number of unique links in the entire lattice."""
         return len(self.link_addresses)
-
-    @property
-    def n_control_links_per_plaquette(self) -> int:
-        """
-        Retrieve the total number of control links per plaquette.
-
-        Note that on a periodic axis of length 2, one link can be a control
-        link at two vertices of a plaquette, so this number is NOT
-        necessarily the number of distinct links controlling a plaquette.
-        """
-        if self.all_boundary_conds_periodic is False:
-            raise NotImplementedError("Only periodic boundary conditions have been implemented.")
-        else:
-            n_controls_per_vertex = int(2 * (self.dim - 1))
-            return 4 * n_controls_per_vertex
 
     @property
     def vertex_addresses(self) -> list[LatticeVector]:
@@ -685,7 +711,7 @@ class LatticeDef:
 
     @property
     def forder(self) -> tuple[int, ...]:
-        """Return the half-link ordering convention (FORDER), a tuple of the six directions."""
+        """Return the F-order (the order of the half-links at a vertex), a tuple of the six directions."""
         return self._forder
 
     def add_unit_vector_to_vertex_vector(self, vertex_vector: LatticeVector, unit_vec_dir: int):

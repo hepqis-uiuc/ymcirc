@@ -871,7 +871,7 @@ def test_control_link_registers_have_correct_ordering_d_3():
         are active links are (+e1, +e2) at v1, (-e1, +e2) at v2,
         (-e1, -e2) at v3 and (+e1, -e2) at v4.
       - The controls at a vertex are its other four half-links, sorted
-        by the default FORDER [1, 2, 3, -1, -2, -3]. The controls of v1
+        by the default F-order (1, 2, 3, -1, -2, -3). The controls of v1
         come first, then those of v2, v3 and v4.
     """
     print("Checking that the ordering of control link registers matches expectations in d=3.\n")

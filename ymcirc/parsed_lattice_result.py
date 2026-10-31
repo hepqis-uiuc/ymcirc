@@ -38,6 +38,22 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
     information about how to map bit substrings corresponding to local degrees of
     freedom onto physically meaningful irrep data.
 
+    The encoder must match the one used to build the circuit that produced the
+    bit strings: the same lattice, F-order included, the same link bitmap and
+    the same vertex bitmap. ParsedLatticeResult cannot check this. Parsing
+    saved measurement results with an encoder rebuilt with a different link
+    bitmap, for example, reads each link as a different irrep, with no error
+    unless the lengths differ.
+
+    A different F-order is also a source of silent error. For bit strings of
+    the whole lattice, each link's irrep is unaffected, but get_plaquettes
+    lists each vertex's control links in the F-order of the encoder's
+    lattice. Read in another F-order, those plaquette states are different
+    states (see PlaquetteState in ymcirc._abstract). For a plaquette measured
+    on its own (from_partial_measurement), the F-order decides which link
+    each bit belongs to, so a different F-order assigns irreps to the wrong
+    links.
+
     Note that this class assumes NO ancilla qubits are included in measurement
     strings!
     """
@@ -338,7 +354,11 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         encountered, a ValueError will be raised.
 
         For plaquette measurements, the bitstring follows the plaquette encoding
-        convention: |v1 v2 v3 v4 l1 l2 l3 l4 c1... c2... c3... c4...>.
+        convention: |v1 v2 v3 v4 l1 l2 l3 l4 c1... c2... c3... c4...>. As in
+        measure_plaquette of ymcirc.circuit.LatticeCircuitManager, a control
+        link that is the same link as an earlier control of the plaquette (on
+        a periodic axis of length 2) appears once, at the earlier control
+        (LatticeStateEncoder.encode_plaquette_state_as_bit_string).
 
         Unmeasured degrees of freedom return None (decoded) or "X"-padded
         strings (undecoded bitstring).
@@ -381,8 +401,13 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
                 bottom_left_vertex = tuple(addr[0])
                 e1, e2 = addr[1], addr[2]
 
-                # Decode the full plaquette bitstring.
-                decoded_plaq = encoder.decode_bit_string_to_plaquette_state(bitstring)
+                # Decode the full plaquette bitstring, which leaves out the
+                # controls that repeat an earlier control of the plaquette (on
+                # a periodic axis of length 2), as measure_plaquette does.
+                plane = (e1, e2)
+                signature = lattice_def._plaquette_signature(bottom_left_vertex, plane)
+                duplicate_control_indices = lattice_def._duplicate_control_indices(plane, signature)
+                decoded_plaq = encoder.decode_bit_string_to_plaquette_state(bitstring, plane, signature)
                 vertex_mults, a_links, c_links = decoded_plaq
 
                 # Compute plaquette vertex and link addresses.
@@ -427,7 +452,11 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
                 _temp_plaq = _temp_lattice.get_plaquettes(bottom_left_vertex, e1, e2)
                 control_link_dirs = _temp_plaq.control_link_dirs_per_vertex
                 for vertex_idx, v_addr in enumerate(vertex_addrs):
-                    for link_dir in control_link_dirs[vertex_idx]:
+                    for control_idx, link_dir in enumerate(control_link_dirs[vertex_idx]):
+                        # A duplicate is the link of an earlier control, read
+                        # from the bit string already.
+                        if (vertex_idx, control_idx) in duplicate_control_indices:
+                            continue
                         c_link_addr = (v_addr, link_dir)
                         normalized = instance._normalize_link_address(c_link_addr)
                         c_bits = bitstring[plaq_bits_idx:plaq_bits_idx + link_len]

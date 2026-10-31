@@ -1,24 +1,43 @@
 import pytest
-from ymcirc._abstract import LatticeDef
+from ymcirc._abstract import LatticeDef, PlaquetteState, Signature
 from ymcirc.conventions import (
     ONE, THREE,
     THREE_BAR, SIX, SIX_BAR, EIGHT,
     LatticeStateEncoder, physical_plaquette_states,
-    IrrepBitmap, PlaquetteState, FIFTEEN, FIFTEEN_BAR
+    IrrepBitmap, FIFTEEN, FIFTEEN_BAR
 )
 from ymcirc._pyclebsch_adapter import (
-    N_COLORS, box_terms, plaq_state_pyclebsch_to_ymcirc_format, plaq_state_ymcirc_to_pyclebsch_format
+    N_COLORS, box_plus_box_dagger_matrix_elements, plaq_state_pyclebsch_to_ymcirc_format, plaq_state_ymcirc_to_pyclebsch_format
 )
 from pyclebsch.matrix_elements.lattice_data import (
     LatticeDef as PyclebschLatticeDef, physical_plaquette_states_by_signature
 )
 
-# The link bitmaps that ymcirc used for the truncations its data files
+# The link bitmaps that ymcirc used for the truncations its former data files
 # covered, under the names "T1", "T2" and "B10_d=3/2" before the bitmaps were
 # keyed by sets of irreps.
 _T1_LINK_BITMAP = {ONE: "00", THREE: "10", THREE_BAR: "01"}
 _T2_LINK_BITMAP = {ONE: "000", THREE: "100", THREE_BAR: "001", SIX: "110", SIX_BAR: "011", EIGHT: "111"}
 _B10_LINK_BITMAP = _T2_LINK_BITMAP | {FIFTEEN: "101", FIFTEEN_BAR: "010"}
+
+# Signatures written out by hand. A signature lists the half-link
+# directions at each vertex of a plaquette (v1, v2, v3, v4), sorted by the
+# default F-order (1, 2, 3, -1, -2, -3).
+# d=3, periodic: every vertex has all six half-links, in every plane.
+_SIG_D3_PERIODIC: Signature = (
+    (1, 2, 3, -1, -2, -3), (1, 2, 3, -1, -2, -3), (1, 2, 3, -1, -2, -3), (1, 2, 3, -1, -2, -3))
+# d=3/2, periodic: v1 and v2 have no -2 half-link, v3 and v4 no +2.
+_SIG_D3_2_PERIODIC: Signature = ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
+# d=2, periodic.
+_SIG_D2_PERIODIC: Signature = ((1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2))
+# d=2 2x2 open: each vertex has only the half-links of the plaquette's two
+# active links there.
+_SIG_D2_2X2_OPEN: Signature = ((1, 2), (2, -1), (-1, -2), (1, -2))
+
+
+def _all_physical_plaquette_states(lattice: LatticeDef, truncation_mode: str, cutoff: int) -> list[PlaquetteState]:
+    """The physical plaquette states of every plane and signature of lattice together, each state once."""
+    return list(set().union(*physical_plaquette_states(lattice, truncation_mode, cutoff).values()))
 
 
 def test_lattice_encoder_type_error_for_bad_lattice_arg():
@@ -81,7 +100,6 @@ def test_lattice_encoder_fails_if_plaquette_states_have_wrong_number_of_controls
         )
     ]
     lattice_d_2 = LatticeDef(2, 3)
-    assert lattice_d_2.n_control_links_per_plaquette == 8
 
     with pytest.raises(ValueError):
         LatticeStateEncoder(link_bitmap, physical_states, lattice_d_2)
@@ -309,9 +327,10 @@ def test_lattice_encoder_infers_correct_vertex_bitmaps():
     assert lattice_encoder.vertex_bitmap == expected_vertex_bitmap, f"Actual vertex bitmap = {lattice_encoder.vertex_bitmap}"
 
 
-def test_lattice_encoder_infers_correct_plaquette_length():
+def test_lattice_encoder_encodes_plaquettes_at_correct_length():
     print(
-        "Check that LatticeStateEncoder correctly infers the number of qubits per plaquette."
+        "Check that LatticeStateEncoder encodes plaquette states with the right number of qubits, "
+        "on periodic lattices of size 3, where no control repeats another."
     )
     expected_num_controls_dict = {
         "d=3/2": 1*4,
@@ -351,8 +370,8 @@ def test_lattice_encoder_infers_correct_plaquette_length():
           f"plaquette states =\n\t{plaquette_states_str_rep}\n"
           f"expected num plaquette qubits = {expected_qubits_per_plaquette}\n")
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_d_3_2)
-    assert lattice_encoder.expected_plaquette_bit_string_length == expected_qubits_per_plaquette, \
-        f"Wrong actual plaquette qubit count inferred: {lattice_encoder.expected_plaquette_bit_string_length}"
+    encoded_length = len(lattice_encoder.encode_plaquette_state_as_bit_string(physical_states[0], (1, 2), _SIG_D3_2_PERIODIC))
+    assert encoded_length == expected_qubits_per_plaquette, f"Wrong plaquette bit string length: {encoded_length}"
 
     # Case: d=3/2, nontrivial multiplicities
     physical_states = [
@@ -396,8 +415,8 @@ def test_lattice_encoder_infers_correct_plaquette_length():
           f"plaquette states =\n\t{plaquette_states_str_rep}\n"
           f"expected num plaquette qubits = {expected_qubits_per_plaquette}\n")
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_d_3_2)
-    assert lattice_encoder.expected_plaquette_bit_string_length == expected_qubits_per_plaquette, \
-        f"Wrong actual plaquette qubit count inferred: {lattice_encoder.expected_plaquette_bit_string_length}"
+    encoded_length = len(lattice_encoder.encode_plaquette_state_as_bit_string(physical_states[0], (1, 2), _SIG_D3_2_PERIODIC))
+    assert encoded_length == expected_qubits_per_plaquette, f"Wrong plaquette bit string length: {encoded_length}"
 
     # Case: d=2, nontrivial multiplicites
     physical_states = [
@@ -452,8 +471,8 @@ def test_lattice_encoder_infers_correct_plaquette_length():
           f"plaquette states =\n\t{plaquette_states_str_rep}\n"
           f"expected num plaquette qubits = {expected_qubits_per_plaquette}\n")
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_d_2)
-    assert lattice_encoder.expected_plaquette_bit_string_length == expected_qubits_per_plaquette, \
-        f"Wrong actual plaquette qubit count inferred: {lattice_encoder.expected_plaquette_bit_string_length}"
+    encoded_length = len(lattice_encoder.encode_plaquette_state_as_bit_string(physical_states[0], (1, 2), _SIG_D2_PERIODIC))
+    assert encoded_length == expected_qubits_per_plaquette, f"Wrong plaquette bit string length: {encoded_length}"
 
     # Case: d=3, nontrivial multiplicities
     physical_states = [
@@ -508,8 +527,8 @@ def test_lattice_encoder_infers_correct_plaquette_length():
           f"plaquette states =\n\t{plaquette_states_str_rep}\n"
           f"expected num plaquette qubits = {expected_qubits_per_plaquette}\n")
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice_d_3)
-    assert lattice_encoder.expected_plaquette_bit_string_length == expected_qubits_per_plaquette, \
-        f"Wrong actual plaquette qubit count inferred: {lattice_encoder.expected_plaquette_bit_string_length}"
+    encoded_length = len(lattice_encoder.encode_plaquette_state_as_bit_string(physical_states[0], (1, 2), _SIG_D3_PERIODIC))
+    assert encoded_length == expected_qubits_per_plaquette, f"Wrong plaquette bit string length: {encoded_length}"
 
 
 def test_lattice_encoder_fails_on_bad_creation_args():
@@ -688,7 +707,7 @@ def test_encoding_malformed_plaquette_fails():
     lattice_d_3_2 = LatticeDef(1.5, 4)
     lattice_encoder = LatticeStateEncoder(
         link_bitmap=_T2_LINK_BITMAP,
-        physical_plaquette_states=physical_plaquette_states(lattice_d_3_2, "T", 2),
+        physical_plaquette_states=_all_physical_plaquette_states(lattice_d_3_2, "T", 2),
         lattice=lattice_d_3_2
     )
 
@@ -700,7 +719,7 @@ def test_encoding_malformed_plaquette_fails():
         ((ONE,), (ONE,), (ONE,), (SIX,))
     )
     with pytest.raises(ValueError):
-        lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_wrong_length)
+        lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_wrong_length, (1, 2), _SIG_D3_2_PERIODIC)
 
     print("Checking that encoding a plaquette with the wrong data types for vertices, active links, or control links fails.")
     plaquette_bad_vertex_data: PlaquetteState = (
@@ -725,7 +744,7 @@ def test_encoding_malformed_plaquette_fails():
     }
     for test_name, test_data in cases.items():
         with pytest.raises(ValueError):
-            lattice_encoder.encode_plaquette_state_as_bit_string(test_data)
+            lattice_encoder.encode_plaquette_state_as_bit_string(test_data, (1, 2), _SIG_D3_2_PERIODIC)
 
     print("Checking that encoding a plaquette which has too many vertices, active links, or control links fails.")
     plaquette_too_many_vertices: PlaquetteState = (
@@ -750,7 +769,7 @@ def test_encoding_malformed_plaquette_fails():
     }
     for test_name, test_data in cases.items():
         with pytest.raises(ValueError):
-            lattice_encoder.encode_plaquette_state_as_bit_string(test_data)
+            lattice_encoder.encode_plaquette_state_as_bit_string(test_data, (1, 2), _SIG_D3_2_PERIODIC)
 
 
 def test_encoding_good_plaquette():
@@ -758,11 +777,12 @@ def test_encoding_good_plaquette():
 
     # Set up needed encoders. TODO implement d=3 test.
     # d=3/2 T2 and d=2 T1 should have a single bit for multiplicity encoding.
+    # Size 3, so that no control repeats another.
     lattice_d_3_2 = LatticeDef(1.5, 3)
-    lattice_d_2 = LatticeDef(2, 2)
-    l_encoder_d_3_2_T1 = LatticeStateEncoder(_T1_LINK_BITMAP, physical_plaquette_states(lattice_d_3_2, "T", 1), lattice_d_3_2)
-    l_encoder_d_3_2_T2 = LatticeStateEncoder(_T2_LINK_BITMAP, physical_plaquette_states(lattice_d_3_2, "T", 2), lattice_d_3_2)
-    l_encoder_d_2_T1 = LatticeStateEncoder(_T1_LINK_BITMAP, physical_plaquette_states(lattice_d_2, "T", 1), lattice_d_2)
+    lattice_d_2 = LatticeDef(2, 3)
+    l_encoder_d_3_2_T1 = LatticeStateEncoder(_T1_LINK_BITMAP, _all_physical_plaquette_states(lattice_d_3_2, "T", 1), lattice_d_3_2)
+    l_encoder_d_3_2_T2 = LatticeStateEncoder(_T2_LINK_BITMAP, _all_physical_plaquette_states(lattice_d_3_2, "T", 2), lattice_d_3_2)
+    l_encoder_d_2_T1 = LatticeStateEncoder(_T1_LINK_BITMAP, _all_physical_plaquette_states(lattice_d_2, "T", 1), lattice_d_2)
 
     # Construct test data.
     plaquette_d_3_2_T1 = (
@@ -784,13 +804,14 @@ def test_encoding_good_plaquette():
     )
     expected_plaquette_d_2_T1_bit_string = "0010" + "10100101" + "0000010110101000" # v + a links + c links
     cases = [
-        (l_encoder_d_3_2_T1, plaquette_d_3_2_T1, expected_plaquette_d_3_2_T1_bit_string),
-        (l_encoder_d_3_2_T2, plaquette_d_3_2_T2, expected_plaquette_d_3_2_T2_bit_string),
-        (l_encoder_d_2_T1, plaquette_d_2_T1, expected_plaquette_d_2_T1_bit_string)
+        (l_encoder_d_3_2_T1, plaquette_d_3_2_T1, _SIG_D3_2_PERIODIC, expected_plaquette_d_3_2_T1_bit_string),
+        (l_encoder_d_3_2_T2, plaquette_d_3_2_T2, _SIG_D3_2_PERIODIC, expected_plaquette_d_3_2_T2_bit_string),
+        (l_encoder_d_2_T1, plaquette_d_2_T1, _SIG_D2_PERIODIC, expected_plaquette_d_2_T1_bit_string)
     ]
-    for lattice_encoder, input_plaquette_state, expected_bit_string_encoding in cases:
+    for lattice_encoder, input_plaquette_state, signature, expected_bit_string_encoding in cases:
         print(f"Encoding state {input_plaquette_state}.")
-        actual_bit_string_encoding = lattice_encoder.encode_plaquette_state_as_bit_string(input_plaquette_state)
+        actual_bit_string_encoding = lattice_encoder.encode_plaquette_state_as_bit_string(
+            input_plaquette_state, (1, 2), signature)
         assert actual_bit_string_encoding == expected_bit_string_encoding, "Encoding error. " \
             f"The state {input_plaquette_state} should encode as {expected_bit_string_encoding}. " \
             f"Instead obtained: {actual_bit_string_encoding}."
@@ -827,42 +848,35 @@ def test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding(
           f"Link bitmap =  {lattice_encoder.link_bitmap}\n"
           f"Vertex bitmap = {lattice_encoder.vertex_bitmap}")
 
-    # Get the set of unique plaquette states.
-    transitions = [
-        transition
-        for box_matrix_elements in box_terms(current_lattice, truncation_mode, cutoff).values()
-        for transition in box_matrix_elements
-    ]
-    all_plaquette_states = set([
-        final_and_initial_state_tuple[0] for final_and_initial_state_tuple in transitions] + [
-            final_and_initial_state_tuple[1] for final_and_initial_state_tuple in transitions
-        ])
+    # For each plane and signature, the plaquette states of its matrix
+    # elements; a bit string means a state only together with the plane and
+    # signature it was encoded for.
+    for (plane, signature), matrix_elements in box_plus_box_dagger_matrix_elements(
+            current_lattice, truncation_mode, cutoff).items():
+        all_plaquette_states = {state for transition in matrix_elements for state in transition}
 
-    # Attempt encodings and check for uniqueness.
-    all_encoded_plaquette_bit_strings = []
-    current_iter = 0
-    for plaquette_state in all_plaquette_states:
-        # Log test progress
-        current_iter += 1
-        percent_done = current_iter/len(all_plaquette_states)
-        print(f"Current status: {percent_done:.4%}", end='\r')
-
-        plaquette_state_bit_string = lattice_encoder.encode_plaquette_state_as_bit_string(plaquette_state)
-        assert len(plaquette_state_bit_string) == current_expected_bitlength, f"len(plaquette_state_bit_string) == {len(plaquette_state_bit_string)}; expected len == {current_expected_bitlength}."
-        all_encoded_plaquette_bit_strings.append(plaquette_state_bit_string)
-    n_unique_plaquette_encodings = len(set(all_encoded_plaquette_bit_strings))
-    assert n_unique_plaquette_encodings == len(all_plaquette_states), f"Encountered {n_unique_plaquette_encodings} unique bit strings encoding {len(all_plaquette_states)} unique plaquette states."
+        # Attempt encodings and check for uniqueness.
+        all_encoded_plaquette_bit_strings = []
+        for plaquette_state in all_plaquette_states:
+            plaquette_state_bit_string = lattice_encoder.encode_plaquette_state_as_bit_string(
+                plaquette_state, plane, signature)
+            assert len(plaquette_state_bit_string) == current_expected_bitlength, f"len(plaquette_state_bit_string) == {len(plaquette_state_bit_string)}; expected len == {current_expected_bitlength}."
+            all_encoded_plaquette_bit_strings.append(plaquette_state_bit_string)
+        n_unique_plaquette_encodings = len(set(all_encoded_plaquette_bit_strings))
+        assert n_unique_plaquette_encodings == len(all_plaquette_states), f"Encountered {n_unique_plaquette_encodings} unique bit strings encoding {len(all_plaquette_states)} unique plaquette states."
 
 
 # See arxiv 2509.25865 for tables of max multiplicity per B truncation. Guides choice of vertex values in test data.
-# Note that the data were manually constructed by irrep encoding bitmaps
-# with data in vertex singlet json files.
-@pytest.mark.parametrize("truncation_mode,cutoff,encoded_plaquette,current_lattice,link_bitmap,expected_decoded_plaquette", [
+# The test data were built by hand from the link bitmaps and from the vertex
+# singlets of each truncation, which ymcirc then read from data files
+# (pyclebsch now computes them).
+@pytest.mark.parametrize("truncation_mode,cutoff,encoded_plaquette,current_lattice,signature,link_bitmap,expected_decoded_plaquette", [
     (
         "T",
         1,
         "10001001" + "00000110", # active links + control links
         LatticeDef(3/2, 3),
+        _SIG_D3_2_PERIODIC,
         _T1_LINK_BITMAP,
         (
             (None, None, None, None),  # When no vertex bitmap needed, should get back None for decoded vertices.
@@ -875,6 +889,7 @@ def test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding(
         10,
         "0110" + "100101100001" + "000010110100", # vertex multiplicites + active links + control links
         LatticeDef(3/2, 3),
+        _SIG_D3_2_PERIODIC,
         _B10_LINK_BITMAP,
         (
             (0, 1, 1, 0),  
@@ -887,6 +902,7 @@ def test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding(
         2,
         "0001" + "110111000001" + "000000111011",  # vertex multiplicities + active links + control links
         LatticeDef(3/2, 3),
+        _SIG_D3_2_PERIODIC,
         _T2_LINK_BITMAP,
         (
             (0, 0, 0, 1),
@@ -898,7 +914,8 @@ def test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding(
         "T",
         1,
         "1011" + "00000010" + "0101011010000111",  # vertex multiplicities + active links + control links (one of which is in a garbage state)
-        LatticeDef(2, 2),
+        LatticeDef(2, 3),  # Size 3, so that no control repeats another.
+        _SIG_D2_PERIODIC,
         _T1_LINK_BITMAP,
         (
             (1, 0, 1, 1),
@@ -911,6 +928,7 @@ def test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding(
         3,
         "00000010" + "01000001010000101000000001000000",  # active links + control links
         LatticeDef(3, 3),
+        _SIG_D3_PERIODIC,
         _T1_LINK_BITMAP,
         (
             (None, None, None, None), # No nontrivial multiplicites in this case.
@@ -919,15 +937,16 @@ def test_all_mag_hamiltonian_plaquette_states_have_unique_bit_string_encoding(
         )
     )
 ])
-def test_bit_string_decoding_to_plaquette(truncation_mode, cutoff, encoded_plaquette, current_lattice, link_bitmap, expected_decoded_plaquette):
+def test_bit_string_decoding_to_plaquette(truncation_mode, cutoff, encoded_plaquette, current_lattice, signature, link_bitmap, expected_decoded_plaquette):
     print("Checking decoding of bit strings corresponding to gauge-invariant plaquette states.")
 
     lattice_encoder = LatticeStateEncoder(
         link_bitmap,
-        physical_plaquette_states(current_lattice, truncation_mode, cutoff),
+        _all_physical_plaquette_states(current_lattice, truncation_mode, cutoff),
         current_lattice
     )
-    resulting_decoded_plaquette = lattice_encoder.decode_bit_string_to_plaquette_state(encoded_plaquette)
+    resulting_decoded_plaquette = lattice_encoder.decode_bit_string_to_plaquette_state(
+        encoded_plaquette, (1, 2), signature)
     assert resulting_decoded_plaquette == expected_decoded_plaquette, f"Expected: {expected_decoded_plaquette}\nEncountered: {resulting_decoded_plaquette}"
 
 
@@ -987,7 +1006,8 @@ def test_decoding_garbage_bit_strings_result_in_none():
     assert lattice_encoder.decode_bit_string_to_vertex_state(bad_encoded_vertex) is None
 
     print(f"Checking {encoded_plaquette_some_links_and_vertices_good_others_bad} decodes to the plaquette:\n {expected_decoded_plaquette_some_links_and_vertices_good_others_bad}")
-    decoded_plaquette = lattice_encoder.decode_bit_string_to_plaquette_state(encoded_plaquette_some_links_and_vertices_good_others_bad)
+    decoded_plaquette = lattice_encoder.decode_bit_string_to_plaquette_state(
+        encoded_plaquette_some_links_and_vertices_good_others_bad, (1, 2), _SIG_D3_2_PERIODIC)
     assert decoded_plaquette == expected_decoded_plaquette_some_links_and_vertices_good_others_bad, f"(decoded != expected): {decoded_plaquette}\n!=\n{expected_decoded_plaquette_some_links_and_vertices_good_others_bad}"
 
 
@@ -1023,7 +1043,8 @@ def test_decoding_fails_when_len_bit_string_doesnt_match_bitmaps():
             ((ONE, SIX_BAR), (ONE, ONE), (ONE, ONE), (ONE, ONE))
         )
     ]
-    lattice = LatticeDef(2, 2)
+    # Size 3, so that no control repeats another.
+    lattice = LatticeDef(2, 3)
     lattice_encoder = LatticeStateEncoder(link_bitmap, physical_states, lattice)
 
     print("Testing that decoding links/vertices/plaquettes fails with wrong length bit string (ValueError).")
@@ -1051,7 +1072,7 @@ def test_decoding_fails_when_len_bit_string_doesnt_match_bitmaps():
 
     print(f"Checking plaquette bit string {bad_length_plaquette_bit_string} fails to decode.")
     with pytest.raises(ValueError):
-        lattice_encoder.decode_bit_string_to_plaquette_state(bad_length_plaquette_bit_string)
+        lattice_encoder.decode_bit_string_to_plaquette_state(bad_length_plaquette_bit_string, (1, 2), _SIG_D2_PERIODIC)
 
 
 def test_non_default_forder_plaquette_encode_decode_round_trip():
@@ -1065,9 +1086,12 @@ def test_non_default_forder_plaquette_encode_decode_round_trip():
     print("Checking the encoder's forder and encode/decode round-trip with non-default forder.")
     alt_forder = [-1, -2, 1, 2, 3, -3]
 
-    # Create encoders with default and alt forder.
-    default_lattice_def = LatticeDef(2, 2)
-    alt_lattice_def = LatticeDef(2, 2, forder=alt_forder)
+    # Create encoders with default and alt forder, on lattices of size 3, so
+    # that no control repeats another.
+    default_lattice_def = LatticeDef(2, 3)
+    alt_lattice_def = LatticeDef(2, 3, forder=alt_forder)
+    # The signature: each vertex's half-links sorted by the F-order.
+    alt_signature: Signature = ((-1, -2, 1, 2), (-1, -2, 1, 2), (-1, -2, 1, 2), (-1, -2, 1, 2))
 
     default_encoder = LatticeStateEncoder.for_truncation(default_lattice_def, "T", 1)
     alt_encoder = LatticeStateEncoder.for_truncation(alt_lattice_def, "T", 1)
@@ -1095,8 +1119,8 @@ def test_non_default_forder_plaquette_encode_decode_round_trip():
     )
 
     # Encode each representation with its matching encoder.
-    default_bitstring = default_encoder.encode_plaquette_state_as_bit_string(default_state)
-    alt_bitstring = alt_encoder.encode_plaquette_state_as_bit_string(alt_state)
+    default_bitstring = default_encoder.encode_plaquette_state_as_bit_string(default_state, (1, 2), _SIG_D2_PERIODIC)
+    alt_bitstring = alt_encoder.encode_plaquette_state_as_bit_string(alt_state, (1, 2), alt_signature)
 
     print(f"  Default forder bit string: {default_bitstring}")
     print(f"  Alt forder bit string:     {alt_bitstring}")
@@ -1107,15 +1131,16 @@ def test_non_default_forder_plaquette_encode_decode_round_trip():
     )
 
     # Round-trip: decode each bit string back and verify we get the original state.
-    default_round_trip = default_encoder.decode_bit_string_to_plaquette_state(default_bitstring)
-    alt_round_trip = alt_encoder.decode_bit_string_to_plaquette_state(alt_bitstring)
+    default_round_trip = default_encoder.decode_bit_string_to_plaquette_state(
+        default_bitstring, (1, 2), _SIG_D2_PERIODIC)
+    alt_round_trip = alt_encoder.decode_bit_string_to_plaquette_state(alt_bitstring, (1, 2), alt_signature)
 
     assert default_round_trip == default_state, "Default forder round-trip failed."
     assert alt_round_trip == alt_state, "Alt forder round-trip failed."
 
 
-# Each data file was computed on the lattice in its metadata: d=3/2 of size
-# 3, d=2 3x3 and d=3 3x3x3, all periodic.
+# The lattices that ymcirc's former data files were computed on: d=3/2 of
+# size 3, d=2 3x3 and d=3 3x3x3, all periodic.
 @pytest.mark.parametrize("dims,truncation_mode,cutoff,expected_link_bitmap", [
     (1.5, "T", 1, _T1_LINK_BITMAP),
     (1.5, "T", 2, _T2_LINK_BITMAP),
@@ -1134,7 +1159,7 @@ def test_non_default_forder_plaquette_encode_decode_round_trip():
     (3, "B", 4, _T1_LINK_BITMAP),
 ])
 def test_for_truncation_uses_registered_bitmap(dims, truncation_mode, cutoff, expected_link_bitmap):
-    """On each data file's lattice, the encoder uses the bitmap ymcirc used for that truncation."""
+    """On each lattice of ymcirc's former data files, the encoder uses the bitmap ymcirc used for that truncation."""
     lattice = LatticeDef(dims, 3)
     encoder = LatticeStateEncoder.for_truncation(lattice, truncation_mode, cutoff)
     assert encoder.link_bitmap == expected_link_bitmap
@@ -1145,7 +1170,7 @@ def test_for_truncation_records_truncation():
     lattice = LatticeDef(1.5, 3)
     assert LatticeStateEncoder.for_truncation(lattice, "B", 3).truncation == ("B", 3)
     assert LatticeStateEncoder.for_truncation(lattice, "T", 1).truncation == ("T", 1)
-    encoder = LatticeStateEncoder(_T1_LINK_BITMAP, physical_plaquette_states(lattice, "T", 1), lattice)
+    encoder = LatticeStateEncoder(_T1_LINK_BITMAP, _all_physical_plaquette_states(lattice, "T", 1), lattice)
     assert encoder.truncation is None
 
 
@@ -1209,9 +1234,9 @@ def test_plaquette_state_format_conversion_on_a_hand_written_state():
     groups changes the result. The state need not be physical.
     """
     pyclebsch_state = (
-        THREE, THREE_BAR, ONE, EIGHT,  # active links at the four corners
-        (ONE,), (THREE,), (SIX, SIX_BAR), (FIFTEEN,),  # each corner's control links
-        0, 1, 3, 2,  # each corner's singlet multiplicity index
+        THREE, THREE_BAR, ONE, EIGHT,  # active links at the four vertices
+        (ONE,), (THREE,), (SIX, SIX_BAR), (FIFTEEN,),  # each vertex's control links
+        0, 1, 3, 2,  # each vertex's singlet multiplicity index
     )
     ymcirc_state = (
         (0, 1, 3, 2),
@@ -1235,3 +1260,182 @@ def test_plaquette_state_format_conversion_round_trips(pyclebsch_lattice, trunca
         for state in signature_states:
             ymcirc_state = plaq_state_pyclebsch_to_ymcirc_format(state)
             assert plaq_state_ymcirc_to_pyclebsch_format(ymcirc_state) == tuple(state)
+
+
+def test_encoding_depends_on_the_plane_through_duplicate_controls():
+    """
+    A state's bit string leaves out the controls that repeat another control of the plaquette, and which controls repeat depends on the plane.
+
+    On d=3 3x3x2 periodic, every plaquette has the same signature, and the
+    third axis has length 2. In plane (1, 2), the four controls of each vertex
+    are distinct links. In plane (1, 3), the -3 control of v1 and the +3
+    control of v4 are one link, and so are the -3 control of v2 and the +3
+    control of v3. With the default F-order, the directions of each vertex's
+    controls in plane (1, 3) are, in order:
+
+        v1: (+2, -1, -2, -3)
+        v2: (+1, +2, -2, -3)
+        v3: (+1, +2, +3, -2)
+        v4: (+2, +3, -1, -2)
+
+    The state below gives each pair of repeated controls the same irrep. The
+    four controls of each vertex carry different irreps, and each repeated
+    irrep appears only at the repeat and the control it repeats, so leaving
+    out a different control, or pairing a repeat with a different control,
+    changes the result.
+    """
+    lattice = LatticeDef(3, (3, 3, 2))
+    state: PlaquetteState = (
+        (0, 0, 0, 0),
+        (ONE, THREE, THREE_BAR, ONE),
+        (
+            (ONE, THREE, THREE_BAR, FIFTEEN),
+            (SIX, SIX_BAR, EIGHT, FIFTEEN_BAR),
+            (ONE, THREE, FIFTEEN_BAR, THREE_BAR),
+            (SIX, FIFTEEN, SIX_BAR, EIGHT),
+        ),
+    )
+    encoder = LatticeStateEncoder(_B10_LINK_BITMAP, [state], lattice)
+    # No vertex bits: every multiplicity index in the encoder's states is 0.
+    active_link_bits = "000" + "100" + "001" + "000"
+    expected_bit_string_in_plane_1_2 = (
+        active_link_bits
+        + "000" + "100" + "001" + "101"  # v1
+        + "110" + "011" + "111" + "010"  # v2
+        + "000" + "100" + "010" + "001"  # v3
+        + "110" + "101" + "011" + "111"  # v4
+    )
+    # v3's +3 control and v4's +3 control left out.
+    expected_bit_string_in_plane_1_3 = (
+        active_link_bits
+        + "000" + "100" + "001" + "101"  # v1
+        + "110" + "011" + "111" + "010"  # v2
+        + "000" + "100" + "001"  # v3
+        + "110" + "011" + "111"  # v4
+    )
+    assert encoder.encode_plaquette_state_as_bit_string(state, (1, 2), _SIG_D3_PERIODIC) \
+        == expected_bit_string_in_plane_1_2
+    assert encoder.encode_plaquette_state_as_bit_string(state, (1, 3), _SIG_D3_PERIODIC) \
+        == expected_bit_string_in_plane_1_3
+
+    _, active_links, control_links = state
+    decoded_state: PlaquetteState = ((None, None, None, None), active_links, control_links)
+    assert encoder.decode_bit_string_to_plaquette_state(
+        expected_bit_string_in_plane_1_2, (1, 2), _SIG_D3_PERIODIC) == decoded_state
+    assert encoder.decode_bit_string_to_plaquette_state(
+        expected_bit_string_in_plane_1_3, (1, 3), _SIG_D3_PERIODIC) == decoded_state
+
+
+def test_encoding_removes_and_decoding_restores_duplicate_controls():
+    """
+    On d=3/2 size 2 periodic, a state encodes without its duplicate controls, and decodes with them.
+
+    v2's control (direction -1) is v1's control (direction -1, around the
+    periodic chain of length 2), and v4's is v3's.
+    """
+    lattice = LatticeDef(1.5, 2)
+    state: PlaquetteState = (
+        (0, 0, 0, 0),
+        (THREE, ONE, THREE_BAR, ONE),
+        ((THREE,), (THREE,), (THREE_BAR,), (THREE_BAR,)),
+    )
+    encoder = LatticeStateEncoder(_T1_LINK_BITMAP, [state], lattice)
+    expected_bit_string = "10" + "00" + "01" + "00" + "10" + "01"  # active links, then v1's and v3's controls
+
+    bit_string = encoder.encode_plaquette_state_as_bit_string(state, (1, 2), _SIG_D3_2_PERIODIC)
+
+    assert bit_string == expected_bit_string
+    # No vertex bits: the decoder gives no multiplicity indices.
+    _, active_links, control_links = state
+    assert encoder.decode_bit_string_to_plaquette_state(bit_string, (1, 2), _SIG_D3_2_PERIODIC) == (
+        (None, None, None, None), active_links, control_links)
+
+
+def test_encoding_refuses_disagreeing_duplicate_controls():
+    """A state in which a duplicate control carries a different irrep from the control it repeats is refused."""
+    lattice = LatticeDef(1.5, 2)
+    good_state: PlaquetteState = (
+        (0, 0, 0, 0),
+        (THREE, ONE, THREE_BAR, ONE),
+        ((THREE,), (THREE,), (THREE_BAR,), (THREE_BAR,)),
+    )
+    # v2's control is v1's, but carries ONE instead of THREE.
+    state_with_disagreeing_duplicate: PlaquetteState = (
+        (0, 0, 0, 0),
+        (THREE, ONE, THREE_BAR, ONE),
+        ((THREE,), (ONE,), (THREE_BAR,), (THREE_BAR,)),
+    )
+    encoder = LatticeStateEncoder(_T1_LINK_BITMAP, [good_state], lattice)
+
+    with pytest.raises(ValueError):
+        encoder.encode_plaquette_state_as_bit_string(state_with_disagreeing_duplicate, (1, 2), _SIG_D3_2_PERIODIC)
+
+
+def test_encoding_refuses_wrong_number_of_controls_at_a_vertex():
+    """
+    A state whose number of controls at some vertex is not its signature's is refused.
+
+    On d=2 size 3 periodic, each vertex has two controls. The refused state
+    has 8 controls in all, as many as a correct one, but three at v1 and one
+    at v2.
+    """
+    lattice = LatticeDef(2, 3)
+    good_state: PlaquetteState = (
+        (0, 0, 0, 0),
+        (ONE, ONE, ONE, ONE),
+        ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE)),
+    )
+    state_with_misplaced_control: PlaquetteState = (
+        (0, 0, 0, 0),
+        (ONE, ONE, ONE, ONE),
+        ((ONE, ONE, ONE), (ONE,), (ONE, ONE), (ONE, ONE)),
+    )
+    encoder = LatticeStateEncoder(_T1_LINK_BITMAP, [good_state], lattice)
+
+    with pytest.raises(ValueError):
+        encoder.encode_plaquette_state_as_bit_string(state_with_misplaced_control, (1, 2), _SIG_D2_PERIODIC)
+
+
+def test_encoding_on_an_open_plaquette_without_controls():
+    """On d=2 2x2 open, the one plaquette has no control links: a state encodes to its active links alone, and decodes back."""
+    lattice = LatticeDef(2, 2, False)
+    state: PlaquetteState = (
+        (0, 0, 0, 0),
+        (THREE, THREE_BAR, ONE, THREE),
+        ((), (), (), ()),
+    )
+    encoder = LatticeStateEncoder(_T1_LINK_BITMAP, [state], lattice)
+    expected_bit_string = "10" + "01" + "00" + "10"
+
+    bit_string = encoder.encode_plaquette_state_as_bit_string(state, (1, 2), _SIG_D2_2X2_OPEN)
+
+    assert bit_string == expected_bit_string
+    _, active_links, control_links = state
+    assert encoder.decode_bit_string_to_plaquette_state(bit_string, (1, 2), _SIG_D2_2X2_OPEN) == (
+        (None, None, None, None), active_links, control_links)
+
+
+def test_physical_plaquette_states_are_grouped_by_plane_and_signature():
+    """
+    physical_plaquette_states groups the states by the plane and signature of the plaquettes they belong to.
+
+    On d=2 3x2 open, the two plaquettes share a link and have different
+    signatures: the left one has no -1 half-links at its left vertices, and
+    the right one no +1 half-links at its right vertices. A vertex has one
+    control link for each of its half-links other than its two active links.
+    """
+    lattice = LatticeDef(2, (3, 2), False)
+    left_signature: Signature = ((1, 2), (1, 2, -1), (1, -1, -2), (1, -2))
+    right_signature: Signature = ((1, 2, -1), (2, -1), (-1, -2), (1, -1, -2))
+    controls_per_vertex_by_signature: dict[Signature, tuple[int, int, int, int]] = {
+        left_signature: (0, 1, 1, 0),
+        right_signature: (1, 0, 0, 1),
+    }
+
+    states = physical_plaquette_states(lattice, "T", 1)
+
+    assert set(states) == {((1, 2), left_signature), ((1, 2), right_signature)}
+    for (_, signature), states_of_signature in states.items():
+        assert states_of_signature, f"No states for signature {signature}."
+        assert {tuple(len(vertex_controls) for vertex_controls in c_links) for _, _, c_links in states_of_signature} \
+            == {controls_per_vertex_by_signature[signature]}

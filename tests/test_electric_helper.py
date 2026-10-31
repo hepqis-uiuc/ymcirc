@@ -1,7 +1,8 @@
 import numpy as np
 import pytest
 from ymcirc._abstract import LatticeDef
-from ymcirc.conventions import IrrepBitmap, LatticeStateEncoder, ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT, PlaquetteState
+from ymcirc._abstract import PlaquetteState
+from ymcirc.conventions import IrrepBitmap, LatticeStateEncoder, ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT
 from ymcirc.electric_helper import electric_hamiltonian, casimirs, convert_bitstring_to_evalue
 
 
