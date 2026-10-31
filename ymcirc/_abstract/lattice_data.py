@@ -678,6 +678,28 @@ class LatticeDef:
         return sorted(list(self._all_link_addreses))
 
     @property
+    def plaquette_addresses(self) -> list[tuple[LatticeVector, Plane]]:
+        """
+        The (bottom-left vertex, plane) of every plaquette that exists, in lexicographic order.
+
+        Plaquettes are ordered first by their bottom-left vertices, whose
+        coordinates are compared lexicographically: by the first coordinate,
+        then by the second, and so on. This is the order of vertex_addresses.
+        Plaquettes with the same bottom-left vertex are ordered by plane,
+        also lexicographically: (1, 2), then (1, 3), then (2, 3).
+
+        On an open lattice, a vertex on the far boundary along an axis has no
+        plaquette extending along that axis, and in d=3/2 the top vertices
+        have none. On the d=3 2x2x2 open lattice, for example, the order is
+        ((0, 0, 0), (1, 2)), ((0, 0, 0), (1, 3)), ((0, 0, 0), (2, 3)),
+        ((0, 0, 1), (1, 2)), ((0, 1, 0), (1, 3)), ((1, 0, 0), (2, 3)).
+        """
+        return sorted(
+            (self._from_pyclebsch_coordinates(site), plane)
+            for site, plane in self._pyclebsch_lattice.plaquettes
+        )
+
+    @property
     def shape(self) -> tuple[int, ...]:
         """Return the shape of the lattice wrt number of vertices in each dimension."""
         return self._shape

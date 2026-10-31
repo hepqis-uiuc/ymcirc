@@ -538,12 +538,12 @@ class LatticeCircuitManager:
         present in the mag_hamiltonian argument used to create the
         LatticeCircuitManager instance.
 
-        Implementation is performed by iterating over every lattice vertex. At each vertex,
-        there's an additional iteration over every "positive" plaquette.
-        For each such plaquette, the plaquette-local magnetic Trotter step
-        is appended to the circuit. This local Trotter step circuit is
-        composed of Givens rotations constructed from the Hamiltonian
-        matrix elements under the current plaquette's plane and signature.
+        The step iterates over the plaquettes that exist, in the order
+        lattice.plaquette_addresses lists them (lexicographically).
+        For each plaquette, the plaquette-local magnetic Trotter step is
+        appended to the circuit. This local Trotter step circuit is composed
+        of Givens rotations constructed from the Hamiltonian matrix elements
+        under the plaquette's plane and signature.
 
         Note that this modifies master_circuit directly rather than returning
         a new circuit!
@@ -611,108 +611,96 @@ class LatticeCircuitManager:
         # rather than once per plaquette.
         encoded_pruning_states: dict[tuple[Plane, Signature], set[str] | None] = {}
 
-        # Stitch magnetic Hamiltonian evolution circuit onto LatticeRegisters.
-        # Vertex iteration loop.
-        for vertex_address in lattice.vertex_addresses:
-            # Skip creating "top vertex" plaquettes for d=3/2.
-            has_no_vertical_periodic_link_three_halves_case = (
-                lattice.dim == 1.5 and vertex_address[1] == 1
-            )
-            if has_no_vertical_periodic_link_three_halves_case:
-                continue
+        # Stitch magnetic Hamiltonian evolution circuit onto LatticeRegisters,
+        # one plaquette at a time, over the plaquettes that exist on the lattice.
+        for bottom_left_vertex, plaquette_plane in lattice.plaquette_addresses:
+            plaquette = Plaquette(lattice, bottom_left_vertex, plaquette_plane)
+            plaquette_signature: Signature = plaquette.signature
+            cache_key = (plaquette_plane, plaquette_signature)
+            duplicate_control_indices = self._encoder.lattice_def._duplicate_control_indices(
+                plaquette_plane, plaquette_signature)
 
-            # Get the plaquettes for the current vertex.
-            logger.info(f"Fetching all positive plaquettes at vertex {vertex_address}.")
-            has_only_one_positive_plaquette = lattice.dim == 1.5 or lattice.dim == 2
-            if has_only_one_positive_plaquette:
-                plaquettes: list[Plaquette] = [
-                    lattice.get_plaquettes(vertex_address, 1, 2)
-                ]
+            # Build or fetch the cached template circuit for this (plane, signature).
+            # Plaquettes with the same plane and signature have the same
+            # matrix elements and the same duplicate controls, so they share
+            # one template, also on open and mixed lattices.
+            # When givens_have_independent_params is True, the template must
+            # be reused across all plaquettes so that the same theta[m]
+            # Parameter instances are shared (not duplicated). So always
+            # consult the in-memory cache in that case.
+            # NOTE: This logic only works when every plaquette in the lattice
+            # has the same plane and signature. Plaquettes with different
+            # planes or signatures have different matrix elements and
+            # therefore different Givens rotations, so each (plane, signature)
+            # gets its own template, and with it its own ParameterVector. But
+            # every template names its vector "theta" (see
+            # _build_mag_evol_circuit), so different vectors with the same
+            # name end up in master_circuit. Will need to handle that case
+            # down the road, by giving each (plane, signature) a vector with
+            # a name of its own.
+            use_cache = cache_mag_evol_circuit or givens_have_independent_params
+            if use_cache and (cache_key in self._cached_mag_evol_circuits):
+                logger.info(f"Fetching cached magnetic evolution circuit for cache_key={cache_key}.")
+                plaquette_local_rotation_circuit_template = self._cached_mag_evol_circuits[cache_key]
             else:
-                plaquettes: list[Plaquette] = lattice.get_plaquettes(vertex_address)
-            logger.debug(f"Found {len(plaquettes)} plaquette(s).")
-
-            # For each plaquette, apply the the local Trotter step circuit.
-            for plaquette in plaquettes:
-                plaquette_plane: Plane = plaquette.plane
-                plaquette_signature: Signature = plaquette.signature
-                cache_key = (plaquette_plane, plaquette_signature)
-                duplicate_control_indices = self._encoder.lattice_def._duplicate_control_indices(
-                    plaquette_plane, plaquette_signature)
-
-                # Build or fetch the cached template circuit for this (plane, signature).
-                # When givens_have_independent_params is True, the template must
-                # be reused across all plaquettes so that the same theta[m]
-                # Parameter instances are shared (not duplicated). So always
-                # consult the in-memory cache in that case.
-                # NOTE: On nonperiodic lattices, this logic may fail since
-                # in that case, different plaquettes in a lattice may have different
-                # matrix elements and therefore different givens rotations.
-                # Will need to handle that case down the road. The simplest possibility
-                # would be to just forbid this option on such lattices.
-                use_cache = cache_mag_evol_circuit or givens_have_independent_params
-                if use_cache and (cache_key in self._cached_mag_evol_circuits):
-                    logger.info(f"Fetching cached magnetic evolution circuit for cache_key={cache_key}.")
-                    plaquette_local_rotation_circuit_template = self._cached_mag_evol_circuits[cache_key]
-                else:
-                    logger.info(f"Building magnetic evolution circuit for cache_key={cache_key}.")
-                    if cache_key not in encoded_pruning_states:
-                        encoded_pruning_states[cache_key] = self._encoded_pruning_states(
-                            physical_states_for_control_pruning, plaquette_plane, plaquette_signature)
-                    plaquette_local_rotation_circuit_template = self._build_mag_evol_circuit(
-                        [(bit_string_1, bit_string_2, value) for (bit_string_1, bit_string_2), value
-                         in self._encoded_mag_hamiltonian.get(cache_key, {}).items()],
-                        control_fusion,
-                        encoded_pruning_states[cache_key],
-                        coupling_g=Parameter('coupling_g_mag_placeholder'),
-                        dt=Parameter('dt_mag_placeholder'),
-                        optimize_circuits=optimize_circuits,
-                        use_independent_params_for_each_givens_rot=givens_have_independent_params
-                    )
-                    if use_cache:
-                        self._cached_mag_evol_circuits[cache_key] = plaquette_local_rotation_circuit_template
-
-                # Assign step-specific parameters to the template.
-                if givens_have_independent_params is False:
-                    plaquette_local_rotation_circuit = plaquette_local_rotation_circuit_template.assign_parameters({
-                        'coupling_g_mag_placeholder': coupling_g_mag_current,
-                        'dt_mag_placeholder': dt_mag_current
-                    })
-                else:
-                    plaquette_local_rotation_circuit = plaquette_local_rotation_circuit_template
-
-                # Collect the local qubits for stitching the plaquette rotation circuit.
-                vertex_multiplicity_qubits = []
-                a_link_qubits = []
-                c_link_qubits = []
-                for register in plaquette.vertices:
-                    for qubit in register:
-                        vertex_multiplicity_qubits.append(qubit)
-                for register in plaquette.active_links:
-                    for qubit in register:
-                        a_link_qubits.append(qubit)
-                for vertex_idx, vertex_controls in enumerate(plaquette.control_links_per_vertex):
-                    for ctrl_idx, register in enumerate(vertex_controls):
-                        # A control that repeats an earlier control of the
-                        # plaquette is not in its bit string.
-                        if (vertex_idx, ctrl_idx) in duplicate_control_indices:
-                            continue
-
-                        for qubit in register:
-                            c_link_qubits.append(qubit)
-
-                # Now that we have the qubits for the current plaquette,
-                # Stitch the local magnetic evolution circuit into master circuit.
-                master_circuit.compose(
-                    plaquette_local_rotation_circuit,
-                    qubits=[
-                        *vertex_multiplicity_qubits,
-                        *a_link_qubits,
-                        *c_link_qubits,
-                        *master_circuit.ancillas
-                    ],
-                    inplace=True
+                logger.info(f"Building magnetic evolution circuit for cache_key={cache_key}.")
+                if cache_key not in encoded_pruning_states:
+                    encoded_pruning_states[cache_key] = self._encoded_pruning_states(
+                        physical_states_for_control_pruning, plaquette_plane, plaquette_signature)
+                plaquette_local_rotation_circuit_template = self._build_mag_evol_circuit(
+                    [(bit_string_1, bit_string_2, value) for (bit_string_1, bit_string_2), value
+                     in self._encoded_mag_hamiltonian.get(cache_key, {}).items()],
+                    control_fusion,
+                    encoded_pruning_states[cache_key],
+                    coupling_g=Parameter('coupling_g_mag_placeholder'),
+                    dt=Parameter('dt_mag_placeholder'),
+                    optimize_circuits=optimize_circuits,
+                    use_independent_params_for_each_givens_rot=givens_have_independent_params
                 )
+                if use_cache:
+                    self._cached_mag_evol_circuits[cache_key] = plaquette_local_rotation_circuit_template
+
+            # Assign step-specific parameters to the template.
+            if givens_have_independent_params is False:
+                plaquette_local_rotation_circuit = plaquette_local_rotation_circuit_template.assign_parameters({
+                    'coupling_g_mag_placeholder': coupling_g_mag_current,
+                    'dt_mag_placeholder': dt_mag_current
+                })
+            else:
+                plaquette_local_rotation_circuit = plaquette_local_rotation_circuit_template
+
+            # Collect the local qubits for stitching the plaquette rotation circuit.
+            vertex_multiplicity_qubits = []
+            a_link_qubits = []
+            c_link_qubits = []
+            for register in plaquette.vertices:
+                for qubit in register:
+                    vertex_multiplicity_qubits.append(qubit)
+            for register in plaquette.active_links:
+                for qubit in register:
+                    a_link_qubits.append(qubit)
+            for vertex_idx, vertex_controls in enumerate(plaquette.control_links_per_vertex):
+                for ctrl_idx, register in enumerate(vertex_controls):
+                    # A control that repeats an earlier control of the
+                    # plaquette is not in its bit string.
+                    if (vertex_idx, ctrl_idx) in duplicate_control_indices:
+                        continue
+
+                    for qubit in register:
+                        c_link_qubits.append(qubit)
+
+            # Now that we have the qubits for the current plaquette,
+            # Stitch the local magnetic evolution circuit into master circuit.
+            master_circuit.compose(
+                plaquette_local_rotation_circuit,
+                qubits=[
+                    *vertex_multiplicity_qubits,
+                    *a_link_qubits,
+                    *c_link_qubits,
+                    *master_circuit.ancillas
+                ],
+                inplace=True
+            )
 
     @staticmethod
     def save_circuit(circ: QuantumCircuit, filename: str | Path, ancilla_reg_name: None | "str" = None) -> None:

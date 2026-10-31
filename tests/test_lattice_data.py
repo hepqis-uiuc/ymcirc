@@ -9,6 +9,7 @@ from ymcirc._abstract.lattice_data import (
     LatticeDef,
     LatticeVector,
     LinkAddress,
+    Plane,
     Plaquette,
 )
 
@@ -228,6 +229,64 @@ def test_rectangular_lattice_counts(
         expected_n_links,
         expected_n_plaquettes,
     )
+
+
+_PLANES_D3: list[Plane] = [(1, 2), (1, 3), (2, 3)]
+
+
+@pytest.mark.parametrize(
+    ("dimensions", "size", "periodic", "expected_plaquette_addresses"),
+    [
+        # The top vertices of d=3/2 have no plaquettes.
+        (1.5, 3, True, [((0, 0), (1, 2)), ((1, 0), (1, 2)), ((2, 0), (1, 2))]),
+        (1.5, 3, False, [((0, 0), (1, 2)), ((1, 0), (1, 2))]),
+        (
+            2,
+            2,
+            True,
+            [((0, 0), (1, 2)), ((0, 1), (1, 2)), ((1, 0), (1, 2)), ((1, 1), (1, 2))],
+        ),
+        (2, (3, 2), False, [((0, 0), (1, 2)), ((1, 0), (1, 2))]),
+        # Only the origin has plaquettes in more than one plane, so sorting by
+        # plane first would give a different order.
+        (
+            3,
+            2,
+            False,
+            [
+                ((0, 0, 0), (1, 2)),
+                ((0, 0, 0), (1, 3)),
+                ((0, 0, 0), (2, 3)),
+                ((0, 0, 1), (1, 2)),
+                ((0, 1, 0), (1, 3)),
+                ((1, 0, 0), (2, 3)),
+            ],
+        ),
+        (
+            3,
+            2,
+            True,
+            [
+                ((x, y, z), plane)
+                for x in range(2)
+                for y in range(2)
+                for z in range(2)
+                for plane in _PLANES_D3
+            ],
+        ),
+    ],
+)
+def test_plaquette_addresses(dimensions, size, periodic, expected_plaquette_addresses):
+    """
+    plaquette_addresses lists the plaquettes that exist, as (bottom-left vertex, plane), in lexicographic order.
+
+    Bottom-left vertices are compared coordinate by coordinate, and planes
+    likewise: (1, 2), then (1, 3), then (2, 3). On an open lattice, the
+    vertices on the far boundary along an axis have no plaquette extending
+    along that axis.
+    """
+    lattice = LatticeDef(dimensions, size, periodic_boundary_conds=periodic)
+    assert lattice.plaquette_addresses == expected_plaquette_addresses
 
 
 def test_more_than_three_dimensions_not_supported():
