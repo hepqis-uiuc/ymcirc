@@ -217,7 +217,7 @@ class LatticeCircuitManager:
           - only_include_elems_connected_to_electric_vacuum: Drop any matrix elements
             which aren't connected to the electric vacuum state. A plaquette
             state is the electric vacuum when every one of its links carries
-            the singlet (lattice_encoder stipulates the encoding of the vacuum).
+            the singlet.
         """
         if lattice_encoder.truncation is None:
             raise ValueError(
@@ -295,8 +295,9 @@ class LatticeCircuitManager:
         """
         Return a blank quantum circuit with all link and vertex registers in lattice.
 
-        This uses an ordering which is specified in the LatticeData class which is
-        a parent class of LatticeRegisters. See the documentation on LatticeData
+        The registers are in the order of LatticeDef.get_traversal_order (a
+        parent class of LatticeRegisters), which also orders the bits of a
+        measured bit string. See the documentation of get_traversal_order
         for details.
         """
         all_lattice_registers: list[QuantumRegister] = [reg for reg in lattice]
@@ -880,11 +881,21 @@ class LatticeCircuitManager:
         """
         Build the magnetic time-evolution circuit for a plaquette.
 
+        All the data passed (hamiltonian_for_specific_plane_and_signature,
+        physical_states_for_control_pruning and independent_givens_parameters)
+        must belong to the same (plane, signature), whose plaquettes share one
+        bit-string layout and one set of Givens rotations. Nothing here checks
+        that. Data from another (plane, signature) can have bit strings of a
+        different length, or with controls in other places, and then the
+        circuit built is not that of any plaquette.
+
         Arguments:
             hamiltonian_for_specific_plane_and_signature: A flat list of (bitstring1, bitstring2, float)
                 tuples — the matrix elements of one (plane, signature) pair.
             control_fusion: Whether to fuse controls in Givens rotations.
-            physical_states_for_control_pruning: Physical states for pruning.
+            physical_states_for_control_pruning: The bit strings of the physical
+                plaquette states of this (plane, signature), as _encoded_pruning_states
+                returns them, for control pruning; None for no pruning.
             coupling_g: Coupling constant parameter.
             dt: Time step parameter.
             optimize_circuits: Whether to transpile with optimization.
@@ -1099,9 +1110,11 @@ class LatticeCircuitManager:
         2. Computes angle of Givens rotation from matrix element
 
         Input:
-            - bitstring_w_matrix_element: this is of the form (bs1, bs2, matrix_element)
-                where bs1 is the initial state, bs2 is the final state, and matrix_element
-                is the amplitude of transition.
+            - bitstrings_w_matrix_element: tuples of the form (bs1, bs2, matrix_element),
+                where bs1 and bs2 are the bit strings of two plaquette states and
+                matrix_element is the matrix element of box + box^dagger between them.
+                The order of bs1 and bs2 does not matter, since the Givens rotation
+                acts on the pair symmetrically.
             - coupling_g: value of coupling constant being used.
             - dt: timestep being used.
 

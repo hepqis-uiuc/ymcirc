@@ -18,32 +18,27 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
     """
     Class for addressing QuantumRegisters in a lattice.
 
-    Each link and vertex is assigned a unique register. The size tuple counts
-    the number of vertex registers in each dimension of a (hyper)-rectangular
-    lattice.
+    Each vertex and each link that exists on the lattice is assigned
+    its own register (on an open axis, there are no links past the boundary;
+    for irrep truncations with trivial singlet multiplicities no vertex data
+    needs to be tracked). The arguments dimensions, size,
+    periodic_boundary_conds and forder are those of LatticeDef.
 
     Defaults to 1 qubit per link and 0 per vertex.
 
-    If bitstring maps
-    link_bitmap and/or vertex_bitmap are provided,
-    the corresponding argument n_qubits_per_link and n_qubits_per_vertex
-    are ignored, and qubit requirements are inferred based on the length
-    of the bitstrings in the corresponding dict(s). In this case,
-    the number of links per vertex implied by vertex_bitmap
-    must match the dimensionality of the lattice. In particular,
-    the number of iWeights in the keys must be 2*dim for dim >= 2,
-    or 3 for dim 1.5. For example, a key for dim 1.5 should look like:
-
-    (((1, 1, 0), (1, 1, 0), (0, 0, 0)), 1)
-
-    This key is a length-two tuple whose first element is a tuple of three
-    GT pattern i-weights, and whose second element is an integer indexing
-    multiplicity.
+    If link_bitmap or vertex_bitmap is provided, the corresponding argument
+    n_qubits_per_link or n_qubits_per_vertex is ignored, and the number of
+    qubits is the length of the bit strings in the bitmap. link_bitmap maps
+    the i-weights of the irreps on a link to bit strings; vertex_bitmap maps
+    singlet multiplicity indices (nonnegative ints) to bit strings, as
+    LatticeStateEncoder's link_bitmap and vertex_bitmap do.
 
     If working with a LatticeStateEncoder instance, the class method
     LatticeRegisters.from_lattice_state_encoder is provided
     to automatically initialize a LatticeRegisters instance for
     the lattice geometry which is consistent with the LatticeStateEncoder.
+    This is the recommended pathway for creating a `LatticeRegisters`
+    instance.
     """
 
     def __init__(
@@ -114,7 +109,6 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
         if bit_lengths_differ:
             raise ValueError(f"The values of candidate_dict must all have the same bit length. Dict values encountered:\n{list(all_link_bitstrings)}")
 
-    # TODO fix this to work with ints
     def _validate_vertex_bitmap(self, candidate_dict: VertexMultiplicityBitmap):
         # Conveniences.
         all_vertex_bitstrings = list(candidate_dict.values())
@@ -199,6 +193,12 @@ class LatticeRegisters(LatticeData[QuantumRegister]):
 
         where the state label ends with the controls associated with each vertex,
         in F-order at each vertex.
+
+        Every control link is listed, including a control link that repeats
+        another control of the plaquette (on a periodic axis of length 2).
+        A plaquette's bit string, and the plaquette circuits that
+        LatticeCircuitManager builds, leave such repeats out, so on those
+        lattices the list is longer than the plaquette's bit string.
         """
         p = Plaquette(lattice=self, bottom_left_vertex=lattice_vector, plane=(e1, e2))
         return [*p.vertices, *p.active_links, *p.control_links_ordered]

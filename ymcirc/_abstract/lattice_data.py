@@ -192,9 +192,12 @@ class Plaquette(Generic[T]):
 
     This class defines an interface for indexing various kinds of data that are
     associated with the plaquettes on a hypercubic lattice. This consists of the following:
-    (1) four vertices, (2) four "active" links, (3) a number of "control" links which depends
-    on the dimensionality of the lattice, (4) a pair of lattice directions defining the plane
-    in which the plaquette lives.
+      1. four vertices,
+      2. four "active" links,
+      3. a number of "control" links which depends on both the dimensionality of the
+         lattice and (for nonperiodic boundary conditions) on where the plaquette
+         lies (a vertex on an open boundary has fewer links),
+      4. a pair of lattice directions defining the plane in which the plaquette lives.
 
     An "active" link is a link which forms a CCW oriented
     loop connecting all four vertices, starting with the "bottom-left" vertex:
@@ -224,7 +227,7 @@ class Plaquette(Generic[T]):
         bottom_left_vertex (LatticeVector):
             Retrieve the lattice coordinate of the "v1" vertex in the plaquette.
         plane (tuple[int, int]):
-            Retrieve a 2-tuple of lattice unit vectors defining the plane of the lattice.
+            Retrieve a 2-tuple of lattice unit vectors defining the plane of the plaquette in the lattice.
     """
 
     def __init__(
@@ -420,17 +423,17 @@ class LatticeDef:
                 stored as that bool. In d=3/2, only a bool is accepted. It
                 applies to the direction along the chain. The direction
                 across the chain is always open.
-
-        A d=3/2 lattice of size L is the d=2 lattice of shape (L, 2) whose
-        boundary conditions are (periodic_boundary_conds, False). The two have
-        the same vertices, links and plaquettes. The d=3/2 lattice reports dim
-        1.5 and size L.
             forder:
                 Half-link ordering convention, passed to pyclebsch when it
                 computes the lattice's plaquette states and matrix elements.
                 A sequence (such as a list or a tuple) that is a permutation
                 of (1, 2, 3, -1, -2, -3); kept as a tuple. Defaults to
                 (1, 2, 3, -1, -2, -3) if None.
+
+        A d=3/2 lattice of size L is the d=2 lattice of shape (L, 2) whose
+        boundary conditions are (periodic_boundary_conds, False). The two have
+        the same vertices, links and plaquettes. The d=3/2 lattice reports dim
+        1.5 and size L.
 
         Raises a NotImplementedError for more than three dimensions, which
         pyclebsch does not support. Raises a ValueError for a tuple of

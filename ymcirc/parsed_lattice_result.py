@@ -31,11 +31,13 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
     measurements of all the registers in a simulation circuit to minimize the possibility
     of subtle errors.
 
-    There is a convenience method from initializing instances of ParsedLatticeResult
-    using a LatticeRegisters instance to extract information about lattice geometry.
-    Additionally, a LatticeStateEncoder instance is needed because this class contains
-    information about how to map bit substrings corresponding to local degrees of
-    freedom onto physically meaningful irrep data.
+    A LatticeStateEncoder instance is needed because it holds the map from the
+    bit substrings of local degrees of freedom to physically meaningful irrep
+    data. The arguments dimensions, size and periodic_boundary_conds must
+    describe the encoder's lattice; the constructor raises a ValueError if
+    they do not. The factory methods from_links_and_vertices and
+    from_partial_measurement build results in which only some links and
+    vertices are known.
 
     The encoder must match the one used to build the circuit that produced the
     bit strings: the same lattice, F-order included, the same link bitmap and
@@ -394,7 +396,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
                 e1, e2 = addr[1], addr[2]
 
                 # We construct a Plaquette instance to get information about
-                # the requested plaquette's rgeometry. This includes
+                # the requested plaquette's geometry. This includes
                 # its signature and the directions of the control links at
                 # each of its vertices. Plaquette's constructor takes
                 # these from a LatticeData instance of the plaquette's

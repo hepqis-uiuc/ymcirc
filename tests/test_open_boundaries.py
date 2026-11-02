@@ -241,8 +241,8 @@ def _prepared_measured_and_parsed(
     A physical state of the lattice prepared with X gates, measured noiselessly, and parsed.
 
     Preparation finds each link's and vertex's qubits through
-    LatticeRegisters.get_link and get_vertex, and parsing reads their bits
-    at their places in the traversal order, and then applies the X gates.
+    LatticeRegisters.get_link and get_vertex, and applies the X gates to
+    them. Parsing reads their bits at their places in the traversal order.
     """
     registers = LatticeRegisters.from_lattice_state_encoder(encoder)
     circuit = LatticeCircuitManager(encoder, {}).create_blank_full_lattice_circuit(

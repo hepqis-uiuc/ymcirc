@@ -4,8 +4,8 @@ Physical plaquette states and magnetic matrix elements, computed by pyclebsch.
 This module is the one place where pyclebsch's formats for plaquette states
 and matrix elements enter ymcirc (https://github.com/hepqis-uiuc/pyclebsch). It
 calls pyclebsch's functions that compute the physical plaquette states and the
-matrix elements once per plaquette signature, on the pyclebsch LatticeDef that
-a ymcirc LatticeDef wraps, and converts their results to ymcirc's formats.
+matrix elements once per plane and plaquette signature, on the pyclebsch LatticeDef
+that a ymcirc LatticeDef wraps, and converts their results to ymcirc's formats.
 
 pyclebsch keeps the physical plaquette states and the matrix elements it
 computes in memory for the lifetime of the process, so a repeated call with
@@ -20,8 +20,8 @@ so that each call returns results the caller owns.
 
 Cache caps can be set via pyclebsch.set_physical_plaquette_states_cache_limit(n)
 and pyclebsch.set_plaquette_matrix_elements_cache_limit(n), which keep at most
-n entries each, an entry being the results for one plaquette signature at one
-truncation, evicting the least recently used.
+n entries each, an entry being the results for one plane and plaquette
+signature at one truncation, evicting the least recently used.
 """
 
 from __future__ import annotations
