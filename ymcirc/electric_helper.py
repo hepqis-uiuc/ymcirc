@@ -8,9 +8,7 @@ decomposition by the electric Casimir (according to the link_bitmap).
 from __future__ import annotations
 import logging
 from pyclebsch.su_n_operators import calc_casimir
-from ymcirc.conventions import (BitString, IrrepBitmap,
-                                LatticeStateEncoder)
-from ymcirc.parsed_lattice_result import ParsedLatticeResult
+from ymcirc.conventions import BitString, IrrepBitmap
 
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
@@ -49,49 +47,6 @@ def casimirs(link_bitmap: IrrepBitmap) -> list[float]:
         calc_casimir(irrep)
         for irrep in list(link_bitmap.keys())
     ]
-
-
-# TODO Use ParsedLatticeResult?
-def convert_bitstring_to_evalue(
-        global_lattice_bit_string: str,
-        lattice_encoder: LatticeStateEncoder,
-        warn_on_unphysical_links: bool = True,
-        error_on_unphysical_links: bool = False) -> float:
-    """
-    Convert lattice links to total energy.
-
-    Used for computing the average electric energy. 
-    Chunks the bitstring into |v l1 l2 ..> for each vertex when 
-    there are multiplicity data on the vertices. Default behavior for unphysical states is to note
-    them and assign 0.0 energy. This can by logged with warn_on_unphysical_links,
-    or a ValueError can be raised with error_on_unphysical_links.
-    """
-    parsed_global_lattice_bit_string = ParsedLatticeResult(
-        dimensions=lattice_encoder.lattice_def.dim,
-        size=lattice_encoder.lattice_def.size,
-        global_lattice_measurement_bit_string=global_lattice_bit_string,
-        lattice_encoder=lattice_encoder)
-
-    evalue = 0.0
-    for (vertex_address, attached_link_addresses) in parsed_global_lattice_bit_string.get_traversal_order():
-        for link_address in attached_link_addresses:
-            current_link_iweight = parsed_global_lattice_bit_string.get_link(link_address)
-            link_is_unphysical = current_link_iweight == None
-            if link_is_unphysical and error_on_unphysical_links:
-                raise ValueError(
-                    "Computation of electric energy terminated due to unphysical link state at "
-                    f"link address {link_address}."
-                )
-            elif link_is_unphysical and warn_on_unphysical_links:
-                warning_msg = f"Unphysical link state encountered at link address {link_address} during computation of electric energy."
-                logger.warning(warning_msg)
-                evalue += 0
-            else:
-                if not isinstance(current_link_iweight, tuple):
-                    raise TypeError(f"Non-iweight encountered in electric energy computation: {current_link_iweight} of type {type(current_link_iweight)}.")
-                evalue += calc_casimir(current_link_iweight)
-
-    return evalue
 
 
 def electric_hamiltonian(link_bitmap: IrrepBitmap) -> list[float]:
