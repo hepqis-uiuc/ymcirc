@@ -48,7 +48,7 @@ class LPFamily:
     The LPOperator class is used for validation, but data remains a tuple of strings.
     """
 
-    value: tuple[str]
+    value: tuple[str, ...]
 
     def __post_init__(self):
         # Validate.
