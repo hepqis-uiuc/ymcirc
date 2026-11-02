@@ -1953,26 +1953,26 @@ def test_signature():
     # v3 (top):    all dirs except +2 → {1, -1, -2} sorted by forder → (1, -1, -2)
     # v4 (top):    all dirs except +2 → {1, -1, -2} sorted by forder → (1, -1, -2)
     lattice_3_2 = LatticeRegisters(1.5, 2, True, link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap, forder=default_forder)
-    plaq_3_2 = lattice_3_2.get_plaquettes((0, 0), 1, 2)
+    plaq_3_2 = lattice_3_2.get_plaquette((0, 0), (1, 2))
     assert plaq_3_2.signature == ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
 
     # d=2, plane (1, 2), default forder:
     # All vertices have all dirs {1, 2, -1, -2} sorted by forder → (1, 2, -1, -2)
     lattice_2 = LatticeRegisters(2, 2, True, link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap, forder=default_forder)
-    plaq_2 = lattice_2.get_plaquettes((0, 0), 1, 2)
+    plaq_2 = lattice_2.get_plaquette((0, 0), (1, 2))
     assert plaq_2.signature == ((1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2))
 
     # d=3/2, plane (1, 2), nonstandard forder [-1, 2, -3, 1, -2, 3]:
     nonstandard_forder = [-1, 2, -3, 1, -2, 3]
     lattice_3_2_ns = LatticeRegisters(1.5, 2, True, link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap, forder=nonstandard_forder)
-    plaq_3_2_ns = lattice_3_2_ns.get_plaquettes((0, 0), 1, 2)
+    plaq_3_2_ns = lattice_3_2_ns.get_plaquette((0, 0), (1, 2))
     # v1, v2 (bottom): dirs {1, 2, -1} sorted by nonstandard forder → (-1, 2, 1)
     # v3, v4 (top): dirs {1, -1, -2} sorted by nonstandard forder → (-1, 1, -2)
     assert plaq_3_2_ns.signature == ((-1, 2, 1), (-1, 2, 1), (-1, 1, -2), (-1, 1, -2))
 
     # d=2, plane (1, 2), nonstandard forder [-1, 2, -3, 1, -2, 3]:
     lattice_2_ns = LatticeRegisters(2, 2, True, link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap, forder=nonstandard_forder)
-    plaq_2_ns = lattice_2_ns.get_plaquettes((0, 0), 1, 2)
+    plaq_2_ns = lattice_2_ns.get_plaquette((0, 0), (1, 2))
     # All vertices: dirs {1, 2, -1, -2} sorted by nonstandard forder → (-1, 2, 1, -2)
     assert plaq_2_ns.signature == ((-1, 2, 1, -2), (-1, 2, 1, -2), (-1, 2, 1, -2), (-1, 2, 1, -2))
 

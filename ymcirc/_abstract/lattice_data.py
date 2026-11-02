@@ -21,7 +21,6 @@ on the sites, active links and control links of one plaquette.
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from functools import cache
-from itertools import product
 import logging
 from math import ceil, isclose
 from typing import TypeVar, Generic, cast
@@ -599,15 +598,30 @@ class LatticeDef:
         site = self._to_pyclebsch_coordinates(self._wrap_periodic_axes(vertex_vector))
         return set(self._pyclebsch_lattice.sites[site])
 
+    def _check_plaquette_exists(self, bottom_left_vertex: LatticeVector, plane: Plane) -> None:
+        """
+        Raise a KeyError if the lattice has no plaquette in plane at bottom_left_vertex.
+
+        Which plaquettes exist at a vertex depends on the lattice's boundary
+        conditions. Along an open axis, a vertex on the far boundary has no
+        plaquette extending along that axis, so a plane that has a plaquette
+        at one vertex can have none at another (plaquette_addresses lists
+        the plaquettes that exist). Planes are (1, 2), (1, 3) and (2, 3), as
+        pyclebsch names them; any other pair of directions names no
+        plaquette.
+        """
+        site = self._to_pyclebsch_coordinates(self._wrap_periodic_axes(bottom_left_vertex))
+        if (site, plane) not in self._pyclebsch_lattice.plaquettes:
+            raise KeyError(f"No plaquette in plane {plane} at vertex {bottom_left_vertex} of {self}.")
+
     def _plaquette_signature(self, bottom_left_vertex: LatticeVector, plane: Plane) -> Signature:
         """
         The signature of the plaquette at bottom_left_vertex in plane, from pyclebsch.
 
         Raises a KeyError if the lattice has no such plaquette.
         """
+        self._check_plaquette_exists(bottom_left_vertex, plane)
         site = self._to_pyclebsch_coordinates(self._wrap_periodic_axes(bottom_left_vertex))
-        if (site, plane) not in self._pyclebsch_lattice.plaquettes:
-            raise KeyError(f"No plaquette in plane {plane} at vertex {bottom_left_vertex} of {self}.")
         # Checked above to be one of pyclebsch's planes.
         pyclebsch_plane = cast(PyclebschPlane, plane)
         _, site_half_links = compute_plaquette_signature((site, pyclebsch_plane), self._pyclebsch_lattice)
@@ -924,47 +938,38 @@ class LatticeData(ABC, LatticeDef, Generic[T]):
         """
         pass
 
-    def get_plaquettes(self,
-                       lattice_vector: LatticeVector,
-                       e1: int | None = None,
-                       e2: int | None = None,
-                       **kwargs
-                       ) -> Plaquette[T] | list[Plaquette[T]]:
+    def get_plaquette(self,
+                      lattice_vector: LatticeVector,
+                      plane: Plane,
+                      **kwargs
+                      ) -> Plaquette[T]:
         """
-        Return the list of all "positive" Plaquettes associated with the vertex lattice_vector (a single Plaquette in d=3/2 and d=2).
+        Return the Plaquette whose bottom-left vertex is lattice_vector, in plane.
 
-        The "positivity" convention is that the list of returned plaquettes corresponds to those
-        defined by all pairs of orthogonal positive unit vectors at the vertex lattice_vector.
-        Conventionally, the "lower" dimension labels the first element of the tuples
-        representing planes, and the plaquettes are sorted.
+        plane is a pair of positive directions in increasing order: (1, 2)
+        in d=3/2 and d=2, and one of (1, 2), (1, 3) and (2, 3) in d=3.
+        Raises a KeyError if the lattice has no such plaquette. Any other
+        pair of directions names no plaquette, including the same directions
+        in the other order, such as (2, 1). Which plaquettes exist also
+        depends on the boundary conditions. Along an open axis, a vertex on
+        the far boundary has no plaquette extending along that axis. Keyword
+        arguments are passed to get_vertex and get_link when the Plaquette
+        collects its data.
 
-        In d=3/2 and d=2 there is one plane, (1, 2); in d=3 there are three,
-        (1, 2), (1, 3) and (2, 3).
+        To visit the plaquettes that exist, iterate over plaquette_addresses,
+        which lists the (bottom-left vertex, plane) of each, in lexicographic
+        order. For example, the plaquettes whose bottom-left vertex is v are
 
-        If a particular plaquette is desired, this can be specified by either providing the
-        link unit vector directions e1 and e2 to defining a plane. Sign is ignored when
-        manually specifying the plane of a specific plaquette.
+        [lattice.get_plaquette(vertex, plane)
+         for vertex, plane in lattice.plaquette_addresses if vertex == v]
 
-        Return plaquettes will all have lattice_vector as the "bottom-left" vertex.
+        and all the plaquettes of the lattice, each once, are
+
+        [lattice.get_plaquette(vertex, plane)
+         for vertex, plane in lattice.plaquette_addresses]
         """
-        # A definition of convenience.
-        only_one_link_given = (e1 is None or e2 is None) and (e1 != e2)
-
-        if isinstance(e1, int) and isinstance(e2, int):  # Case where both link directions are provided.
-            return Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=(e1, e2), **kwargs)
-        elif only_one_link_given:  # Nonsense case.
-            raise ValueError(
-                "Provide no link directions to get all Plaquettes at a vertex, or exactly two link directions "
-                f"to get one particular Plaquette. Received e1={e1} and e2={e2}."
-            )
-        else:  # Case where no link directions provided, need to construct ALL plaquettes.
-            if (self.dim == 1.5 or self.dim == 2):  # Only one plaquette for these geometries.
-                return Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=(1, 2), **kwargs)
-            elif self.dim > 2:  # Generic case with multiple planes.
-                set_of_planes = set((i, j) if i < j else None for i, j in product(range(1, ceil(self.dim + 1)), range(1, ceil(self.dim + 1))))
-                not_none_lambda = lambda x: x is not None
-                all_planes = sorted(list(filter(not_none_lambda, set_of_planes)))  # Need to strip out a spurious None
-                return [Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=plane, **kwargs) for plane in all_planes]
+        self._check_plaquette_exists(lattice_vector, plane)
+        return Plaquette[T](lattice=self, bottom_left_vertex=lattice_vector, plane=plane, **kwargs)
 
     def __iter__(self):
         """Use get_traversal_order method for iteration over lattice data."""

@@ -5,7 +5,7 @@ import logging
 import warnings
 from ymcirc._abstract.lattice_data import (
     LatticeData, LatticeDef, Plaquette, DimensionalitySpecifier, LatticeVector,
-    LinkAddress)
+    LinkAddress, Plane)
 from pyclebsch.matrix_elements.lattice_data import SiteMultiplicityIndex
 from pyclebsch.su_n_operators import IrrepWeight, calc_casimir
 from ymcirc.conventions import LatticeStateEncoder
@@ -45,7 +45,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
     unless the lengths differ.
 
     A different F-order is also a source of silent error. For bit strings of
-    the whole lattice, each link's irrep is unaffected, but get_plaquettes
+    the whole lattice, each link's irrep is unaffected, but get_plaquette
     lists each vertex's control links in the F-order of the encoder's
     lattice. Read in another F-order, those plaquette states are different
     states (see PlaquetteState in ymcirc._abstract). For a plaquette measured
@@ -218,32 +218,21 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         else:
             return self._bit_strings_links[normalized_link_address]
 
-    def get_plaquettes(self,
-                       lattice_vector: LatticeVector,
-                       e1: int | None = None,
-                       e2: int | None = None,
-                       get_bit_string: bool = False,
-                       ) -> Plaquette[MeasurementData] | list[Plaquette[MeasurementData]]:
+    def get_plaquette(self,
+                      lattice_vector: LatticeVector,
+                      plane: Plane,
+                      get_bit_string: bool = False,
+                      ) -> Plaquette[MeasurementData]:
         """
-        Return the list of all "positive" Plaquettes associated with the vertex lattice_vector (a single Plaquette in d=3/2 and d=2).
+        Return the Plaquette whose bottom-left vertex is lattice_vector, in plane.
 
         As with get_vertex and get_link methods, get_bit_string controls whether to
         return underlying bit string data for each degree of freedom, or the decoded
-        result.
+        result. LatticeData.get_plaquette describes the planes, the KeyError
+        raised for a plaquette the lattice lacks, and how to visit the
+        plaquettes that exist.
 
-        The "positivity" convention is that the list of returned plaquettes corresponds to those
-        defined by all pairs of orthogonal positive unit vectors at the vertex lattice_vector.
-        Conventionally, the "lower" dimension labels the first element of the tuples
-        representing planes, and the plaquettes are sorted.
-
-        In d=3/2 and d=2 there is one plane, (1, 2); in d=3 there are three,
-        (1, 2), (1, 3) and (2, 3).
-
-        If a particular plaquette is desired, this can be specified by either providing the
-        link unit vector directions e1 and e2 to defining a plane. Sign is ignored when
-        manually specifying the plane of a specific plaquette.
-
-        Return plaquettes will all have lattice_vector as the "bottom-left" vertex.
+        lattice_vector is the "bottom-left" vertex of the plaquette.
         This corresponds to "v1" in the following diagram:
 
         v4 ----l3--- v3
@@ -257,7 +246,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         Note that this ordering of data DOES NOT match the ordering of links
         and vertices when iterating over the entire lattice!
         """
-        return super().get_plaquettes(lattice_vector, e1, e2, get_bit_string=get_bit_string)
+        return super().get_plaquette(lattice_vector, plane, get_bit_string=get_bit_string)
 
     def __hash__(self):
         """Hash based on measurement string, and data that uniquely specifies lattice geometry."""

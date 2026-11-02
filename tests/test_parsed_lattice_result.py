@@ -219,8 +219,8 @@ def test_parse_d_3_2_lattice_no_vertex_data(
         # Check plaquette data
         # (if not on bottom rung of d=3/2 lattice, KeyError should occur, so just skip getting plaquettes for current vertex).
         try:
-            current_plaquette_decoded_result = parsed_lattice_meas.get_plaquettes(current_vertex)
-            current_plaquette_bit_string_result = parsed_lattice_meas.get_plaquettes(current_vertex, get_bit_string=True)
+            current_plaquette_decoded_result = parsed_lattice_meas.get_plaquette(current_vertex, (1, 2))
+            current_plaquette_bit_string_result = parsed_lattice_meas.get_plaquette(current_vertex, (1, 2), get_bit_string=True)
         except KeyError:
             continue
         # Decoded plaquette.
@@ -333,8 +333,8 @@ def test_parse_d_3_2_lattice_with_vertex_data(
         # Check plaquette data
         # (if not on bottom rung of d=3/2 lattice, KeyError should occur, so just skip getting plaquettes for current vertex).
         try:
-            current_plaquette_decoded_result = parsed_lattice_meas.get_plaquettes(current_vertex)
-            current_plaquette_bit_string_result = parsed_lattice_meas.get_plaquettes(current_vertex, get_bit_string=True)
+            current_plaquette_decoded_result = parsed_lattice_meas.get_plaquette(current_vertex, (1, 2))
+            current_plaquette_bit_string_result = parsed_lattice_meas.get_plaquette(current_vertex, (1, 2), get_bit_string=True)
         except KeyError:
             continue
         # Decoded plaquette.
@@ -496,8 +496,8 @@ def test_parse_d_2_lattice_with_vertex_data(
             assert parsed_lattice_meas.get_link(link_address=current_link_address, get_bit_string=True) == expected_bit_string_lattice_result_dict[current_link_address]
 
         # Check plaquette data.
-        current_plaquette_decoded_result = parsed_lattice_meas.get_plaquettes(current_vertex)
-        current_plaquette_bit_string_result = parsed_lattice_meas.get_plaquettes(current_vertex, get_bit_string=True)
+        current_plaquette_decoded_result = parsed_lattice_meas.get_plaquette(current_vertex, (1, 2))
+        current_plaquette_bit_string_result = parsed_lattice_meas.get_plaquette(current_vertex, (1, 2), get_bit_string=True)
         # Decoded plaquette.
         assert current_plaquette_decoded_result.active_links == expected_decoded_plaquette_result_dict[current_vertex]["a_links"]
         assert current_plaquette_decoded_result.control_links_ordered == expected_decoded_plaquette_result_dict[current_vertex]["c_links_ordered"]
@@ -1067,8 +1067,8 @@ def test_from_partial_measurement_d2_plaquette_control_link_ordering(
     full_plr = ParsedLatticeResult(2, 2, full_bitstring, encoder)
 
     # Get the plaquette at (0,0) from the full measurement (both decoded and bitstring).
-    full_plaq = full_plr.get_plaquettes((0, 0))
-    full_plaq_bs = full_plr.get_plaquettes((0, 0), get_bit_string=True)
+    full_plaq = full_plr.get_plaquette((0, 0), (1, 2))
+    full_plaq_bs = full_plr.get_plaquette((0, 0), (1, 2), get_bit_string=True)
 
     # Construct plaquette bitstring directly from bit-level data in canonical order:
     # |v1 v2 v3 v4 l1 l2 l3 l4 c1... c2... c3... c4...|
@@ -1090,7 +1090,7 @@ def test_from_partial_measurement_d2_plaquette_control_link_ordering(
     plr_partial = ParsedLatticeResult.from_partial_measurement(
         [(((0, 0), 1, 2), plaq_bitstring)], encoder
     )
-    partial_plaq = plr_partial.get_plaquettes((0, 0))
+    partial_plaq = plr_partial.get_plaquette((0, 0), (1, 2))
     assert partial_plaq.control_links_ordered == full_plaq.control_links_ordered
     assert partial_plaq.active_links == full_plaq.active_links
     assert partial_plaq.vertices == full_plaq.vertices
