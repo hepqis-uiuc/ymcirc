@@ -9,7 +9,6 @@ from ymcirc._abstract.lattice_data import (
 from pyclebsch.matrix_elements.lattice_data import SiteMultiplicityIndex
 from pyclebsch.su_n_operators import IrrepWeight, calc_casimir
 from ymcirc.conventions import LatticeStateEncoder
-from ymcirc.lattice_registers import LatticeRegisters
 
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
@@ -402,18 +401,24 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
                 instance._decoded_links[link_addr] = encoder.decode_bit_string_to_link_state(bitstring)
 
             elif addr_type == "plaquette":
-                # TODO: would be nice to find a way to construct using Plaquette class,
-                # but might not be possible without significant refactor since that requires
-                # a LatticeData instance (one doesn't exist yet when using the from_partial_measurement
-                # factory method).
                 bottom_left_vertex = tuple(addr[0])
                 e1, e2 = addr[1], addr[2]
+
+                # We construct a Plaquette instance to get information about
+                # the requested plaquette's rgeometry. This includes
+                # its signature and the directions of the control links at
+                # each of its vertices. Plaquette's constructor takes
+                # these from a LatticeData instance of the plaquette's
+                # lattice. The partial ParsedLatticeResult built above
+                # (instance) is such a LatticeData instance, for the
+                # encoder's lattice, so it works.
+                plaquette = Plaquette(instance, bottom_left_vertex, (e1, e2))
 
                 # Decode the full plaquette bitstring, which leaves out the
                 # controls that repeat an earlier control of the plaquette (on
                 # a periodic axis of length 2), as measure_plaquette does.
                 plane = (e1, e2)
-                signature = lattice_def._plaquette_signature(bottom_left_vertex, plane)
+                signature = plaquette.signature
                 duplicate_control_indices = lattice_def._duplicate_control_indices(plane, signature)
                 decoded_plaq = encoder.decode_bit_string_to_plaquette_state(bitstring, plane, signature)
                 vertex_mults, a_links, c_links = decoded_plaq
@@ -451,14 +456,11 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
                     instance._decoded_links[normalized] = a_links[i]
                     plaq_bits_idx += link_len
 
-                # Populate control link data in canonical ordering.
-                # Use a representative plaquette's control_link_dirs_per_vertex to match
-                # the bitstring encoding order (same as control_links_ordered).
-                # TODO: bit of an abuse to use LatticeRegisters for this purpose.
-                # Consider cleaner solution for creating a LatticeDef subclass instance.
-                _temp_lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
-                _temp_plaq = _temp_lattice.get_plaquettes(bottom_left_vertex, e1, e2)
-                control_link_dirs = _temp_plaq.control_link_dirs_per_vertex
+                # Populate control link data in the order of the plaquette's
+                # bit string. We go vertex by vertex, and at each vertex in the
+                # lattice's F-order, link order comes from
+                # control_link_dirs_per_vertex.
+                control_link_dirs = plaquette.control_link_dirs_per_vertex
                 for vertex_idx, v_addr in enumerate(vertex_addrs):
                     for control_idx, link_dir in enumerate(control_link_dirs[vertex_idx]):
                         # A duplicate is the link of an earlier control, read
