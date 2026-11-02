@@ -194,7 +194,7 @@ def givens_fused_controls(
         bs1_bs2_lp_family = compute_LP_family(bit_string_1, bit_string_2)
         lp_bin_matches = bs1_bs2_lp_family.value == lp_bin.value
         if lp_bin_matches is False:
-            return ValueError(
+            raise ValueError(
                 "The LP value of the bitstrings should match with the LP bin value."
             )
         no_rotation_is_needed = bit_string_1 == bit_string_2

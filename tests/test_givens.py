@@ -721,6 +721,18 @@ def test_givens_fused_controls():
     assert expected_circuit == generated_circuit
 
 
+def test_givens_fused_controls_refuses_pair_outside_its_lp_bin():
+    """A pair of bit strings whose LP family differs from the LP bin's is refused with a ValueError."""
+    # "0000" and "1100" differ on the first two bits, so their LP family is
+    # LLPP. The bin given is PLLP.
+    with pytest.raises(ValueError, match="LP bin"):
+        givens_fused_controls(
+            [("0000", "1100", 1.0)],
+            LPFamily(("P", "L", "L", "P")),
+            encoded_physical_states=None,
+        )
+
+
 def test_bitstring_value_of_LP_fam():
     lp_fam = ("L", "P", "L", "L", "P", "P")
     expected_bitstring = "010011"
