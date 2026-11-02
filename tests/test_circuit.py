@@ -882,6 +882,36 @@ def test_creating_correct_ancilla_register_for_d_2_T1_small():
     print("Test for ancilla register count passed")
 
 
+def test_num_ancillas_is_zero_when_no_gate_has_more_than_two_qubits():
+    """
+    The ancilla count is 0, not negative, for a magnetic Trotter step without multi-controlled gates.
+
+    V-chain synthesis of an X gate with k controls takes k - 2 ancillas, so
+    a step whose gates have at most two controls needs none. On the open
+    d=3/2 lattice of size 2 at B3, with control pruning and control fusion
+    on, each Givens rotation keeps at most one control, so no gate of the
+    step acts on more than two qubits (asserted below).
+    """
+    truncation_mode, cutoff = "B", 3
+    lattice_def = LatticeDef(1.5, 2, periodic_boundary_conds=False)
+    lattice_encoder = LatticeStateEncoder.for_truncation(lattice_def, truncation_mode, cutoff)
+    physical_states_for_control_pruning = physical_plaquette_states(lattice_def, truncation_mode, cutoff)
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager.for_truncation(lattice_encoder)
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
+
+    step = master_circuit.copy()
+    circ_mgr.apply_magnetic_trotter_step(
+        step, lattice_registers, optimize_circuits=False,
+        physical_states_for_control_pruning=physical_states_for_control_pruning, control_fusion=True)
+    assert max(instruction.operation.num_qubits for instruction in step.data) <= 2
+
+    assert circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(
+        master_circuit, lattice_registers, control_fusion=True,
+        physical_states_for_control_pruning=physical_states_for_control_pruning,
+        optimize_circuits=False) == 0
+
+
 def test_magnetic_with_ancilla_has_no_MCX():
     print("Checking that the MCX gates are properly decomposed in the magnetic trotter step")
 

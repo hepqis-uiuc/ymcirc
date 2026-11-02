@@ -316,7 +316,8 @@ class LatticeCircuitManager:
         required ancillas needed.
 
         For MCX decomposition into v-chain, (maximum number of controls in a trotter step - 2)
-        is the result (check internal givens rotation function for reference).
+        is the result (check internal givens rotation function for reference), or 0 if
+        no gate of the step has more than 2 controls.
 
         Arguments:
           - master_circuit: a QuantumCircuit instance which is built from all
@@ -360,7 +361,9 @@ class LatticeCircuitManager:
             if len(circuit_instruction.operation.name) >= 3 and circuit_instruction.operation.name[:3] == "mcx":
                 max_controls = max(circuit_instruction.operation.num_ctrl_qubits, max_controls)
 
-        max_ancillas_needed = max_controls - 2
+        # An X gate with k controls takes k - 2 ancillas in v-chain synthesis,
+        # so a step whose X gates have at most 2 controls needs none.
+        max_ancillas_needed = max(max_controls - 2, 0)
 
         return max_ancillas_needed
 
