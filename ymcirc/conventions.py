@@ -42,7 +42,8 @@ for_truncation.
 Each link bitmap is a dictionary which maps 3-tuples to unique bit strings.
 The tuples represent "i-Weights", which are a way of uniquely labeling
 SU(N) irreps which come from working with the Gelfand-Tsetlin pattern calculus.
-See Arne et al for more details (https://doi.org/10.1063/1.3521562).
+See A. Alex et al., J. Math. Phys. 52, 023507 (2011), arXiv:1009.0437
+(https://doi.org/10.1063/1.3521562), for more details.
 As a convenience, the following constants are defined which take on the correct
 i-Weight values:
 
@@ -227,7 +228,7 @@ FIFTEEN_BAR: IrrepWeight = (3, 2, 0)
 #
 # Each entry is the set of link irreps that some supported truncation produces.
 # On periodic lattices of size 3:
-# - {1, 3, 3bar}: T1 and B3 in d=3/2 and d=2; B5 in d=3/2; B3 and B4 in d=3;
+# - {1, 3, 3bar}: T1 and B3 in d=3/2 and d=2; B4 and B5 in d=3/2; B3 and B4 in d=3;
 #   B4 in d=2.
 # - {1, 3, 3bar, 6, 6bar, 8}: T2 and B6-B9 in d=3/2; B7 in d=2.
 # - the same plus 15 and 15bar: B10 in d=3/2.
@@ -536,7 +537,13 @@ class LatticeStateEncoder:
 
     @property
     def lattice_def(self) -> LatticeDef:
-        """Return copy of the LatticeDef instance used to create the encoder instance."""
+        """
+        Return a copy of the encoder's LatticeDef.
+
+        It is a LatticeDef with the dimensions, size, boundary conditions and
+        F-order of the lattice the encoder was created with, even when that
+        lattice was an instance of a subclass, such as LatticeRegisters.
+        """
         return copy.deepcopy(self._lattice)
 
     def encode_link_state_as_bit_string(self, link: IrrepWeight) -> str:
@@ -545,9 +552,11 @@ class LatticeStateEncoder:
 
     def decode_bit_string_to_link_state(self, encoded_link: str) -> IrrepWeight | None:
         """
-        Decode a bit string to a linke state i-Weight tuple.
+        Decode a bit string to a link state i-Weight tuple.
 
-        If the bit string doesn't have a valid decoding, returns None.
+        Returns None if the link bitmap does not use the bit string. Raises a
+        ValueError if the bit string's length is not the encoder's link bit
+        string length.
         """
         if len(encoded_link) != self.expected_link_bit_string_length:
             raise ValueError(
@@ -567,7 +576,9 @@ class LatticeStateEncoder:
         """
         Decode a bit string to a vertex multiplicity index.
 
-        If the bit string doesn't have a valid decoding, returns None.
+        Returns None if the vertex bitmap does not use the bit string. Raises a
+        ValueError if the bit string's length is not the encoder's vertex bit
+        string length.
         """
         if len(encoded_vertex) != self.expected_vertex_bit_string_length:
             raise ValueError(

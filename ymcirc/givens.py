@@ -346,14 +346,14 @@ def prune_controls(
     precomputed_p_tilde: set[str] | None = None,
 ) -> tuple[list[int], str]:
     """
-    Perform control pruning on circ to reduce multi-control unitaries (MCUs).
+    Perform control pruning to reduce multi-control unitaries (MCUs).
 
     This algorithm decreases the two-qubit gate depth of resulting
     circuits by determining the set of necessary control qubits to
     implement a Givens rotation without inducing any rotations
-    between states in encoded_physical_states. If the Set
-    encoded_physical_states is None, then the inputs
-    (ctrls, ctrl_state) are simply returned as a tuple with
+    between states in encoded_physical_states. If both
+    encoded_physical_states and precomputed_p_tilde are None, then the
+    inputs (ctrls, ctrl_state) are simply returned as a tuple with
     no changes.
 
     Input:
@@ -540,10 +540,10 @@ def compute_LP_family(bit_string_1: str, bit_string_2: str) -> LPFamily:
     Compare each element of bit_string_1 and bit_string_2 to obtain LP family.
 
     Input:
-        - Two equal-length bit strings strings bit_string_1 and bit_string 2.
+        - Two equal-length bit strings bit_string_1 and bit_string_2.
     Output:
-        - A list of the same length as one of the input bitstrings. Each element of
-            the return list consists of the following:
+        - An LPFamily whose value is a tuple of the same length as the input
+            bit strings. Each element of the tuple is:
             - "P" if both inputs have the same value at that index
             - "L" if the inputs differ at that index
     """
@@ -736,9 +736,14 @@ def _CRXCircuit_with_MCX(
     return circ_with_mcx
 
 
-# FIX: type hint of lp_fam
-def bitstring_value_of_LP_family(lp_fam: list[str] | LPFamily) -> str:
-    """Validates form of lp_fam with LPFamily class if List[str]."""
+def bitstring_value_of_LP_family(lp_fam: tuple[str, ...] | LPFamily) -> str:
+    """
+    Return the bit string that orders LP families: "0" for each "L" and "1" for each "P".
+
+    lp_fam is an LPFamily, or a tuple of "L" and "P" strings, which is
+    validated by making an LPFamily of it. A list raises a ValueError, as
+    LPFamily accepts only tuples.
+    """
     if not isinstance(lp_fam, LPFamily):
         lp_fam = LPFamily(lp_fam)
     # Assigns a bitstring value to the LP family. This will help in binning LP families and

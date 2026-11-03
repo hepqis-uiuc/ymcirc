@@ -75,11 +75,11 @@ class MeasurementResults:
 
         Arguments:
             - link_address: Address of the link, e.g. ((0,0), 1).
-            - unphys_mode: 'warn' will cause a warning to be emitted if the
-              requested link is unphysical. 'err' will cause a KeyError
-              to be raised. If this argument is omitted or takes on any
-              other value, None will be silently returned for unphysical
-              or unmeasured links.
+            - unphys_mode: passed to ParsedLatticeResult.get_link_electric_energy.
+              'warn' (the default) emits a warning for each outcome in which
+              the link is unphysical. 'err' raises a KeyError. Any other value
+              is silent. Unphysical outcomes contribute 0 to the average
+              unless 'err' is given.
         """
         total = 0.0
         for parsed, count in self._counts.items():
@@ -112,14 +112,15 @@ class MeasurementResults:
               If True, each instance returns energy per link.
               If False, each instance returns total energy.
             - unphys_mode: Passed to each ParsedLatticeResult instance.
-              If omitted, unphysical links are silently treated as having
-              zero electric energy. If 'warn', a warning is emitted whenever
-              an unphysical link is encountered, and then the value is treated as
-              zero. If 'err', then an error is raised whenever unphysical links are
-              encountered.
+              If 'warn' (the default), a warning is emitted whenever an
+              unphysical link is encountered, and the link is skipped. If
+              'err', a KeyError is raised whenever an unphysical or unmeasured
+              link is encountered, even when skip_unmeasured is True. Any
+              other value skips unphysical links silently.
             - skip_unmeasured: Passed to each ParsedLatticeResult instance.
-              If True, unmeasured links are skipped when computing the average energy.
-              If False, an error is raised if an unmeasured link is encountered.
+              If True, unmeasured links are skipped when computing the average
+              energy, unless unphys_mode is 'err'. If False, a KeyError is
+              raised if an unmeasured link is encountered.
         """
         total = 0.0
         for parsed, count in self._counts.items():
@@ -141,16 +142,18 @@ class MeasurementResults:
         for parsed, count in self._counts.items():
             is_vacuum = True
             for vertex_addr, link_addrs in parsed.get_traversal_order():
+                # Checked apart from the vertex's links, since a vertex at an
+                # open boundary can have no link in a positive direction.
+                if strict_equality is True and self._encoder.expected_vertex_bit_string_length > 0:
+                    vertex_multiplicity = parsed.get_vertex(vertex_addr)
+                    if vertex_multiplicity != 0:
+                        is_vacuum = False
+                        break
                 for link_addr in link_addrs:
                     link_state = parsed.get_link(link_addr)
                     if link_state != ONE:
                         is_vacuum = False
                         break
-                    if strict_equality is True and self._encoder.expected_vertex_bit_string_length > 0:
-                        vertex_multiplicity = parsed.get_vertex(vertex_addr)
-                        if vertex_multiplicity != 0:
-                            is_vacuum = False
-                            break
                 if not is_vacuum:
                     break
             if is_vacuum:

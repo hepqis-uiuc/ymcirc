@@ -410,7 +410,8 @@ class LatticeDef:
 
         Arguments:
             dimensions:
-                An integer, float, or string specifying the dimensionality of the lattice.
+                The dimensionality of the lattice: the int 2 or 3, or, for
+                d=3/2, 1.5, "1.5" or "3/2".
             size:
                 If an int, the number of unique vertices in every lattice direction
                 (for d=3/2, along the chain; it is always two vertices tall). If

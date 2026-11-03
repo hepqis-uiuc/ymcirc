@@ -18,11 +18,19 @@ There is no need to manually activate or deactivate the virtual environment. Inf
 uv pip list
 ```
 
-### Installation for Windows subsystem for Linux (WSL)
-After setting up WSL there is a checklist of programs you will need before proceeding with the regular installation instructions above:
+### Using ymcirc in another project
+To add ymcirc to a uv project, name a released version by its tag, a branch, or a commit:
+```shell
+uv add git+https://github.com/hepqis-uiuc/ymcirc --tag v0.2.0     # a released version
+uv add git+https://github.com/hepqis-uiuc/ymcirc --branch develop # the latest commit on a branch
+uv add git+https://github.com/hepqis-uiuc/ymcirc --rev 5db799a    # a commit, by its hash
+```
+uv records the choice under `[tool.uv.sources]` in the project's `pyproject.toml`, and the exact commit in `uv.lock`. A project that follows a branch stays at the locked commit until `uv lock --upgrade-package ymcirc` moves it to the branch's latest commit. Running `uv add` again with another tag, branch or commit replaces the previous choice. The release v0.1.0 cannot be installed this way, since it has no `pyproject.toml`.
 
-1. Download / update Git by running `sudo apt-get install git`.
-2. Download / update Python3 by running `sudo apt install python3 python3-pip`
+The project must allow only the versions of Python that ymcirc supports (`requires-python` in ymcirc's `pyproject.toml`), or uv cannot add ymcirc.
+
+### Installation for Windows subsystem for Linux (WSL)
+After setting up WSL, download / update Git by running `sudo apt-get install git` before proceeding with the regular installation instructions above. Python does not need to be installed separately: uv installs the version of Python that ymcirc requires.
 
 ## Adding, updating, and removing dependencies
 To add a package to the project (for example, `numpy`):
@@ -64,7 +72,7 @@ When adding new tests, group the functionality being tested by file. For example
 Note that all test files must be named `test_[something].py`!
 
 ### Running tests
-If you want to run all tests in the `test` directory, activate the virtual environment and then type:
+If you want to run all tests in the `tests` directory, type:
 ```
 uv run pytest -v
 ```
@@ -77,7 +85,7 @@ uv run pytest tests/test_[file].py
 
 If you want to run *just one* test:
 ```
-uv run pytest tests/test_mod.py::test_func.
+uv run pytest tests/test_mod.py::test_func
 ```
 
 There's also more complete documentation on [how to invoke pytest](https://docs.pytest.org/en/stable/how-to/usage.html) which presents some additional features.
@@ -102,8 +110,21 @@ uv run -m run.time_evol
 ```
 Replace `run.time_evol` with the particular desired module in the `run` directory.
 
+Building circuits primarily utilizes four classes:
+1. `LatticeDef` (in `ymcirc._abstract`), which sets up the lattice geometry and boundary conditions.
+2. `LatticeStateEncoder` (in `ymcirc.conventions`), which defines bitmaps (maps from link irreps and vertex multiplicity indices to bit strings) for encoding gauge field configurations in qubits. In practice, instances are created via `LatticeStateEncoder.for_truncation`, which takes an irrep truncation.
+3. `LatticeRegisters` (in `ymcirc.lattice_registers`), which holds the qubit registers, names them according to their location in the lattice so this information is not lost when saving circuits to disk, and provides indexing functionality for working with registers at specific lattice locations. (Note that a QASM file holds each name rewritten as a valid identifier, such as `_l___0__0___1_` for the link register `l:((0, 0), 1)`.)
+4. `LatticeCircuitManager` (in `ymcirc.circuit`), created with `LatticeCircuitManager.for_truncation`. This class adds Trotter steps and measurements to a circuit.
+
+Working with measurements primarily makes use of two classes:
+1. `ParsedLatticeResult` (in `ymcirc.parsed_lattice_result`), which decodes a bit string measured on the lattice's registers into the irrep on each link and the multiplicity index at each vertex, and provides indexing functionality for these at specific lattice locations. It also computes electric energies of measured links. `ParsedLatticeResult.from_partial_measurement` can be used to create an instance from measurements of only some of the registers.
+2. `MeasurementResults` (in `ymcirc.measurement_results`) exists to aggregate shot counts. It is keyed by bit strings or by `ParsedLatticeResult` instances, and enables computation of the (empirical) expectation value of the electric energy, the vacuum persistence probability, and transition probabilities.
+
+### Scripts that build circuits
+`LatticeCircuitManager.for_truncation` has pyclebsch compute the magnetic Hamiltonian's matrix elements in parallel, in a pool of worker processes from Python's `multiprocessing`. On macOS and Windows, and on Linux from Python 3.14, each worker starts by importing the script that was run, so all code at the top level of that script runs again in every worker. A worker that reaches `for_truncation` tries to start a pool of its own, which Python refuses with a `RuntimeError`, and the script hangs. To avoid this, put a script's work under `if __name__ == "__main__":`, as the scripts in `run` do (see "Safe importing of main module" in Python's `multiprocessing` documentation).
+
 ### Caching of magnetic Hamiltonian data
-The physical plaquette states and the magnetic Hamiltonian's matrix elements for a lattice and truncation are computed by [pyclebsch](https://github.com/hepqis-uiuc/pyclebsch), a dependency of `ymcirc`. pyclebsch keeps them in in-memory caches. These caches last for the duration of a running process, and are unlimited by default. To set cache limits, use `pyclebsch.set_physical_plaquette_states_cache_limit(n)` and `pyclebsch.set_plaquette_matrix_elements_cache_limit(n)` cap them at `n` entries each (an entry holds the results for one plane and plaquette signature at one truncation). When limits are in use, the least-recently used item is evicted from the corresponding cache. For repeated runs, Clebsch-Gordan coefficients can be reused by enabling an optional disk cache which is off by default. To turn it on, use `pyclebsch.set_cgc_cache_dir(path)` or the environment variable `PYCLEBSCH_CACHE_DIR`. See pyclebsch's README for more details on caching behavior.
+The physical plaquette states and the magnetic Hamiltonian's matrix elements for a lattice and truncation are computed by [pyclebsch](https://github.com/hepqis-uiuc/pyclebsch), a dependency of `ymcirc`. pyclebsch keeps them in in-memory caches. These caches last for the duration of a running process, and are unlimited by default. To set cache limits, use `pyclebsch.set_physical_plaquette_states_cache_limit(n)` and `pyclebsch.set_plaquette_matrix_elements_cache_limit(n)` to cap them at `n` entries each (an entry holds the results for one plane and plaquette signature at one truncation). When limits are in use, the least-recently used item is evicted from the corresponding cache. For repeated runs, Clebsch-Gordan coefficients can be reused by enabling an optional disk cache which is off by default. To turn it on, use `pyclebsch.set_cgc_cache_dir(path)` or the environment variable `PYCLEBSCH_CACHE_DIR`. See pyclebsch's README for more details on caching behavior.
 
 pyclebsch shows progress bars (from `tqdm`) while it computes. Setting the environment variable `TQDM_DISABLE=1` turns them off, along with every other `tqdm` progress bar in the process. For example, to run `run.time_evol` without progress bars:
 ```shell

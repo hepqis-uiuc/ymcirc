@@ -23,7 +23,7 @@ from qiskit_aer import AerSimulator
 from qiskit.circuit import QuantumCircuit
 from typing import Any
 from ymcirc._abstract import LatticeDef, Plane, PlaquetteState, Signature
-from ymcirc.circuit import LatticeCircuitManager
+from ymcirc.circuit import ANCILLA_REGISTER_NAME, LatticeCircuitManager
 from ymcirc.conventions import (
     LatticeStateEncoder, physical_plaquette_states)
 from ymcirc.electric_helper import electric_hamiltonian
@@ -390,7 +390,7 @@ def load_circuit(circuit_load_path: str | Path, script_options: dict[str, Any]) 
         raise FileExistsError(f"Tried to load nonexistent file: '{circuit_load_path}'")
 
     if script_options['use_ancillas'] is True:
-        simulation_circuit = LatticeCircuitManager.load_circuit(circuit_load_path, ancilla_reg_name='anc')
+        simulation_circuit = LatticeCircuitManager.load_circuit(circuit_load_path, ancilla_reg_name=ANCILLA_REGISTER_NAME)
     else:
         simulation_circuit = LatticeCircuitManager.load_circuit(circuit_load_path)
 
@@ -488,11 +488,12 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
                 )
             counts_dict_big_endian[plr_cache[big_endian_state]] = count
         mr = MeasurementResults(counts_dict_big_endian, lattice_encoder)
-        for big_endian_state, counts in mr.get_counts(str_keys=True).items():
+        counts_by_bit_string = mr.get_counts(str_keys=True)
+        for big_endian_state, counts in counts_by_bit_string.items():
             df_job_results.loc[sim_time, big_endian_state] = counts
 
         # Ensure existence of vacuum state data.
-        if vacuum_state not in counts_dict_big_endian.keys():
+        if vacuum_state not in counts_by_bit_string:
             df_job_results.loc[sim_time, vacuum_state] = 0
 
         # Compute vacuum persistence probability and average electric energy per link.

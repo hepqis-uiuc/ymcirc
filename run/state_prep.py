@@ -75,7 +75,7 @@ if __name__ == "__main__":
             # Setting the basis gate set to single qubit unitaries and CX should
             # resolve any "v-chain" decomposition weirdness.
             sim_circ_max_portability = transpile(state_prep_circuit, basis_gates=["u","cx"], optimization_level=0)
-            save_circuit(state_prep_circuit, filename_str_prefix, script_options)
+            save_circuit(sim_circ_max_portability, filename_str_prefix, script_options)
 
         # Optimize decomposes "v-chain" gates into their constituents.
         state_prep_circuit = transpile(state_prep_circuit, optimization_level=3)
