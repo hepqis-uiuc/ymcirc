@@ -23,7 +23,7 @@ from qiskit_aer import AerSimulator
 from qiskit.circuit import QuantumCircuit
 from typing import Any
 from ymcirc._abstract import LatticeDef, Plane, PlaquetteState, Signature
-from ymcirc.circuit import LatticeCircuitManager
+from ymcirc.circuit import ANCILLA_REGISTER_NAME, LatticeCircuitManager
 from ymcirc.conventions import (
     LatticeStateEncoder, physical_plaquette_states)
 from ymcirc.electric_helper import electric_hamiltonian
@@ -390,7 +390,7 @@ def load_circuit(circuit_load_path: str | Path, script_options: dict[str, Any]) 
         raise FileExistsError(f"Tried to load nonexistent file: '{circuit_load_path}'")
 
     if script_options['use_ancillas'] is True:
-        simulation_circuit = LatticeCircuitManager.load_circuit(circuit_load_path, ancilla_reg_name='anc')
+        simulation_circuit = LatticeCircuitManager.load_circuit(circuit_load_path, ancilla_reg_name=ANCILLA_REGISTER_NAME)
     else:
         simulation_circuit = LatticeCircuitManager.load_circuit(circuit_load_path)
 

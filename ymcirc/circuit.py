@@ -38,6 +38,14 @@ import numpy as np
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
 
+# The name of the ancilla register that
+# LatticeCircuitManager.add_ancilla_register_to_quantum_circuit adds. QASM files
+# do not record which registers are ancilla registers, so load_circuit is
+# given this name to restore one. If the value changes, update the docstrings
+# that quote it: those of add_ancilla_register_to_quantum_circuit,
+# save_circuit and load_circuit.
+ANCILLA_REGISTER_NAME = "anc"
+
 # A pair of plaquette states, each encoded as a bit string.
 type _EncodedPlaquetteTransition = tuple[str, str]
 
@@ -388,9 +396,12 @@ class LatticeCircuitManager:
         """
         Adds ancilla qubits to the master_circuit based on the value of self.num_ancillas.
 
+        The qubits form one AncillaRegister named ANCILLA_REGISTER_NAME
+        ("anc"), the name to pass to load_circuit as ancilla_reg_name.
+
         Note that this mutates the circuit!
         """
-        master_circuit.add_register(AncillaRegister(self.num_ancillas, "anc"))
+        master_circuit.add_register(AncillaRegister(self.num_ancillas, ANCILLA_REGISTER_NAME))
 
     def measure_link(
         self,
@@ -778,17 +789,18 @@ class LatticeCircuitManager:
             )
 
     @staticmethod
-    def save_circuit(circ: QuantumCircuit, filename: str | Path, ancilla_reg_name: None | "str" = None) -> None:
+    def save_circuit(circ: QuantumCircuit, filename: str | Path) -> None:
         """
         Wrapper to save a lattice circuit to disk.
 
         The serialization type will be inferred from the extension on
-        filename. Currently supported types are QASM and QPY.
+        filename. Currently supported types are QASM and QPY. Any other
+        extension raises a ValueError.
 
-        If ancilla_reg_name is provided, then it is assumed that the
-        QuantumRegister instance with that name is an ancilla register.
-        If ancilla_reg_name is None, then only registers of type
-        AncillaRegister will be treated as ancillas.
+        QASM does not record which registers are ancilla registers. The
+        ancilla register of a circuit built by LatticeCircuitManager is
+        named ANCILLA_REGISTER_NAME ("anc"); load_circuit restores it when
+        given that name as ancilla_reg_name.
         """
         if isinstance(filename, str):
             filename = Path(filename)
@@ -811,16 +823,15 @@ class LatticeCircuitManager:
         The serialization type will be inferred from the extension on
         filename. Currently supported types are QASM and QPY.
 
-        If ancilla_reg_name is provided, then it is assumed that a
-        quantum register with that name is an ancilla register. This is relevant
-        for QASM files, which do not have a specific ancilla register type.
-        If ancilla_reg_name is None, then only registers of type
-        AncillaRegister will be treated as ancillas. This is relevant
-        for QPY files.
+        For a QASM file, which does not record which registers are ancilla
+        registers, the register named ancilla_reg_name, if given, is loaded
+        as an AncillaRegister. A circuit built by LatticeCircuitManager names
+        its ancilla register ANCILLA_REGISTER_NAME ("anc"). With the default,
+        None, no register is loaded as an AncillaRegister.
 
-        If a circuit has been serialized as a QPY file and it has an ancilla register,
-        it is recommended to provide an ancilla register
-        name anyway due to deserialization bugs that can occur with qiskit.
+        For a QPY file, ancilla_reg_name is ignored. Qiskit can fail to load
+        a QPY file whose circuit has an ancilla register
+        (https://github.com/Qiskit/qiskit/issues/11619).
         """
         if isinstance(filename, str):
             filename = Path(filename)
