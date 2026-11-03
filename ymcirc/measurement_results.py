@@ -141,16 +141,18 @@ class MeasurementResults:
         for parsed, count in self._counts.items():
             is_vacuum = True
             for vertex_addr, link_addrs in parsed.get_traversal_order():
+                # Checked apart from the vertex's links, since a vertex at an
+                # open boundary can have no link in a positive direction.
+                if strict_equality is True and self._encoder.expected_vertex_bit_string_length > 0:
+                    vertex_multiplicity = parsed.get_vertex(vertex_addr)
+                    if vertex_multiplicity != 0:
+                        is_vacuum = False
+                        break
                 for link_addr in link_addrs:
                     link_state = parsed.get_link(link_addr)
                     if link_state != ONE:
                         is_vacuum = False
                         break
-                    if strict_equality is True and self._encoder.expected_vertex_bit_string_length > 0:
-                        vertex_multiplicity = parsed.get_vertex(vertex_addr)
-                        if vertex_multiplicity != 0:
-                            is_vacuum = False
-                            break
                 if not is_vacuum:
                     break
             if is_vacuum:

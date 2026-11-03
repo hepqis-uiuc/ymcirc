@@ -1,8 +1,8 @@
 import pytest
 import warnings
-from ymcirc._abstract import LatticeDef
+from ymcirc._abstract import LatticeDef, PlaquetteState
 from ymcirc.conventions import (
-    LatticeStateEncoder, ONE, THREE, THREE_BAR
+    IrrepBitmap, LatticeStateEncoder, ONE, THREE, THREE_BAR
 )
 from ymcirc.parsed_lattice_result import ParsedLatticeResult
 from ymcirc.measurement_results import MeasurementResults
@@ -226,6 +226,41 @@ def test_vacuum_persistence_probability_some_nontrivial_multiplicities(encoder_d
     mr = MeasurementResults(counts, encoder)
 
     assert mr.vacuum_persistence_probability() == pytest.approx(0.9)
+    assert mr.vacuum_persistence_probability(strict_equality=True) == pytest.approx(0.7)
+
+
+def test_vacuum_persistence_probability_strict_checks_vertices_without_positive_links():
+    """
+    With strict_equality, a nonzero multiplicity index excludes a shot from
+    the vacuum at every vertex, including a vertex with no links in a positive
+    direction, such as the top-right corner of an open lattice.
+    """
+    # The open d=3/2 lattice of size 2 has one plaquette. Each of its four
+    # vertices has two links, both active links of the plaquette, so there are
+    # no control links. Index 1 at one vertex gives one vertex bit.
+    link_bitmap: IrrepBitmap = {ONE: "00", THREE: "10", THREE_BAR: "01"}
+    physical_plaquette_states: list[PlaquetteState] = [
+        ((0, 0, 0, 0), (ONE, ONE, ONE, ONE), ((), (), (), ())),
+        ((0, 0, 0, 1), (THREE, THREE, THREE_BAR, THREE_BAR), ((), (), (), ())),
+    ]
+    encoder = LatticeStateEncoder(
+        link_bitmap, physical_plaquette_states, LatticeDef(1.5, 2, periodic_boundary_conds=False))
+    # Bit strings in traversal order: vertex (0, 0), links ((0, 0), 1) and
+    # ((0, 0), 2); vertex (0, 1), link ((0, 1), 1); vertex (1, 0), link
+    # ((1, 0), 2); vertex (1, 1), which has no link in a positive direction.
+    vacuum_bits = "0" + "0000" + "0" + "00" + "0" + "00" + "0"
+    index_1_at_origin_bits = "1" + "0000" + "0" + "00" + "0" + "00" + "0"
+    index_1_at_top_right_corner_bits = "0" + "0000" + "0" + "00" + "0" + "00" + "1"
+    plr_vacuum = ParsedLatticeResult(1.5, 2, vacuum_bits, encoder, False)
+    plr_index_1_at_origin = ParsedLatticeResult(1.5, 2, index_1_at_origin_bits, encoder, False)
+    plr_index_1_at_top_right_corner = ParsedLatticeResult(
+        1.5, 2, index_1_at_top_right_corner_bits, encoder, False)
+    assert plr_index_1_at_top_right_corner.get_vertex((1, 1)) == 1
+
+    counts = {plr_vacuum: 70, plr_index_1_at_origin: 10, plr_index_1_at_top_right_corner: 20}
+    mr = MeasurementResults(counts, encoder)
+
+    assert mr.vacuum_persistence_probability() == pytest.approx(1.0)
     assert mr.vacuum_persistence_probability(strict_equality=True) == pytest.approx(0.7)
 
 
