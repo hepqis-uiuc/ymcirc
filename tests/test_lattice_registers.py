@@ -130,6 +130,33 @@ def test_get_register_traversal_order(dims):
     assert expected_register_traversal_order_dict[dims] == lattice.get_traversal_order()
 
 
+def test_get_register_traversal_order_d_3_open():
+    """
+    The traversal order, which orders the registers of a circuit, on the d=3 lattice of shape (3, 2, 2) with open boundaries.
+
+    Each vertex, in lexicographic order, is followed by the links leaving it
+    in the positive directions that exist: along axis k only if its k-th
+    coordinate is below the last on that axis (2 for axis 1, 1 for axes 2
+    and 3). That gives 20 links.
+    """
+    lattice = LatticeRegisters(dimensions=3, size=(3, 2, 2), periodic_boundary_conds=False)
+    expected_traversal_order = [
+        ((0, 0, 0), [((0, 0, 0), 1), ((0, 0, 0), 2), ((0, 0, 0), 3)]),
+        ((0, 0, 1), [((0, 0, 1), 1), ((0, 0, 1), 2)]),
+        ((0, 1, 0), [((0, 1, 0), 1), ((0, 1, 0), 3)]),
+        ((0, 1, 1), [((0, 1, 1), 1)]),
+        ((1, 0, 0), [((1, 0, 0), 1), ((1, 0, 0), 2), ((1, 0, 0), 3)]),
+        ((1, 0, 1), [((1, 0, 1), 1), ((1, 0, 1), 2)]),
+        ((1, 1, 0), [((1, 1, 0), 1), ((1, 1, 0), 3)]),
+        ((1, 1, 1), [((1, 1, 1), 1)]),
+        ((2, 0, 0), [((2, 0, 0), 2), ((2, 0, 0), 3)]),
+        ((2, 0, 1), [((2, 0, 1), 2)]),
+        ((2, 1, 0), [((2, 1, 0), 3)]),
+        ((2, 1, 1), []),
+    ]
+    assert lattice.get_traversal_order() == expected_traversal_order
+
+
 @pytest.mark.parametrize("dims", [3/2, 2, 3])
 def test_link_and_vertex_register_initialization(dims: DimensionalitySpecifier):
     """
@@ -277,8 +304,8 @@ def test_get_link_keys(dims: DimensionalitySpecifier, size: int):
     (2, 4),
     (3, 4)
 ])
-def test_get_plaquettes(dims: DimensionalitySpecifier, size: int):
-    print(f"Testing get_plaquettes for d={dims}, size={size}.")
+def test_get_plaquette(dims: DimensionalitySpecifier, size: int):
+    print(f"Testing get_plaquette for d={dims}, size={size}.")
     # Construct lattice register
     lattice = LatticeRegisters(
         dimensions=dims, size=size, periodic_boundary_conds=True, n_qubits_per_link=4, n_qubits_per_vertex=1)
@@ -286,7 +313,7 @@ def test_get_plaquettes(dims: DimensionalitySpecifier, size: int):
     origin = ceil(dims)*(0,)
 
     # Grab a single plaquette from the origin.
-    plaquette_origin_xy = lattice.get_plaquettes(origin, 1, 2)
+    plaquette_origin_xy = lattice.get_plaquette(origin, (1, 2))
 
     # Construct the expected plaquette
     expected_steps_ccw = [1, 2, -1, -2]
@@ -381,23 +408,17 @@ def test_get_plaquettes(dims: DimensionalitySpecifier, size: int):
     # Grabbing the positive plaquettes test. Only need to test for d=3.
     print(f"Testing grabbing all positive plaquettes for dim={lattice.dim}")
     if lattice.dim == 3:
-        expected_pos_plaqs = [lattice.get_plaquettes(origin, 1, 2), lattice.get_plaquettes(origin, 1, 3), lattice.get_plaquettes(origin, 2, 3)]
-        plaquette_nonduplication_test_boolean_mask = list(map(_helper_test_plaquettes_have_same_registers, lattice.get_plaquettes(origin), expected_pos_plaqs))
+        expected_pos_plaqs = [lattice.get_plaquette(origin, (1, 2)), lattice.get_plaquette(origin, (1, 3)), lattice.get_plaquette(origin, (2, 3))]
+        plaquettes_at_origin = [
+            lattice.get_plaquette(vertex, plane) for vertex, plane in lattice.plaquette_addresses if vertex == origin]
+        plaquette_nonduplication_test_boolean_mask = list(map(_helper_test_plaquettes_have_same_registers, plaquettes_at_origin, expected_pos_plaqs))
         print(f"Plaquette nonduplication test checks: {plaquette_nonduplication_test_boolean_mask}\n")
         assert len(plaquette_nonduplication_test_boolean_mask[0]) == 1
 
     # Now we check that we don't miss any registers when building plaquettes for the whole lattice.
     print(f"Testing grabbing all the lattice plaquettes for dim={lattice.dim} and size={size}.")
     print("The set of names of all registers across all plaquettes should match the set of names of all vertex and link registers in the lattice.")
-    plaquette_lst = []
-    for vertex_vector in lattice.vertex_addresses:
-        if vertex_vector[VERTICAL_DIR_LABEL - 1] > 0 and lattice.dim == 1.5:
-            continue
-        plaquette_lst.append(lattice.get_plaquettes(vertex_vector))
-
-    if lattice.dim > 2:
-        # Need to flatten plaquette list in this case.
-        plaquette_lst = [plaquette for plaquette_group in plaquette_lst for plaquette in plaquette_group]
+    plaquette_lst = [lattice.get_plaquette(vertex, plane) for vertex, plane in lattice.plaquette_addresses]
 
     lattice_all_vertex_names = set(reg.name for reg in lattice._vertex_registers.values())
     lattice_all_link_names = set(reg.name for reg in lattice._link_registers.values())
@@ -509,14 +530,7 @@ def test_all_plaquettes_are_indexed_only_one_time():
         print(f"Checking that a size {lattice.shape[0]} lattice in dim {lattice.dim} has {expected_num_plaquettes} plaquettes.")
 
         # Fetch all the plaquettes in the lattice.
-        plaquettes = []
-        for vertex in lattice.vertex_addresses:
-            if vertex[1] == 1 and lattice.dim == 1.5:
-                continue
-            if dim < 3:
-                plaquettes.append(lattice.get_plaquettes(vertex))
-            else:  # Returns a list of multiple plaquettes in this case.
-                plaquettes = plaquettes + lattice.get_plaquettes(vertex)
+        plaquettes = [lattice.get_plaquette(vertex, plane) for vertex, plane in lattice.plaquette_addresses]
 
         # Check that total number of fetched plaquettes meets expectation.
         print(len(plaquettes))
@@ -839,10 +853,9 @@ def test_control_link_registers_have_correct_ordering():
 
     for case_name, case_data in cases_dict.items():
         print(f"Case: {case_name}.")
-        result_plaquette = case_data["lattice registers"].get_plaquettes(
+        result_plaquette = case_data["lattice registers"].get_plaquette(
             lattice_vector=case_data["bottom left vertex"],
-            e1=1,
-            e2=2
+            plane=(1, 2)
         )
         result_control_link_registers_ordered = result_plaquette.control_links_ordered
         print(f"Examining plaquette with bottom-left vertex {result_plaquette.bottom_left_vertex} in the {result_plaquette.plane}-plane.")
@@ -871,7 +884,7 @@ def test_control_link_registers_have_correct_ordering_d_3():
         are active links are (+e1, +e2) at v1, (-e1, +e2) at v2,
         (-e1, -e2) at v3 and (+e1, -e2) at v4.
       - The controls at a vertex are its other four half-links, sorted
-        by the default FORDER [1, 2, 3, -1, -2, -3]. The controls of v1
+        by the default F-order (1, 2, 3, -1, -2, -3). The controls of v1
         come first, then those of v2, v3 and v4.
     """
     print("Checking that the ordering of control link registers matches expectations in d=3.\n")
@@ -912,7 +925,7 @@ def test_control_link_registers_have_correct_ordering_d_3():
 
     for (e1, e2), expected_names in expected_control_link_names_by_plane.items():
         print(f"Examining plaquette with bottom-left vertex {bottom_left_vertex} in the {(e1, e2)}-plane.")
-        result_plaquette = lattice.get_plaquettes(lattice_vector=bottom_left_vertex, e1=e1, e2=e2)
+        result_plaquette = lattice.get_plaquette(lattice_vector=bottom_left_vertex, plane=(e1, e2))
         result_names = [register.name for register in result_plaquette.control_links_ordered]
         assert len(result_names) == len(expected_names), "Length mismatch in number of control link registers."
         for result_name, expected_name in zip(result_names, expected_names):
@@ -973,8 +986,8 @@ def test_non_default_forder_changes_control_link_ordering():
     alt_forder = [-1, -2, 1, 2, 3, -3]
     lattice_registers_alt = LatticeRegisters(2, 2, forder=alt_forder)
 
-    result_plaquette = lattice_registers_alt.get_plaquettes(
-        lattice_vector=(0, 0), e1=1, e2=2
+    result_plaquette = lattice_registers_alt.get_plaquette(
+        lattice_vector=(0, 0), plane=(1, 2)
     )
     result_names = [reg.name for reg in result_plaquette.control_links_ordered]
 
@@ -1002,8 +1015,8 @@ def test_non_default_forder_changes_control_link_ordering():
 
     # Also verify that the default-forder ordering is different at v2 and v4 positions.
     lattice_registers_default = LatticeRegisters(2, 2)
-    default_plaquette = lattice_registers_default.get_plaquettes(
-        lattice_vector=(0, 0), e1=1, e2=2
+    default_plaquette = lattice_registers_default.get_plaquette(
+        lattice_vector=(0, 0), plane=(1, 2)
     )
     default_names = [reg.name for reg in default_plaquette.control_links_ordered]
     # v2 (positions 2,3) and v4 (positions 6,7) should differ.
@@ -1012,3 +1025,52 @@ def test_non_default_forder_changes_control_link_ordering():
     # v1 (positions 0,1) and v3 (positions 4,5) should remain the same.
     assert result_names[0:2] == default_names[0:2], "v1 control links should be the same."
     assert result_names[4:6] == default_names[4:6], "v3 control links should be the same."
+
+
+@pytest.mark.parametrize(
+    ("dims", "size", "periodic", "vertex", "expected_plaquettes"),
+    [
+        # On a periodic lattice, each vertex is the bottom-left vertex of one
+        # plaquette per plane.
+        (2, 3, True, (2, 2), [((2, 2), (1, 2))]),
+        (3, 3, True, (0, 0, 0), [((0, 0, 0), (1, 2)), ((0, 0, 0), (1, 3)), ((0, 0, 0), (2, 3))]),
+        # 2x2 open: only (0, 0) is a bottom-left vertex.
+        (2, 2, False, (0, 0), [((0, 0), (1, 2))]),
+        (2, 2, False, (1, 0), []),
+        (2, 2, False, (1, 1), []),
+        # d=3/2 of size 3, open: the top vertices have no plaquette.
+        (1.5, 3, False, (1, 0), [((1, 0), (1, 2))]),
+        (1.5, 3, False, (1, 1), []),
+        # 2x2x2 periodic along axes 1 and 2, open along axis 3: on the top
+        # layer (z = 1), no plaquette extends along axis 3.
+        (3, 2, (True, True, False), (1, 1, 0), [((1, 1, 0), (1, 2)), ((1, 1, 0), (1, 3)), ((1, 1, 0), (2, 3))]),
+        (3, 2, (True, True, False), (1, 1, 1), [((1, 1, 1), (1, 2))]),
+    ],
+)
+def test_plaquettes_at_a_vertex_from_plaquette_addresses(dims, size, periodic, vertex, expected_plaquettes):
+    """
+    The plaquettes whose bottom-left vertex is vertex, collected as LatticeData.get_plaquette's docstring shows.
+
+    The comprehension takes the plaquettes that exist from plaquette_addresses
+    and builds each with get_plaquette, which raises no KeyError for them.
+    """
+    lattice = LatticeRegisters(dims, size, periodic)
+    plaquettes = [lattice.get_plaquette(v, plane) for v, plane in lattice.plaquette_addresses if v == vertex]
+    assert [(plaquette.bottom_left_vertex, plaquette.plane) for plaquette in plaquettes] == expected_plaquettes
+
+
+@pytest.mark.parametrize(
+    ("dims", "size", "periodic", "vertex", "plane"),
+    [
+        (2, 2, False, (1, 0), (1, 2)),
+        (1.5, 3, False, (1, 1), (1, 2)),
+        (3, 2, (True, True, False), (1, 1, 1), (1, 3)),
+        (3, 2, (True, True, False), (1, 1, 1), (2, 3)),
+    ],
+)
+def test_get_plaquette_refuses_a_plaquette_the_lattice_lacks(dims, size, periodic, vertex, plane):
+    """get_plaquette refuses, with a KeyError naming the plane and vertex, a plaquette the lattice lacks."""
+    lattice = LatticeRegisters(dims, size, periodic)
+    with pytest.raises(KeyError, match=rf"No plaquette in plane \({plane[0]}, {plane[1]}\) at vertex"):
+        lattice.get_plaquette(vertex, plane)
+

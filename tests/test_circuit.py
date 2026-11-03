@@ -3,22 +3,57 @@ from pathlib import Path
 import pytest
 import numpy as np
 from ymcirc._abstract import LatticeDef
-from ymcirc._abstract.lattice_data import Plane
-from ymcirc.circuit import HamiltonianData, LatticeCircuitManager, PlaneKeyedHamiltonianData
-from ymcirc.conventions import IrrepBitmap, LatticeStateEncoder, MatrixElementValue, PlaquetteState, ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT, physical_plaquette_states
-from ymcirc._pyclebsch_adapter import box_terms
+from ymcirc._abstract.lattice_data import LatticeVector, Plane, Plaquette, PlaquetteMatrixElements, PlaquetteState, Signature
+from ymcirc.circuit import LatticeCircuitManager
+from ymcirc.conventions import IrrepBitmap, IrrepWeight, LatticeStateEncoder, ONE, THREE, THREE_BAR, SIX, SIX_BAR, EIGHT, physical_plaquette_states
+from ymcirc._pyclebsch_adapter import box_plus_box_dagger_matrix_elements
 from ymcirc.lattice_registers import LatticeRegisters
 from ymcirc.givens import bitstring_value_of_LP_family, compute_LP_family
 from ymcirc.utilities import _flatten_circuit, _check_circuits_logically_equivalent
-from qiskit.circuit import Parameter, QuantumCircuit, QuantumRegister, AncillaRegister
+from qiskit.circuit import Parameter, ParameterExpression, ParameterVectorElement, QuantumCircuit, QuantumRegister, AncillaRegister
 from qiskit.circuit.library.standard_gates import RZGate, RYGate, MCXGate
 from qiskit.circuit.exceptions import CircuitError
+from qiskit import transpile
+from qiskit_aer import AerSimulator
+from qiskit_aer.library import SaveUnitary
+from qiskit.quantum_info.operators.predicates import matrix_equal
 
-# Link bitmaps for tests with made-up plaquette states: the codes ymcirc
-# registers for the link irreps of the T1 truncation (1, 3, 3bar), and of T2
-# (1, 3, 3bar, 6, 6bar, 8). The expected circuits are derived from these codes.
+# Link bitmaps for tests with made-up plaquette states: the link bit strings
+# ymcirc registers for the link irreps of the T1 truncation (1, 3, 3bar), and
+# of T2 (1, 3, 3bar, 6, 6bar, 8). The expected circuits are derived from these
+# bit strings.
 _T1_LINK_BITMAP = {ONE: "00", THREE: "10", THREE_BAR: "01"}
 _T2_LINK_BITMAP = {ONE: "000", THREE: "100", THREE_BAR: "001", SIX: "110", SIX_BAR: "011", EIGHT: "111"}
+# The signature of every plaquette of a periodic d=3/2 lattice with the
+# default F-order: 3 half-links at each vertex.
+_SIG_3_2: Signature = ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
+# The signature of every plaquette of a periodic d=2 lattice with the default
+# F-order: 4 half-links at each vertex.
+_SIG_2: Signature = ((1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2))
+# The irrep of each link bit string of _T1_LINK_BITMAP (the bitmap inverted),
+# and the length of those bit strings.
+_T1_IRREP_OF_LINK_BIT_STRING = {"00": ONE, "10": THREE, "01": THREE_BAR}
+_T1_LINK_BIT_STRING_LENGTH = 2
+
+
+def _d_3_2_state_from_T1_link_bit_strings(active_link_bits: str, control_link_bits: str) -> PlaquetteState:
+    """
+    The made-up d=3/2 plaquette state whose links carry the irreps that _T1_LINK_BITMAP encodes as these bit strings, with every multiplicity index 0.
+
+    active_link_bits holds the link bit strings of the four active links,
+    and control_link_bits those of the one control link at each vertex, in
+    vertex order. On a lattice of size 3 or more, where no control repeats
+    another, the state is encoded as active_link_bits + control_link_bits.
+    """
+    def irreps(bits: str) -> list[IrrepWeight]:
+        return [
+            _T1_IRREP_OF_LINK_BIT_STRING[bits[i:i + _T1_LINK_BIT_STRING_LENGTH]]
+            for i in range(0, len(bits), _T1_LINK_BIT_STRING_LENGTH)
+        ]
+
+    l1, l2, l3, l4 = irreps(active_link_bits)
+    c1, c2, c3, c4 = irreps(control_link_bits)
+    return ((0, 0, 0, 0), (l1, l2, l3, l4), ((c1,), (c2,), (c3,), (c4,)))
 
 
 def test_create_blank_full_lattice_circuit_has_promised_register_order():
@@ -82,25 +117,9 @@ def test_create_blank_full_lattice_circuit_has_promised_register_order():
             ((iweight_three, iweight_one), (iweight_one, iweight_one), (iweight_one, iweight_one), (iweight_one, iweight_one))
         )
     ]
-    # Hamiltonian bitstrings take the form vertex_bits + active link bits + c link bits.
-    # For the "no_vertices" data, vertex_bits is the empty string. The numbers of
-    # Vertex bits and link bits can be inferred from the test data (encode integer in bitstring, use link bitmap).
-    # Dummy plane/signature for wrapping scalar Hamiltonian values in MatrixElementValue format.
-    _plane = (1, 2)
-    _sig = ((1,), (1,), (1,), (1,))
-    mag_hamiltonian_2d: HamiltonianData = {
-        ("1110111100000000", "0001000011111111"): {_plane: {_sig: -0.33}},
-        ("0000111100000000", "1111000011111111"): {_plane: {_sig: 1.0}},
-    }
-    mag_hamiltonian_3halves: HamiltonianData = {
-        ("1010010111110000", "0000000011110000"): {_plane: {_sig: 1.0}},
-        ("0000000010100101", "1010101000000001"): {_plane: {_sig: 1.0}},
-    }
-    mag_hamiltonian_3halves_no_vertices: HamiltonianData = {
-        ("10101111", "11110010"): {_plane: {_sig: 1.0}},
-        ("10010000", "10000001"): {_plane: {_sig: 1.0}},
-        ("11111101", "00000101"): {_plane: {_sig: 1.0}},
-    }
+    # The register order does not depend on the magnetic matrix elements, so
+    # the circuit managers are created without any.
+    empty_mag_hamiltonian: PlaquetteMatrixElements = {}
     # Registers for lattices with size 3
     expected_register_order_2d = [
         'v:(0, 0)', 'l:((0, 0), 1)', 'l:((0, 0), 2)',
@@ -143,7 +162,7 @@ def test_create_blank_full_lattice_circuit_has_promised_register_order():
             physical_plaquette_states_2d,
             2,
             3,
-            mag_hamiltonian_2d
+            empty_mag_hamiltonian
         ),
         (
             expected_register_order_2d_small_lattice,
@@ -151,7 +170,7 @@ def test_create_blank_full_lattice_circuit_has_promised_register_order():
             physical_plaquette_states_2d,
             2,
             2,
-            mag_hamiltonian_2d
+            empty_mag_hamiltonian
         ),
         (
             expected_register_order_3halves,
@@ -159,7 +178,7 @@ def test_create_blank_full_lattice_circuit_has_promised_register_order():
             physical_plaquette_states_3halves,
             1.5,
             3,
-            mag_hamiltonian_3halves
+            empty_mag_hamiltonian
         ),
         (
             expected_register_order_3halves_no_vertices,
@@ -167,7 +186,7 @@ def test_create_blank_full_lattice_circuit_has_promised_register_order():
             physical_plaquette_states_3halves_no_vertices_needed,
             1.5,
             3,
-            mag_hamiltonian_3halves_no_vertices
+            empty_mag_hamiltonian
         )
     ]
 
@@ -227,21 +246,22 @@ def test_apply_magnetic_trotter_step_d_3_2_large_lattice():
     # Signature for d=3/2, plane=(1,2), default forder.
     _sig_3_2 = ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
     _plane_12 = (1, 2)
-    dummy_mag_hamiltonian: HamiltonianData = {
-        ("00100000" + "00000000", "01010100" + "10011010"): {_plane_12: {_sig_3_2: 0.33}}  # One matrix element, plaquette only has a_link and c_link substrings.
+    # One matrix element. With no vertex bits, the encoded states have only
+    # active link and control link substrings.
+    final_state: PlaquetteState = (  # Encoded: "00100000" + "00000000".
+        (0, 0, 0, 0),
+        (ONE, THREE, ONE, ONE),
+        ((ONE,), (ONE,), (ONE,), (ONE,))
+    )
+    initial_state: PlaquetteState = (  # Encoded: "01010100" + "10011010".
+        (0, 0, 0, 0),
+        (THREE_BAR, THREE_BAR, THREE_BAR, ONE),
+        ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
+    )
+    dummy_mag_hamiltonian: PlaquetteMatrixElements = {
+        (_plane_12, _sig_3_2): {(final_state, initial_state): 0.33}
     }
-    dummy_phys_states: list[PlaquetteState] = [
-        (  # Matches the first encoded state in the dummy magnetic hamiltonian.
-            (0, 0, 0, 0),
-            (ONE, THREE, ONE, ONE),
-            ((ONE,), (ONE,), (ONE,), (ONE,))
-        ),
-        (  # Matches the second encoded state in the dummy magnetic hamiltonian.
-            (0, 0, 0, 0),
-            (THREE_BAR, THREE_BAR, THREE_BAR, ONE),
-            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
-        )
-    ]
+    dummy_phys_states: list[PlaquetteState] = [final_state, initial_state]
     expected_master_circuit = QuantumCircuit(18)
     expected_rotation_gates = {  # Data for constructing the expected circuit.
         "angle": -0.165,
@@ -346,33 +366,35 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice():
     # Signature for d=3/2, plane=(1,2), default forder.
     _sig_3_2 = ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
     _plane_12 = (1, 2)
-    dummy_mag_hamiltonian: HamiltonianData = {
-        ("00100001" + "00000000", "01010110" + "10100000"): {_plane_12: {_sig_3_2: 0.33}}  # One matrix element, plaquette only has a_link and c_link substrings.
-    }
+    # One matrix element. With no vertex bits, the encoded states have only
+    # active link and control link substrings. v2's control repeats v1's,
+    # and v4's repeats v3's, so the encoded states leave out v2's and v4's.
+    final_state: PlaquetteState = (  # Encoded: "00100001" + "00" + "00".
+        (0, 0, 0, 0),
+        (ONE, THREE, ONE, THREE_BAR),
+        ((ONE,), (ONE,), (ONE,), (ONE,))
+    )
+    initial_state: PlaquetteState = (  # Encoded: "01010110" + "10" + "00".
+        (0, 0, 0, 0),
+        (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+        ((THREE,), (THREE,), (ONE,), (ONE,))
+    )
     # The link that is both v1's -1 control and v2's +1 control has two
-    # different states ("10" and "01") in this matrix element's second
-    # bit string, which no state of this lattice can have, so the
-    # LatticeCircuitManager constructor refuses it.
-    inconsistent_mag_hamiltonian: HamiltonianData = {
-        ("00100001" + "00000000", "01010110" + "10011010"): {_plane_12: {_sig_3_2: 0.33}}
+    # different irreps (THREE and THREE_BAR) in this state, which no state of
+    # this lattice can have, so the LatticeCircuitManager constructor refuses
+    # a matrix element with it.
+    inconsistent_initial_state: PlaquetteState = (
+        (0, 0, 0, 0),
+        (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+        ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
+    )
+    dummy_mag_hamiltonian: PlaquetteMatrixElements = {
+        (_plane_12, _sig_3_2): {(final_state, initial_state): 0.33}
     }
-    dummy_phys_states: list[PlaquetteState] = [
-        (  # Matches the first encoded state in the dummy magnetic hamiltonian.
-            (0, 0, 0, 0),
-            (ONE, THREE, ONE, THREE_BAR),
-            ((ONE,), (ONE,), (ONE,), (ONE,))
-        ),
-        (  # Matches the second encoded state in the inconsistent magnetic hamiltonian.
-            (0, 0, 0, 0),
-            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
-        ),
-        (  # Matches the second encoded state in the dummy magnetic hamiltonian.
-            (0, 0, 0, 0),
-            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            ((THREE,), (THREE,), (ONE,), (ONE,))
-        )
-    ]
+    inconsistent_mag_hamiltonian: PlaquetteMatrixElements = {
+        (_plane_12, _sig_3_2): {(final_state, inconsistent_initial_state): 0.33}
+    }
+    dummy_phys_states: list[PlaquetteState] = [final_state, inconsistent_initial_state, initial_state]
     expected_master_circuit = QuantumCircuit(12)
     # Only expecting one rotation per plaquette, yielding two total Givens rotations.
     expected_rotation_gates = {  # Data for constructing the expected circuit.
@@ -475,25 +497,26 @@ def test_apply_magnetic_trotter_step_d_2_large_lattice():
     # Signature for d=2, plane=(1,2), default forder.
     _sig_2 = ((1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2))
     _plane_12 = (1, 2)
-    # The controls at each vertex are in the default FORDER [1, 2, 3, -1, -2, -3]:
+    # The controls at each vertex are in the default F-order (1, 2, 3, -1, -2, -3):
     # (-1, -2) at v1, (+1, -2) at v2, (+1, +2) at v3, (+2, -1) at v4. v3's two
     # controls carry different irreps (THREE, ONE), so that swapping them
     # changes the values the multi-controlled X requires of their qubits.
-    dummy_mag_hamiltonian: HamiltonianData = {
-        ("0000" + "00100000" + "0000000010000010", "0010" + "01010100" + "1001101010000010"): {_plane_12: {_sig_2: 0.33}}  # One matrix element, plaquette has v, a_link, and c_link substrings.
+    # One matrix element. The encoded states have vertex, active link, and
+    # control link substrings.
+    final_state: PlaquetteState = (  # Encoded: "0000" + "00100000" + "0000000010000010".
+        (0, 0, 0, 0),
+        (ONE, THREE, ONE, ONE),
+        ((ONE, ONE), (ONE, ONE), (THREE, ONE), (ONE, THREE))
+    )
+    initial_state: PlaquetteState = (  # Encoded: "0010" + "01010100" + "1001101010000010".
+        (0, 0, 1, 0),
+        (THREE_BAR, THREE_BAR, THREE_BAR, ONE),
+        ((THREE, THREE_BAR), (THREE, THREE), (THREE, ONE), (ONE, THREE))
+    )
+    dummy_mag_hamiltonian: PlaquetteMatrixElements = {
+        (_plane_12, _sig_2): {(final_state, initial_state): 0.33}
     }
-    dummy_phys_states: list[PlaquetteState] = [
-        (  # Matches the first encoded state in the dummy magnetic hamiltonian.
-            (0, 0, 0, 0),
-            (ONE, THREE, ONE, ONE),
-            ((ONE, ONE), (ONE, ONE), (THREE, ONE), (ONE, THREE))
-        ),
-        (  # Matches the second encoded state in the dummy magnetic hamiltonian.
-            (0, 0, 1, 0),
-            (THREE_BAR, THREE_BAR, THREE_BAR, ONE),
-            ((THREE, THREE_BAR), (THREE, THREE), (THREE, ONE), (ONE, THREE))
-        )
-    ]
+    dummy_phys_states: list[PlaquetteState] = [final_state, initial_state]
     expected_master_circuit = QuantumCircuit(45)
     expected_rotation_gates = {  # Data for constructing the expected circuit.
         "angle": -0.165,
@@ -628,28 +651,36 @@ def test_apply_magnetic_trotter_step_d_2_small_lattice():
     # Signature for d=2, plane=(1,2), default forder.
     _sig_2 = ((1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2))
     _plane_12 = (1, 2)
-    dummy_mag_hamiltonian: HamiltonianData = {
-        ("0000" + "00100000" + "0000000010000010", "0010" + "01010100" + "1001101000100100"): {_plane_12: {_sig_2: 0.33}}  # One matrix element, plaquette has v, a_link, and c_link substrings.
-    }
+    # One matrix element. The encoded states have vertex, active link, and
+    # control link substrings. Four controls repeat earlier ones (v2's +1 is
+    # v1's -1, v3's +2 is v2's -2, v4's +2 is v1's -2, v4's -1 is v3's +1),
+    # so the encoded states keep v1's two controls, v2's -2 and v3's +1.
+    final_state: PlaquetteState = (  # Encoded: "0000" + "00100000" + "00000010".
+        (0, 0, 0, 0),
+        (ONE, THREE, ONE, ONE),
+        ((ONE, ONE), (ONE, ONE), (THREE, ONE), (ONE, THREE))
+    )
+    initial_state: PlaquetteState = (  # Encoded: "0010" + "01010100" + "10011000".
+        (0, 0, 1, 0),
+        (THREE_BAR, THREE_BAR, THREE_BAR, ONE),
+        ((THREE, THREE_BAR), (THREE, THREE), (ONE, THREE), (THREE_BAR, ONE))
+    )
     # The link that is both v2's -2 control and v3's +2 control has two
-    # different states ("10" and "00") in this matrix element's second
-    # bit string, which no state of this lattice can have, so the
-    # LatticeCircuitManager constructor refuses it.
-    inconsistent_mag_hamiltonian: HamiltonianData = {
-        ("0000" + "00100000" + "0000000000000010", "0010" + "01010100" + "1001101000000010"): {_plane_12: {_sig_2: 0.33}}
+    # different irreps (THREE and ONE) in this state, which no state of this
+    # lattice can have, so the LatticeCircuitManager constructor refuses a
+    # matrix element with it.
+    inconsistent_initial_state: PlaquetteState = (
+        (0, 0, 1, 0),
+        (THREE_BAR, THREE_BAR, THREE_BAR, ONE),
+        ((THREE, THREE_BAR), (THREE, THREE), (ONE, ONE), (THREE_BAR, ONE))
+    )
+    dummy_mag_hamiltonian: PlaquetteMatrixElements = {
+        (_plane_12, _sig_2): {(final_state, initial_state): 0.33}
     }
-    dummy_phys_states: list[PlaquetteState] = [
-        (  # Matches the first encoded state in the dummy magnetic hamiltonian.
-            (0, 0, 0, 0),
-            (ONE, THREE, ONE, ONE),
-            ((ONE, ONE), (ONE, ONE), (THREE, ONE), (ONE, THREE))
-        ),
-        (  # Matches the second encoded state in the dummy magnetic hamiltonian.
-            (0, 0, 1, 0),
-            (THREE_BAR, THREE_BAR, THREE_BAR, ONE),
-            ((THREE, THREE_BAR), (THREE, THREE), (ONE, THREE), (THREE_BAR, ONE))
-        )
-    ]
+    inconsistent_mag_hamiltonian: PlaquetteMatrixElements = {
+        (_plane_12, _sig_2): {(final_state, inconsistent_initial_state): 0.33}
+    }
+    dummy_phys_states: list[PlaquetteState] = [final_state, initial_state]
     expected_master_circuit = QuantumCircuit(20)
     expected_rotation_gates = {  # Data for constructing the expected circuit.
         "angle": -0.165,
@@ -742,7 +773,7 @@ def test_apply_magnetic_trotter_step_d_2_small_lattice():
 def test_apply_electric_trotter_step_d_3_2_lattice():
     print("Checking that the electric trotter step acts as expected on a T2 3x1 lattice.")
     dummy_electric_hamiltonian = [0.33,0.66,0.66,0.99,0.66,0.99,0.99,0.33]
-    dummy_mag_hamiltonian: HamiltonianData = {}
+    dummy_mag_hamiltonian: PlaquetteMatrixElements = {}
     dummy_phys_states: list[PlaquetteState] = [
         (
             (0,0,0,0),
@@ -809,7 +840,7 @@ def test_creating_correct_ancilla_register_for_d_3_2_T1_small():
 
     lattice_encoder = LatticeStateEncoder.for_truncation(lattice_def, truncation_mode, cutoff)
 
-    physical_states_for_control_pruning = set(lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in physical_plaquette_states(lattice_def, truncation_mode, cutoff))
+    physical_states_for_control_pruning = physical_plaquette_states(lattice_def, truncation_mode, cutoff)
 
     lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
     circ_mgr = LatticeCircuitManager.for_truncation(lattice_encoder)
@@ -834,7 +865,7 @@ def test_creating_correct_ancilla_register_for_d_2_T1_small():
 
     lattice_encoder = LatticeStateEncoder.for_truncation(lattice_def, truncation_mode, cutoff)
 
-    physical_states_for_control_pruning = set(lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in physical_plaquette_states(lattice_def, truncation_mode, cutoff))
+    physical_states_for_control_pruning = physical_plaquette_states(lattice_def, truncation_mode, cutoff)
 
     lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
     circ_mgr = LatticeCircuitManager.for_truncation(lattice_encoder)
@@ -851,6 +882,36 @@ def test_creating_correct_ancilla_register_for_d_2_T1_small():
     print("Test for ancilla register count passed")
 
 
+def test_num_ancillas_is_zero_when_no_gate_has_more_than_two_qubits():
+    """
+    The ancilla count is 0, not negative, for a magnetic Trotter step without multi-controlled gates.
+
+    V-chain synthesis of an X gate with k controls takes k - 2 ancillas, so
+    a step whose gates have at most two controls needs none. On the open
+    d=3/2 lattice of size 2 at B3, with control pruning and control fusion
+    on, each Givens rotation keeps at most one control, so no gate of the
+    step acts on more than two qubits (asserted below).
+    """
+    truncation_mode, cutoff = "B", 3
+    lattice_def = LatticeDef(1.5, 2, periodic_boundary_conds=False)
+    lattice_encoder = LatticeStateEncoder.for_truncation(lattice_def, truncation_mode, cutoff)
+    physical_states_for_control_pruning = physical_plaquette_states(lattice_def, truncation_mode, cutoff)
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager.for_truncation(lattice_encoder)
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
+
+    step = master_circuit.copy()
+    circ_mgr.apply_magnetic_trotter_step(
+        step, lattice_registers, optimize_circuits=False,
+        physical_states_for_control_pruning=physical_states_for_control_pruning, control_fusion=True)
+    assert max(instruction.operation.num_qubits for instruction in step.data) <= 2
+
+    assert circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(
+        master_circuit, lattice_registers, control_fusion=True,
+        physical_states_for_control_pruning=physical_states_for_control_pruning,
+        optimize_circuits=False) == 0
+
+
 def test_magnetic_with_ancilla_has_no_MCX():
     print("Checking that the MCX gates are properly decomposed in the magnetic trotter step")
 
@@ -859,7 +920,7 @@ def test_magnetic_with_ancilla_has_no_MCX():
 
     lattice_encoder = LatticeStateEncoder.for_truncation(lattice_def, truncation_mode, cutoff)
 
-    physical_states_for_control_pruning = set(lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in physical_plaquette_states(lattice_def, truncation_mode, cutoff))
+    physical_states_for_control_pruning = physical_plaquette_states(lattice_def, truncation_mode, cutoff)
 
     lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
     circ_mgr = LatticeCircuitManager.for_truncation(lattice_encoder)
@@ -910,33 +971,35 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice_with_ancillas():
     # Signature for d=3/2, plane=(1,2), default forder.
     _sig_3_2 = ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
     _plane_12 = (1, 2)
-    dummy_mag_hamiltonian: HamiltonianData = {
-        ("00100001" + "00000000", "01010110" + "10100000"): {_plane_12: {_sig_3_2: 0.33}}  # One matrix element, plaquette only has a_link and c_link substrings.
-    }
+    # One matrix element. With no vertex bits, the encoded states have only
+    # active link and control link substrings. v2's control repeats v1's,
+    # and v4's repeats v3's, so the encoded states leave out v2's and v4's.
+    final_state: PlaquetteState = (  # Encoded: "00100001" + "00" + "00".
+        (0, 0, 0, 0),
+        (ONE, THREE, ONE, THREE_BAR),
+        ((ONE,), (ONE,), (ONE,), (ONE,))
+    )
+    initial_state: PlaquetteState = (  # Encoded: "01010110" + "10" + "00".
+        (0, 0, 0, 0),
+        (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+        ((THREE,), (THREE,), (ONE,), (ONE,))
+    )
     # The link that is both v1's -1 control and v2's +1 control has two
-    # different states ("10" and "01") in this matrix element's second
-    # bit string, which no state of this lattice can have, so the
-    # LatticeCircuitManager constructor refuses it.
-    inconsistent_mag_hamiltonian: HamiltonianData = {
-        ("00100001" + "00000000", "01010110" + "10011010"): {_plane_12: {_sig_3_2: 0.33}}
+    # different irreps (THREE and THREE_BAR) in this state, which no state of
+    # this lattice can have, so the LatticeCircuitManager constructor refuses
+    # a matrix element with it.
+    inconsistent_initial_state: PlaquetteState = (
+        (0, 0, 0, 0),
+        (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+        ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
+    )
+    dummy_mag_hamiltonian: PlaquetteMatrixElements = {
+        (_plane_12, _sig_3_2): {(final_state, initial_state): 0.33}
     }
-    dummy_phys_states: list[PlaquetteState] = [
-        (  # Matches the first encoded state in the dummy magnetic hamiltonian.
-            (0, 0, 0, 0),
-            (ONE, THREE, ONE, THREE_BAR),
-            ((ONE,), (ONE,), (ONE,), (ONE,))
-        ),
-        (  # Matches the second encoded state in the inconsistent magnetic hamiltonian.
-            (0, 0, 0, 0),
-            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
-        ),
-        (  # Matches the second encoded state in the dummy magnetic hamiltonian.
-            (0, 0, 0, 0),
-            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
-            ((THREE,), (THREE,), (ONE,), (ONE,))
-        )
-    ]
+    inconsistent_mag_hamiltonian: PlaquetteMatrixElements = {
+        (_plane_12, _sig_3_2): {(final_state, inconsistent_initial_state): 0.33}
+    }
+    dummy_phys_states: list[PlaquetteState] = [final_state, inconsistent_initial_state, initial_state]
     expected_master_circuit = QuantumCircuit(12)
     plaquette_ancilla_qubits = AncillaRegister(9)
     expected_master_circuit.add_register(plaquette_ancilla_qubits)
@@ -1042,12 +1105,6 @@ def test_apply_magnetic_trotter_step_d_3_2_small_lattice_with_ancillas():
 
 def test_num_ancillas_setter_works_nonnegative_ints():
     # Some minimal data to create a LatticeCircuitManager.
-    _plane = (1, 2)
-    _sig = ((1,), (1,), (1,), (1,))
-    dummy_mag_hamiltonian: HamiltonianData = {
-        ("00100001" + "00000000", "01010110" + "10011010"): {_plane: {_sig: 0.33}},
-        ("00100001" + "00000000", "01010110" + "10100000"): {_plane: {_sig: 0.33}},
-    }
     dummy_phys_states: list[PlaquetteState] = [
         (
             (0, 0, 0, 0),
@@ -1065,6 +1122,9 @@ def test_num_ancillas_setter_works_nonnegative_ints():
             ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
+    dummy_mag_hamiltonian: PlaquetteMatrixElements = {
+        ((1, 2), _SIG_3_2): {(dummy_phys_states[0], dummy_phys_states[2]): 0.33},
+    }
     lattice_def = LatticeDef(1.5, 2)
     lattice_encoder = LatticeStateEncoder(
         _T1_LINK_BITMAP,
@@ -1085,12 +1145,6 @@ def test_num_ancillas_setter_works_nonnegative_ints():
 
 def test_num_ancillas_setter_fails_for_non_int():
     # Some minimal data to create a LatticeCircuitManager.
-    _plane = (1, 2)
-    _sig = ((1,), (1,), (1,), (1,))
-    dummy_mag_hamiltonian: HamiltonianData = {
-        ("00100001" + "00000000", "01010110" + "10011010"): {_plane: {_sig: 0.33}},
-        ("00100001" + "00000000", "01010110" + "10100000"): {_plane: {_sig: 0.33}},
-    }
     dummy_phys_states: list[PlaquetteState] = [
         (
             (0, 0, 0, 0),
@@ -1108,6 +1162,9 @@ def test_num_ancillas_setter_fails_for_non_int():
             ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
+    dummy_mag_hamiltonian: PlaquetteMatrixElements = {
+        ((1, 2), _SIG_3_2): {(dummy_phys_states[0], dummy_phys_states[2]): 0.33},
+    }
     lattice_def = LatticeDef(1.5, 2)
     lattice_encoder = LatticeStateEncoder(
         _T1_LINK_BITMAP,
@@ -1122,12 +1179,6 @@ def test_num_ancillas_setter_fails_for_non_int():
 
 def test_num_ancillas_setter_fails_for_negative_int():
     # Some minimal data to create a LatticeCircuitManager.
-    _plane = (1, 2)
-    _sig = ((1,), (1,), (1,), (1,))
-    dummy_mag_hamiltonian: HamiltonianData = {
-        ("00100001" + "00000000", "01010110" + "10011010"): {_plane: {_sig: 0.33}},
-        ("00100001" + "00000000", "01010110" + "10100000"): {_plane: {_sig: 0.33}},
-    }
     dummy_phys_states: list[PlaquetteState] = [
         (
             (0, 0, 0, 0),
@@ -1145,6 +1196,9 @@ def test_num_ancillas_setter_fails_for_negative_int():
             ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
+    dummy_mag_hamiltonian: PlaquetteMatrixElements = {
+        ((1, 2), _SIG_3_2): {(dummy_phys_states[0], dummy_phys_states[2]): 0.33},
+    }
     lattice_def = LatticeDef(1.5, 2)
     lattice_encoder = LatticeStateEncoder(
         _T1_LINK_BITMAP,
@@ -1159,12 +1213,6 @@ def test_num_ancillas_setter_fails_for_negative_int():
 
 def test_adding_ancilla_register_fails_if_already_exists():
     # Some minimal data to create a LatticeCircuitManager.
-    _plane = (1, 2)
-    _sig = ((1,), (1,), (1,), (1,))
-    dummy_mag_hamiltonian: HamiltonianData = {
-        ("00100001" + "00000000", "01010110" + "10011010"): {_plane: {_sig: 0.33}},
-        ("00100001" + "00000000", "01010110" + "10100000"): {_plane: {_sig: 0.33}},
-    }
     dummy_phys_states: list[PlaquetteState] = [
         (
             (0, 0, 0, 0),
@@ -1182,6 +1230,9 @@ def test_adding_ancilla_register_fails_if_already_exists():
             ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
+    dummy_mag_hamiltonian: PlaquetteMatrixElements = {
+        ((1, 2), _SIG_3_2): {(dummy_phys_states[0], dummy_phys_states[2]): 0.33},
+    }
     lattice_def = LatticeDef(1.5, 2)
     lattice_encoder = LatticeStateEncoder(
         _T1_LINK_BITMAP,
@@ -1203,14 +1254,16 @@ def test_adding_ancilla_register_fails_if_already_exists():
     with pytest.raises(CircuitError):
         circ_mgr.add_ancilla_register_to_quantum_circuit(master_circuit)
 
-def test_apply_mag_trotter_step_independent_params_for_givens_rotations():
-    # Some minimal data to create a LatticeCircuitManager.
+def _d_3_2_three_rotation_dummy_data() -> tuple[list[PlaquetteState], PlaquetteMatrixElements]:
+    """Return dummy physical plaquette states and matrix elements for d=3/2 periodic, giving 3 Givens rotations."""
     _sig_3_2 = ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
     _plane_12 = (1, 2)
-    dummy_mag_hamiltonian: HamiltonianData = {  # There will be 2 Givens rotations and therefore 2 Parameters.
-        ("00100001" + "00000000", "01010110" + "10011001"): {_plane_12: {_sig_3_2: 0.99}},
-        ("00100001" + "00000000", "01010110" + "10100000"): {_plane_12: {_sig_3_2: 0.33}},
-        ("00100001" + "00000000", "01010110" + "00100000"): {_plane_12: {_sig_3_2: 0.66}}
+    dummy_mag_hamiltonian: PlaquetteMatrixElements = {  # There will be 3 Givens rotations and therefore 3 Parameters.
+        (_plane_12, _sig_3_2): {
+            (_d_3_2_state_from_T1_link_bit_strings("00100001", "00000000"), _d_3_2_state_from_T1_link_bit_strings("01010110", "10011001")): 0.99,
+            (_d_3_2_state_from_T1_link_bit_strings("00100001", "00000000"), _d_3_2_state_from_T1_link_bit_strings("01010110", "10100000")): 0.33,
+            (_d_3_2_state_from_T1_link_bit_strings("00100001", "00000000"), _d_3_2_state_from_T1_link_bit_strings("01010110", "00100000")): 0.66,
+        }
     }
     dummy_phys_states: list[PlaquetteState] = [
         (
@@ -1229,6 +1282,21 @@ def test_apply_mag_trotter_step_independent_params_for_givens_rotations():
             ((THREE,), (THREE,), (ONE,), (ONE,))
         )
     ]
+    return dummy_phys_states, dummy_mag_hamiltonian
+
+
+def _parameters_in_order_of_first_use(circuit: QuantumCircuit) -> list[Parameter]:
+    """Return the circuit's parameters, each once, in the order of the first gate that uses it."""
+    parameters: list[Parameter] = []
+    for gate in circuit.data:
+        for gate_parameter in gate.operation.params:
+            if isinstance(gate_parameter, ParameterExpression):
+                parameters += [p for p in sorted(gate_parameter.parameters, key=str) if p not in parameters]
+    return parameters
+
+
+def test_apply_mag_trotter_step_independent_params_for_givens_rotations():
+    dummy_phys_states, dummy_mag_hamiltonian = _d_3_2_three_rotation_dummy_data()
     lattice_def = LatticeDef(1.5, 3)
     lattice_encoder = LatticeStateEncoder(_T1_LINK_BITMAP, dummy_phys_states, lattice=lattice_def)
     lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
@@ -1242,20 +1310,106 @@ def test_apply_mag_trotter_step_independent_params_for_givens_rotations():
     )
     assert len(master_circuit.parameters) == 3
     for idx, parameter in enumerate(master_circuit.parameters):
-        assert parameter.name == f'theta[{idx}]'
+        assert parameter.name == f'theta_0[{idx}]'
+
+
+def test_apply_mag_trotter_step_ordinary_steps_after_independent_params():
+    """
+    Ordinary electric and magnetic Trotter steps can follow a magnetic step with independent Givens parameters.
+
+    This evolves in time a state that the independent parameters prepare as
+    an ansatz. Since the last magnetic step caches its plaquette circuits,
+    it must not reuse those the ansatz step cached. Its rotations take its
+    own dt and coupling parameters, and the circuit holds no parameters
+    other than the ansatz's and the two later steps'.
+    """
+    dummy_phys_states, dummy_mag_hamiltonian = _d_3_2_three_rotation_dummy_data()
+    # One coefficient per Pauli string on a link's 2 qubits.
+    dummy_electric_hamiltonian: list[float] = [0.33, 0.66, 0.66, 0.99]
+    lattice_def = LatticeDef(1.5, 3)
+    lattice_encoder = LatticeStateEncoder(_T1_LINK_BITMAP, dummy_phys_states, lattice=lattice_def)
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager(lattice_encoder, dummy_mag_hamiltonian)
+
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
+    circ_mgr.apply_magnetic_trotter_step(
+        master_circuit, lattice_registers, cache_mag_evol_circuit=True, givens_have_independent_params=True)
+    circ_mgr.apply_electric_trotter_step(master_circuit, lattice_registers, dummy_electric_hamiltonian)
+    circ_mgr.apply_magnetic_trotter_step(master_circuit, lattice_registers, cache_mag_evol_circuit=True)
+
+    expected_names: set[str] = {
+        "theta_0[0]", "theta_0[1]", "theta_0[2]",
+        "dt_ee__0", "coupling_g_ee__0",
+        "dt_mag__0", "coupling_g_mag__0",
+    }
+    assert {parameter.name for parameter in master_circuit.parameters} == expected_names
+
+
+def test_apply_mag_trotter_step_refuses_second_step_with_independent_params():
+    """
+    A second magnetic step with independent Givens parameters on the same circuit is invalid.
+
+    The independent parameters make one magnetic step a variational ansatz.
+    A second such step would reuse the same parameters rather than give the
+    new layer parameters of its own, so it is refused with a
+    NotImplementedError. Note that this behavior may be changed
+    in the future.
+    """
+    dummy_phys_states, dummy_mag_hamiltonian = _d_3_2_three_rotation_dummy_data()
+    lattice_def = LatticeDef(1.5, 3)
+    lattice_encoder = LatticeStateEncoder(_T1_LINK_BITMAP, dummy_phys_states, lattice=lattice_def)
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager(lattice_encoder, dummy_mag_hamiltonian)
+
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
+    circ_mgr.apply_magnetic_trotter_step(master_circuit, lattice_registers, givens_have_independent_params=True)
+    with pytest.raises(NotImplementedError):
+        circ_mgr.apply_magnetic_trotter_step(master_circuit, lattice_registers, givens_have_independent_params=True)
+
+
+def test_independent_givens_parameters_by_plane_and_signature_refuses_circuits_without_all_of_them():
+    """
+    independent_givens_parameters_by_plane_and_signature refuses a circuit lacking some or all of the manager's independent Givens parameters.
+
+    Both circuits are invalid input, and each is refused with a ValueError
+    naming how many of the manager's 3 parameters it holds. The first is
+    built from an ordinary magnetic Trotter step, so it holds none of them.
+    The second uses only one of them, as if part of a step with
+    givens_have_independent_params True had been lost.
+    """
+    dummy_phys_states, dummy_mag_hamiltonian = _d_3_2_three_rotation_dummy_data()
+    lattice_def = LatticeDef(1.5, 3)
+    lattice_encoder = LatticeStateEncoder(_T1_LINK_BITMAP, dummy_phys_states, lattice=lattice_def)
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager(lattice_encoder, dummy_mag_hamiltonian)
+
+    ordinary_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
+    circ_mgr.apply_magnetic_trotter_step(ordinary_circuit, lattice_registers)
+    with pytest.raises(ValueError, match="holds none of"):
+        circ_mgr.independent_givens_parameters_by_plane_and_signature(ordinary_circuit)
+
+    ansatz_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
+    circ_mgr.apply_magnetic_trotter_step(ansatz_circuit, lattice_registers, givens_have_independent_params=True)
+    partial_circuit = QuantumCircuit(1)
+    partial_circuit.rz(ansatz_circuit.parameters[0], 0)
+    with pytest.raises(ValueError, match="holds 1 of this manager's 3"):
+        circ_mgr.independent_givens_parameters_by_plane_and_signature(partial_circuit)
+
 
 def test_apply_mag_trotter_step_independent_params_multiple_lp_families():
     # This dummy data creates 3 LP bins. Two of them have 2 Givens rotations, one has 3.
     _sig_3_2 = ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
     _plane_12 = (1, 2)
-    dummy_mag_hamiltonian: HamiltonianData = {
-        ("01010101" + "00000101", "10100101" + "00001010"): {_plane_12: {_sig_3_2: 0.99}}, #LP fam 1: LLLLPPPP + PPPPLLLL
-        ("10100000" + "10100101", "01010000" + "10101010"): {_plane_12: {_sig_3_2: 0.99}}, #LP fam 1: LLLLPPPP + PPPPLLLL
-        ("01010101" + "01010000", "01011010" + "10100000"): {_plane_12: {_sig_3_2: 0.99}}, #LP fam 2: PPPPLLLL + LLLLPPPP
-        ("00001010" + "01010000", "00000101" + "10100000"): {_plane_12: {_sig_3_2: 0.99}}, #LP fam 2: PPPPLLLL + LLLLPPPP
-        ("00000000" + "10101010", "00000000" + "01010101"): {_plane_12: {_sig_3_2: 0.99}}, #LP fam 3: PPPPPPPP + LLLLLLLL
-        ("00000000" + "01010101", "00000000" + "10101010"): {_plane_12: {_sig_3_2: 0.99}}, #LP fam 3: PPPPPPPP + LLLLLLLL
-        ("00000000" + "01011010", "00000000" + "10100101"): {_plane_12: {_sig_3_2: 0.99}}, #LP fam 3: PPPPPPPP + LLLLLLLL
+    dummy_mag_hamiltonian: PlaquetteMatrixElements = {
+        (_plane_12, _sig_3_2): {
+            (_d_3_2_state_from_T1_link_bit_strings("01010101", "00000101"), _d_3_2_state_from_T1_link_bit_strings("10100101", "00001010")): 0.99, #LP fam 1: LLLLPPPP + PPPPLLLL
+            (_d_3_2_state_from_T1_link_bit_strings("10100000", "10100101"), _d_3_2_state_from_T1_link_bit_strings("01010000", "10101010")): 0.99, #LP fam 1: LLLLPPPP + PPPPLLLL
+            (_d_3_2_state_from_T1_link_bit_strings("01010101", "01010000"), _d_3_2_state_from_T1_link_bit_strings("01011010", "10100000")): 0.99, #LP fam 2: PPPPLLLL + LLLLPPPP
+            (_d_3_2_state_from_T1_link_bit_strings("00001010", "01010000"), _d_3_2_state_from_T1_link_bit_strings("00000101", "10100000")): 0.99, #LP fam 2: PPPPLLLL + LLLLPPPP
+            (_d_3_2_state_from_T1_link_bit_strings("00000000", "10101010"), _d_3_2_state_from_T1_link_bit_strings("00000000", "01010101")): 0.99, #LP fam 3: PPPPPPPP + LLLLLLLL
+            (_d_3_2_state_from_T1_link_bit_strings("00000000", "01010101"), _d_3_2_state_from_T1_link_bit_strings("00000000", "10101010")): 0.99, #LP fam 3: PPPPPPPP + LLLLLLLL
+            (_d_3_2_state_from_T1_link_bit_strings("00000000", "01011010"), _d_3_2_state_from_T1_link_bit_strings("00000000", "10100101")): 0.99, #LP fam 3: PPPPPPPP + LLLLLLLL
+        }
     }
 
     dummy_phys_states: list[PlaquetteState] = [
@@ -1288,7 +1442,68 @@ def test_apply_mag_trotter_step_independent_params_multiple_lp_families():
     )
     assert len(master_circuit.parameters) == 7
     for idx, parameter in enumerate(master_circuit.parameters):
-        assert parameter.name == f'theta[{idx}]'
+        assert parameter.name == f'theta_0[{idx}]'
+
+
+def test_apply_mag_trotter_step_independent_params_numbered_in_circuit_order():
+    """
+    Independent Givens parameters are numbered in the order the plaquette circuit applies the rotations.
+
+    The circuit visits the LP bins in Gray-code order, whatever the order of
+    the matrix elements. The matrix elements here arrive with LP fam 3 first,
+    although it is last in Gray-code order. The positions of fams 1, 2 and 3
+    in the Gray-code order in which the circuit visits LP bins are 2720,
+    40970 and 43520 (where the position index of each LP family is computed
+    by givens.gray_to_index). Numbering the parameters in the order of the
+    data would therefore give fam 3's rotations theta_0[0] to theta_0[2],
+    although the circuit applies them last. The parameters must appear in
+    the circuit in the order theta_0[0], theta_0[1], ....
+    """
+    _sig_3_2 = ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
+    _plane_12 = (1, 2)
+    dummy_mag_hamiltonian: PlaquetteMatrixElements = {
+        (_plane_12, _sig_3_2): {
+            (_d_3_2_state_from_T1_link_bit_strings("00000000", "10101010"), _d_3_2_state_from_T1_link_bit_strings("00000000", "01010101")): 0.99, #LP fam 3: PPPPPPPP + LLLLLLLL
+            (_d_3_2_state_from_T1_link_bit_strings("00000000", "01010101"), _d_3_2_state_from_T1_link_bit_strings("00000000", "10101010")): 0.99, #LP fam 3: PPPPPPPP + LLLLLLLL
+            (_d_3_2_state_from_T1_link_bit_strings("00000000", "01011010"), _d_3_2_state_from_T1_link_bit_strings("00000000", "10100101")): 0.99, #LP fam 3: PPPPPPPP + LLLLLLLL
+            (_d_3_2_state_from_T1_link_bit_strings("01010101", "00000101"), _d_3_2_state_from_T1_link_bit_strings("10100101", "00001010")): 0.99, #LP fam 1: LLLLPPPP + PPPPLLLL
+            (_d_3_2_state_from_T1_link_bit_strings("10100000", "10100101"), _d_3_2_state_from_T1_link_bit_strings("01010000", "10101010")): 0.99, #LP fam 1: LLLLPPPP + PPPPLLLL
+            (_d_3_2_state_from_T1_link_bit_strings("01010101", "01010000"), _d_3_2_state_from_T1_link_bit_strings("01011010", "10100000")): 0.99, #LP fam 2: PPPPLLLL + LLLLPPPP
+            (_d_3_2_state_from_T1_link_bit_strings("00001010", "01010000"), _d_3_2_state_from_T1_link_bit_strings("00000101", "10100000")): 0.99, #LP fam 2: PPPPLLLL + LLLLPPPP
+        }
+    }
+    dummy_phys_states: list[PlaquetteState] = [
+        (
+            (0, 0, 0, 0),
+            (ONE, THREE, ONE, THREE_BAR),
+            ((ONE,), (ONE,), (ONE,), (ONE,))
+        ),
+        (
+            (0, 0, 0, 0),
+            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+            ((THREE,), (THREE_BAR,), (THREE,), (THREE,))
+        ),
+        (
+            (0, 0, 0, 0),
+            (THREE_BAR, THREE_BAR, THREE_BAR, THREE),
+            ((THREE,), (THREE,), (ONE,), (ONE,))
+        )
+    ]
+    lattice_def = LatticeDef(1.5, 3)
+    lattice_encoder = LatticeStateEncoder(_T1_LINK_BITMAP, dummy_phys_states, lattice=lattice_def)
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager(lattice_encoder, dummy_mag_hamiltonian)
+
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
+    circ_mgr.apply_magnetic_trotter_step(
+        master_circuit,
+        lattice_registers,
+        givens_have_independent_params=True
+    )
+    expected_order: list[str] = [f"theta_0[{m}]" for m in range(7)]
+    assert [parameter.name for parameter in _parameters_in_order_of_first_use(master_circuit)] == expected_order
+    assert circ_mgr.independent_givens_parameters_by_plane_and_signature(master_circuit)[(_plane_12, _sig_3_2)] == tuple(
+        _parameters_in_order_of_first_use(master_circuit))
 
 
 def test_magnetic_trotter_step_does_not_depend_on_matrix_element_order():
@@ -1302,12 +1517,12 @@ def test_magnetic_trotter_step_does_not_depend_on_matrix_element_order():
     """
     lattice_def = LatticeDef(1.5, 3)
     lattice_encoder = LatticeStateEncoder.for_truncation(lattice_def, "T", 1)
-    mag_hamiltonian: HamiltonianData = {
-        (lattice_encoder.encode_plaquette_state_as_bit_string(final_state),
-         lattice_encoder.encode_plaquette_state_as_bit_string(initial_state)): value
-        for (final_state, initial_state), value in box_terms(lattice_def, "T", 1).items()
+    mag_hamiltonian = box_plus_box_dagger_matrix_elements(lattice_def, "T", 1)
+    lp_families = {
+        bitstring_value_of_LP_family(compute_LP_family(
+            *(lattice_encoder.encode_plaquette_state_as_bit_string(state, *plane_and_signature) for state in states)))
+        for plane_and_signature, matrix_elements in mag_hamiltonian.items() for states in matrix_elements
     }
-    lp_families = {bitstring_value_of_LP_family(compute_LP_family(*bit_strings)) for bit_strings in mag_hamiltonian}
     assert len(lp_families) > 1, "With a single LP bin, the order of the bins cannot be checked."
     lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
 
@@ -1322,7 +1537,10 @@ def test_magnetic_trotter_step_does_not_depend_on_matrix_element_order():
             for gate in master_circuit.data
         ]
 
-    reversed_mag_hamiltonian = dict(reversed(mag_hamiltonian.items()))
+    reversed_mag_hamiltonian = {
+        plane_and_signature: dict(reversed(matrix_elements.items()))
+        for plane_and_signature, matrix_elements in mag_hamiltonian.items()
+    }
     assert gate_list(reversed_mag_hamiltonian) == gate_list(mag_hamiltonian)
 
 
@@ -1519,9 +1737,10 @@ def test_measure_link_adds_correct_classical_register():
     ]
     lattice_def = LatticeDef(1.5, 2)
     encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
-    mag_ham: HamiltonianData = {("0000000000000000", "1010010110100101"): {(1, 2): {((1,), (1,), (1,), (1,)): 1.0}}}
+    # Measurements do not depend on the magnetic matrix elements.
+    empty_mag_hamiltonian: PlaquetteMatrixElements = {}
     lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
-    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circ_mgr = LatticeCircuitManager(encoder, empty_mag_hamiltonian)
     circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
 
     link_address = ((0, 0), 1)
@@ -1544,9 +1763,10 @@ def test_measure_vertex_adds_correct_classical_register():
     ]
     lattice_def = LatticeDef(1.5, 2)
     encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
-    mag_ham: HamiltonianData = {("0000000000000000", "1010010110100101"): {(1, 2): {((1,), (1,), (1,), (1,)): 1.0}}}
+    # Measurements do not depend on the magnetic matrix elements.
+    empty_mag_hamiltonian: PlaquetteMatrixElements = {}
     lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
-    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circ_mgr = LatticeCircuitManager(encoder, empty_mag_hamiltonian)
     circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
 
     vertex_address = (0, 0)
@@ -1568,9 +1788,10 @@ def test_measure_vertex_with_vertex_qubits():
     ]
     lattice_def = LatticeDef(1.5, 2)
     encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
-    mag_ham: HamiltonianData = {("00000000000000000000", "01010010101010010101"): {(1, 2): {((1,), (1,), (1,), (1,)): 1.0}}}
+    # Measurements do not depend on the magnetic matrix elements.
+    empty_mag_hamiltonian: PlaquetteMatrixElements = {}
     lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
-    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circ_mgr = LatticeCircuitManager(encoder, empty_mag_hamiltonian)
     circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
 
     vertex_address = (0, 0)
@@ -1590,9 +1811,10 @@ def test_measure_plaquette_measures_all_dofs():
     ]
     lattice_def = LatticeDef(1.5, 4)
     encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
-    mag_ham: HamiltonianData = {("0000000000000000", "1010010110100101"): {(1, 2): {((1,), (1,), (1,), (1,)): 1.0}}}
+    # Measurements do not depend on the magnetic matrix elements.
+    empty_mag_hamiltonian: PlaquetteMatrixElements = {}
     lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
-    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circ_mgr = LatticeCircuitManager(encoder, empty_mag_hamiltonian)
     circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
 
     circ_mgr.measure_plaquette(circuit, lattice, (0, 0), 1, 2)
@@ -1615,9 +1837,10 @@ def test_measure_plaquette_deduplicates_shared_registers():
     ]
     lattice_def = LatticeDef(1.5, 2)
     encoder = LatticeStateEncoder(link_bitmap, physical_plaquette_states, lattice_def)
-    mag_ham: HamiltonianData = {("0000000000000000", "1010010110100101"): {(1, 2): {((1,), (1,), (1,), (1,)): 1.0}}}
+    # Measurements do not depend on the magnetic matrix elements.
+    empty_mag_hamiltonian: PlaquetteMatrixElements = {}
     lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
-    circ_mgr = LatticeCircuitManager(encoder, mag_ham)
+    circ_mgr = LatticeCircuitManager(encoder, empty_mag_hamiltonian)
     circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
 
     circ_mgr.measure_plaquette(circuit, lattice, (0, 0), 1, 2)
@@ -1643,16 +1866,13 @@ _CONSISTENT_STATE_ALT_FORDER = (
     (ONE, ONE, ONE, ONE),
     ((THREE_BAR, THREE), (ONE, THREE_BAR), (ONE, ONE), (ONE, THREE)),
 )
-_CONSISTENT_BIT_STRING_ALT_FORDER = "00000000" + "0110" + "0001" + "0000" + "0010"
 # v2's +1 control is ONE, but v1's -1 control, the same link, is THREE_BAR.
 _INCONSISTENT_STATE_ALT_FORDER = (
     (0, 0, 0, 0),
     (ONE, ONE, ONE, ONE),
     ((THREE_BAR, THREE), (ONE, ONE), (ONE, ONE), (ONE, THREE)),
 )
-_INCONSISTENT_BIT_STRING_ALT_FORDER = "00000000" + "0110" + "0000" + "0000" + "0010"
 _VACUUM_STATE = ((0, 0, 0, 0), (ONE, ONE, ONE, ONE), ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE)))
-_VACUUM_BIT_STRING = "00000000" + "0000000000000000"
 
 
 def _alt_forder_d_2_size_2_encoder() -> LatticeStateEncoder:
@@ -1675,75 +1895,50 @@ def test_matrix_element_with_disagreeing_duplicate_controls_raises_value_error()
     with pytest.raises(ValueError):
         LatticeCircuitManager(
             encoder,
-            {(_CONSISTENT_BIT_STRING_ALT_FORDER, _INCONSISTENT_BIT_STRING_ALT_FORDER): {(1, 2): {_SIG_2_ALT_FORDER: 0.5}}},
+            {((1, 2), _SIG_2_ALT_FORDER): {(_CONSISTENT_STATE_ALT_FORDER, _INCONSISTENT_STATE_ALT_FORDER): 0.5}},
         )
     # The same matrix element with a state whose duplicates agree is accepted.
     LatticeCircuitManager(
         encoder,
-        {(_CONSISTENT_BIT_STRING_ALT_FORDER, _VACUUM_BIT_STRING): {(1, 2): {_SIG_2_ALT_FORDER: 0.5}}},
+        {((1, 2), _SIG_2_ALT_FORDER): {(_CONSISTENT_STATE_ALT_FORDER, _VACUUM_STATE): 0.5}},
     )
 
 
 def test_duplicate_controls_removed_from_matrix_elements():
     """
-    The constructor removes each duplicated control from the bit strings of a matrix element.
+    The constructor encodes the states of a matrix element without their duplicated controls.
 
     With the F-order and duplicates described above _ALT_FORDER, v1 keeps
     both its controls, v2 keeps its -2 control, v3 its +1 control, and v4
-    none.
+    none. With the T1 link bitmap, ONE is "00", THREE "10" and THREE_BAR
+    "01"; there are no vertex bits.
     """
     circ_mgr = LatticeCircuitManager(
         _alt_forder_d_2_size_2_encoder(),
-        {(_CONSISTENT_BIT_STRING_ALT_FORDER, _VACUUM_BIT_STRING): {(1, 2): {_SIG_2_ALT_FORDER: 0.5}}},
+        {((1, 2), _SIG_2_ALT_FORDER): {(_CONSISTENT_STATE_ALT_FORDER, _VACUUM_STATE): 0.5}},
     )
     expected_final = "00000000" + "0110" + "00" + "00"
     expected_initial = "00000000" + "0000" + "00" + "00"
-    assert circ_mgr._mag_hamiltonian == {(1, 2): {(expected_final, expected_initial): {_SIG_2_ALT_FORDER: 0.5}}}
+    assert circ_mgr._encoded_mag_hamiltonian == {((1, 2), _SIG_2_ALT_FORDER): {(expected_final, expected_initial): 0.5}}
 
 
-def test_resolve_hamiltonian_for_plaquette():
-    """Test _resolve_hamiltonian_for_plaquette filters by plane and signature.
-
-    Uses the per-plane-first PlaneKeyedHamiltonianData format:
-        plane -> (bs1, bs2) -> signature -> float
+def test_constructor_refuses_plane_and_signature_without_plaquette():
     """
-    plane_a = (1, 2)
-    plane_b = (1, 3)
-    sig_a = ((-1,), (1,), (1,), (-1,))
-    sig_b = ((1,), (-1,), (-1,), (1,))
+    The constructor refuses matrix elements under a plane and signature that no plaquette of the lattice has.
 
-    # PlaneKeyedHamiltonianData: per-plane-first format.
-    hamiltonian: PlaneKeyedHamiltonianData = {
-        plane_a: {
-            ("00", "11"): {sig_a: 0.5, sig_b: 0.3},
-            ("01", "10"): {sig_a: 0.2},
-        },
-        plane_b: {
-            ("00", "11"): {sig_a: 0.7},
-            ("10", "01"): {sig_b: 0.9},
-        },
-    }
-
-    # Match plane_a, sig_a: should get entries from first two entries under plane_a.
-    result = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(hamiltonian, plane_a, sig_a)
-    assert len(result) == 2
-    assert ("00", "11", 0.5) in result
-    assert ("01", "10", 0.2) in result
-
-    # Match plane_a, sig_b: only one entry has sig_b under plane_a.
-    result_b = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(hamiltonian, plane_a, sig_b)
-    assert len(result_b) == 1
-    assert ("00", "11", 0.3) in result_b
-
-    # Match plane_b, sig_b: only last entry under plane_b matches.
-    result_c = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(hamiltonian, plane_b, sig_b)
-    assert len(result_c) == 1
-    assert ("10", "01", 0.9) in result_c
-
-    # No match: plane_b, sig with no entries.
-    sig_without_entries = ((2,), (2,), (2,), (2,))
-    result_empty = LatticeCircuitManager._resolve_hamiltonian_for_plaquette(hamiltonian, plane_b, sig_without_entries)
-    assert len(result_empty) == 0
+    On a d=3/2 periodic lattice of size 3, every plaquette is in plane (1, 2)
+    and has the signature _SIG_3_2, so neither _SIG_2 in that plane nor
+    _SIG_3_2 in plane (1, 3) belongs to a plaquette.
+    """
+    encoder = LatticeStateEncoder.for_truncation(LatticeDef(1.5, 3), "T", 1)
+    vacuum: PlaquetteState = ((0, 0, 0, 0), (ONE, ONE, ONE, ONE), ((ONE,), (ONE,), (ONE,), (ONE,)))
+    excited: PlaquetteState = ((0, 0, 0, 0), (THREE, ONE, ONE, ONE), ((ONE,), (ONE,), (ONE,), (ONE,)))
+    with pytest.raises(ValueError, match="no plaquette"):
+        LatticeCircuitManager(encoder, {((1, 2), _SIG_2): {(excited, vacuum): 0.5}})
+    with pytest.raises(ValueError, match="no plaquette"):
+        LatticeCircuitManager(encoder, {((1, 3), _SIG_3_2): {(excited, vacuum): 0.5}})
+    # The same matrix element under the plane and signature of the lattice's plaquettes is accepted.
+    LatticeCircuitManager(encoder, {((1, 2), _SIG_3_2): {(excited, vacuum): 0.5}})
 
 
 def test_signature():
@@ -1758,35 +1953,110 @@ def test_signature():
     # v3 (top):    all dirs except +2 → {1, -1, -2} sorted by forder → (1, -1, -2)
     # v4 (top):    all dirs except +2 → {1, -1, -2} sorted by forder → (1, -1, -2)
     lattice_3_2 = LatticeRegisters(1.5, 2, True, link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap, forder=default_forder)
-    plaq_3_2 = lattice_3_2.get_plaquettes((0, 0), 1, 2)
+    plaq_3_2 = lattice_3_2.get_plaquette((0, 0), (1, 2))
     assert plaq_3_2.signature == ((1, 2, -1), (1, 2, -1), (1, -1, -2), (1, -1, -2))
 
     # d=2, plane (1, 2), default forder:
     # All vertices have all dirs {1, 2, -1, -2} sorted by forder → (1, 2, -1, -2)
     lattice_2 = LatticeRegisters(2, 2, True, link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap, forder=default_forder)
-    plaq_2 = lattice_2.get_plaquettes((0, 0), 1, 2)
+    plaq_2 = lattice_2.get_plaquette((0, 0), (1, 2))
     assert plaq_2.signature == ((1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2), (1, 2, -1, -2))
 
     # d=3/2, plane (1, 2), nonstandard forder [-1, 2, -3, 1, -2, 3]:
     nonstandard_forder = [-1, 2, -3, 1, -2, 3]
     lattice_3_2_ns = LatticeRegisters(1.5, 2, True, link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap, forder=nonstandard_forder)
-    plaq_3_2_ns = lattice_3_2_ns.get_plaquettes((0, 0), 1, 2)
+    plaq_3_2_ns = lattice_3_2_ns.get_plaquette((0, 0), (1, 2))
     # v1, v2 (bottom): dirs {1, 2, -1} sorted by nonstandard forder → (-1, 2, 1)
     # v3, v4 (top): dirs {1, -1, -2} sorted by nonstandard forder → (-1, 1, -2)
     assert plaq_3_2_ns.signature == ((-1, 2, 1), (-1, 2, 1), (-1, 1, -2), (-1, 1, -2))
 
     # d=2, plane (1, 2), nonstandard forder [-1, 2, -3, 1, -2, 3]:
     lattice_2_ns = LatticeRegisters(2, 2, True, link_bitmap=link_bitmap, vertex_bitmap=vertex_bitmap, forder=nonstandard_forder)
-    plaq_2_ns = lattice_2_ns.get_plaquettes((0, 0), 1, 2)
+    plaq_2_ns = lattice_2_ns.get_plaquette((0, 0), (1, 2))
     # All vertices: dirs {1, 2, -1, -2} sorted by nonstandard forder → (-1, 2, 1, -2)
     assert plaq_2_ns.signature == ((-1, 2, 1, -2), (-1, 2, 1, -2), (-1, 2, 1, -2), (-1, 2, 1, -2))
 
 
-@pytest.mark.skip(reason="Non-periodic LatticeDef support not yet available. "
-                         "Should verify plaquette.signature reflects missing directions at boundary vertices.")
-def test_signature_nonperiodic():
-    """Placeholder: verify signature correctness on a non-periodic lattice."""
-    pass
+_SIGNATURE_TEST_LINK_BITMAP: IrrepBitmap = {(0, 0, 0): "00", (1, 0, 0): "10", (1, 1, 0): "01"}
+
+
+def test_signature_d_3_open():
+    """
+    Plaquette.signature for every plaquette of the d=3 lattice of size 2 with open boundary conditions.
+
+    A vertex has the half-link +k when its coordinate along axis k is 0, and
+    -k when it is 1. Sorted by the default F-order, (1, 2, 3, -1, -2, -3),
+    the half-links at each vertex are:
+    (0, 0, 0): (1, 2, 3)     (1, 0, 0): (2, 3, -1)
+    (0, 1, 0): (1, 3, -2)    (0, 0, 1): (1, 2, -3)
+    (1, 1, 0): (3, -1, -2)   (1, 0, 1): (2, -1, -3)
+    (0, 1, 1): (1, -2, -3)   (1, 1, 1): (-1, -2, -3)
+    A plaquette's vertices are listed from its bottom-left vertex v1, then
+    v1 + e1, v1 + e1 + e2, v1 + e2, for its plane (e1, e2).
+    """
+    lattice = LatticeRegisters(3, 2, False, link_bitmap=_SIGNATURE_TEST_LINK_BITMAP, vertex_bitmap={})
+    expected_signatures: dict[tuple[LatticeVector, Plane], Signature] = {
+        ((0, 0, 0), (1, 2)): ((1, 2, 3), (2, 3, -1), (3, -1, -2), (1, 3, -2)),
+        ((0, 0, 0), (1, 3)): ((1, 2, 3), (2, 3, -1), (2, -1, -3), (1, 2, -3)),
+        ((0, 0, 0), (2, 3)): ((1, 2, 3), (1, 3, -2), (1, -2, -3), (1, 2, -3)),
+        ((0, 0, 1), (1, 2)): ((1, 2, -3), (2, -1, -3), (-1, -2, -3), (1, -2, -3)),
+        ((0, 1, 0), (1, 3)): ((1, 3, -2), (3, -1, -2), (-1, -2, -3), (1, -2, -3)),
+        ((1, 0, 0), (2, 3)): ((2, 3, -1), (3, -1, -2), (-1, -2, -3), (2, -1, -3)),
+    }
+    assert lattice.plaquette_addresses == list(expected_signatures)
+    for (bottom_left_vertex, (e1, e2)), expected_signature in expected_signatures.items():
+        assert Plaquette(lattice, bottom_left_vertex, (e1, e2)).signature == expected_signature, \
+            f"Plaquette at {bottom_left_vertex} in plane {(e1, e2)}."
+
+
+def test_signature_d_3_open_along_one_axis():
+    """
+    Plaquette.signature on the d=3 lattice of size 3, periodic along axes 1 and 2 and open along axis 3.
+
+    Every vertex has the half-links +-1 and +-2. Along axis 3, a vertex with
+    z = 0 has only +3, one with z = 1 has +3 and -3, and one with z = 2 has
+    only -3. Sorted by the default F-order, (1, 2, 3, -1, -2, -3):
+    z = 0: (1, 2, 3, -1, -2)
+    z = 1: (1, 2, 3, -1, -2, -3)
+    z = 2: (1, 2, -1, -2, -3)
+    The plaquettes checked are, in each plane, one on the open boundary and
+    one in the interior along axis 3 (plane (1, 2) has a second on the
+    boundary, at z = 2). A plaquette's vertices are listed from its
+    bottom-left vertex v1, then v1 + e1, v1 + e1 + e2, v1 + e2.
+    """
+    lattice = LatticeRegisters(
+        3, 3, (True, True, False), link_bitmap=_SIGNATURE_TEST_LINK_BITMAP, vertex_bitmap={})
+    bottom: tuple[int, ...] = (1, 2, 3, -1, -2)
+    middle: tuple[int, ...] = (1, 2, 3, -1, -2, -3)
+    top: tuple[int, ...] = (1, 2, -1, -2, -3)
+    expected_signatures: dict[tuple[LatticeVector, Plane], Signature] = {
+        ((1, 1, 0), (1, 2)): (bottom, bottom, bottom, bottom),
+        ((1, 1, 1), (1, 2)): (middle, middle, middle, middle),
+        ((1, 1, 2), (1, 2)): (top, top, top, top),
+        ((1, 1, 0), (1, 3)): (bottom, bottom, middle, middle),
+        ((1, 1, 1), (1, 3)): (middle, middle, top, top),
+        ((1, 1, 0), (2, 3)): (bottom, bottom, middle, middle),
+        ((1, 1, 1), (2, 3)): (middle, middle, top, top),
+    }
+    for (bottom_left_vertex, (e1, e2)), expected_signature in expected_signatures.items():
+        assert Plaquette(lattice, bottom_left_vertex, (e1, e2)).signature == expected_signature, \
+            f"Plaquette at {bottom_left_vertex} in plane {(e1, e2)}."
+
+
+def test_signature_d_3_periodic_nonstandard_forder():
+    """
+    Plaquette.signature on the periodic d=3 lattice of size 3, with the F-order (-1, 2, -3, 1, -2, 3).
+
+    Every vertex has all six half-links, so in every plane each vertex's
+    entry is the F-order itself.
+    """
+    nonstandard_forder = [-1, 2, -3, 1, -2, 3]
+    lattice = LatticeRegisters(
+        3, 3, True, link_bitmap=_SIGNATURE_TEST_LINK_BITMAP, vertex_bitmap={}, forder=nonstandard_forder)
+    every_vertex: tuple[int, ...] = (-1, 2, -3, 1, -2, 3)
+    for e1, e2 in [(1, 2), (1, 3), (2, 3)]:
+        assert Plaquette(lattice, (1, 2, 0), (e1, e2)).signature == (every_vertex,) * 4, \
+            f"Plane {(e1, e2)}."
 
 
 # --- d=3 unit tests of duplicate controls, plane by plane ---
@@ -1801,20 +2071,17 @@ def _make_d3_size2_circ_mgr():
 
 # On d=3, size 2, with the default F-order, every vertex has all six
 # half-links.
-_SIG_3_DEFAULT_FORDER = ((1, 2, 3, -1, -2, -3),) * 4
+_SIG_3_DEFAULT_FORDER: Signature = (
+    (1, 2, 3, -1, -2, -3), (1, 2, 3, -1, -2, -3), (1, 2, 3, -1, -2, -3), (1, 2, 3, -1, -2, -3))
 
 
 def test_disagreeing_duplicate_controls_detected_d3():
     """For d=3 size=2, a state whose duplicate controls disagree in one plane is refused there."""
-    circ_mgr, encoder = _make_d3_size2_circ_mgr()
-    duplicate_control_indices = encoder.lattice_def._duplicate_control_indices((1, 2), _SIG_3_DEFAULT_FORDER)
+    _, encoder = _make_d3_size2_circ_mgr()
 
     # A physical state of plane (1, 2): its duplicate controls agree there.
-    base_ps = next(
-        ps for ps in physical_plaquette_states(encoder.lattice_def, "B", 3)
-        if circ_mgr._bit_string_without_duplicate_controls(
-            encoder.encode_plaquette_state_as_bit_string(ps), duplicate_control_indices) is not None
-    )
+    base_ps = next(iter(physical_plaquette_states(encoder.lattice_def, "B", 3)[((1, 2), _SIG_3_DEFAULT_FORDER)]))
+    encoder.encode_plaquette_state_as_bit_string(base_ps, (1, 2), _SIG_3_DEFAULT_FORDER)
 
     # In plane (1, 2), v2's +1 control (index 0 in the default F-order,
     # after its active links +2 and -1 are left out) is v1's -1 control.
@@ -1823,8 +2090,8 @@ def test_disagreeing_duplicate_controls_detected_d3():
     c_links_list[1][0] = THREE if c_links_list[1][0] == ONE else ONE
     modified_ps = (base_ps[0], base_ps[1], tuple(tuple(vc) for vc in c_links_list))
 
-    assert circ_mgr._bit_string_without_duplicate_controls(
-        encoder.encode_plaquette_state_as_bit_string(modified_ps), duplicate_control_indices) is None
+    with pytest.raises(ValueError):
+        encoder.encode_plaquette_state_as_bit_string(modified_ps, (1, 2), _SIG_3_DEFAULT_FORDER)
 
 
 def test_duplicate_control_indices_per_vertex_d3():
@@ -1840,25 +2107,40 @@ def test_duplicate_control_indices_per_vertex_d3():
 def test_pruning_states_lose_duplicate_controls_d3():
     """For d=3 size=2, the states for control pruning lose their 4 duplicate controls in every plane."""
     circ_mgr, encoder = _make_d3_size2_circ_mgr()
-    physical_state_bitstrings = {
-        encoder.encode_plaquette_state_as_bit_string(ps)
-        for ps in physical_plaquette_states(encoder.lattice_def, "B", 3)
-    }
+    states_for_control_pruning = physical_plaquette_states(encoder.lattice_def, "B", 3)
     # 4 active links and 12 controls left, 2 qubits each for B3.
     expected_qubits_in_stripped_state = 32
     for plane in [(1, 2), (1, 3), (2, 3)]:
-        stripped_set = circ_mgr._pruning_states_without_duplicate_controls(
-            physical_state_bitstrings,
-            encoder.lattice_def._duplicate_control_indices(plane, _SIG_3_DEFAULT_FORDER),
-        )
+        stripped_set = circ_mgr._encoded_pruning_states(states_for_control_pruning, plane, _SIG_3_DEFAULT_FORDER)
         assert stripped_set, f"Plane {plane} has no states for control pruning."
         assert {len(stripped_state) for stripped_state in stripped_set} == {expected_qubits_in_stripped_state}
 
 
-def test_d3_resolved_hamiltonian_has_three_planes():
-    """After __init__, the resolved Hamiltonian for d=3 size=2 should have 3 plane keys."""
+def test_apply_magnetic_trotter_step_refuses_pruning_states_lacking_a_plane_d3():
+    """
+    apply_magnetic_trotter_step refuses states for control pruning that lack a plane and signature of the lattice.
+
+    The input is invalid: on d=3 size=2, the states of plane (1, 2) are
+    removed from the physical plaquette states, so that only those of planes
+    (1, 3) and (2, 3) are passed. The lattice has plaquettes in plane
+    (1, 2), so apply_magnetic_trotter_step is expected to raise a ValueError
+    naming that plane.
+    """
+    circ_mgr, encoder = _make_d3_size2_circ_mgr()
+    states_for_control_pruning = physical_plaquette_states(encoder.lattice_def, "B", 3)
+    del states_for_control_pruning[((1, 2), _SIG_3_DEFAULT_FORDER)]
+    lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
+    circuit = circ_mgr.create_blank_full_lattice_circuit(lattice)
+    with pytest.raises(ValueError, match=r"no states for plane \(1, 2\)"):
+        circ_mgr.apply_magnetic_trotter_step(
+            circuit, lattice, physical_states_for_control_pruning=states_for_control_pruning)
+
+
+def test_d3_hamiltonian_has_three_planes():
+    """After __init__, the magnetic Hamiltonian for d=3 size=2 has one key per plane, each with the one signature of size 2."""
     circ_mgr, _ = _make_d3_size2_circ_mgr()
-    assert set(circ_mgr._mag_hamiltonian.keys()) == {(1, 2), (1, 3), (2, 3)}
+    assert set(circ_mgr._encoded_mag_hamiltonian.keys()) == {
+        ((1, 2), _SIG_3_DEFAULT_FORDER), ((1, 3), _SIG_3_DEFAULT_FORDER), ((2, 3), _SIG_3_DEFAULT_FORDER)}
 
 
 # --- d=3 circuit construction tests ---
@@ -1890,14 +2172,14 @@ def test_d3_B3_size3_magnetic_trotter_step():
     [
         # No axis of length 2: 4 active links and 4 * 2 * (d - 1) controls.
         (2, (4, 3), {(1, 2): 12}),
-        pytest.param(3, (3, 3, 4), {(1, 2): 20, (1, 3): 20, (2, 3): 20}, marks=pytest.mark.slow),
+        (3, (3, 3, 4), {(1, 2): 20, (1, 3): 20, (2, 3): 20}),
         # A periodic axis of length 2 along e2 of a plane (e1, e2): v3's +e2
         # control is v2's -e2 control, and v4's +e2 control is v1's -e2
         # control, so two controls are left out of the plaquette circuit.
         # Along an axis normal to the plane, a vertex's two controls start at
         # different sites and stay distinct.
         (2, (3, 2), {(1, 2): 10}),
-        pytest.param(3, (3, 3, 2), {(1, 2): 20, (1, 3): 18, (2, 3): 18}, marks=pytest.mark.slow),
+        (3, (3, 3, 2), {(1, 2): 20, (1, 3): 18, (2, 3): 18}),
     ],
 )
 def test_rectangular_periodic_lattice_magnetic_trotter_step(dims, shape, n_links_per_plaquette_circuit_by_plane):
@@ -1944,14 +2226,6 @@ def test_d3_B3_size2_magnetic_trotter_step():
     assert circuit.num_qubits > 0
     assert len(circuit.parameters) > 0, "Circuit should have unbound parameters (dt, coupling_g)."
 
-    # The resolved Hamiltonian should have 3 planes for d=3.
-    assert len(circ_mgr._mag_hamiltonian) == 3, (
-        f"Expected 3 planes in resolved Hamiltonian, got {len(circ_mgr._mag_hamiltonian)}"
-    )
-    # Verify expected planes are present.
-    expected_planes = {(1, 2), (1, 3), (2, 3)}
-    assert set(circ_mgr._mag_hamiltonian.keys()) == expected_planes
-
 
 # Wiring of the d=3 magnetic Trotter step.
 #
@@ -1975,8 +2249,8 @@ def test_d3_B3_size2_magnetic_trotter_step():
 #      which a link leaves it: the half-link at site s in direction +k is
 #      the link (s, k), and in direction -k the link (s - e_k mod L, k).
 #      The controls at a vertex are its four half-links other than the two
-#      that are active links, sorted by the default FORDER
-#      [1, 2, 3, -1, -2, -3].
+#      that are active links, sorted by the default F-order
+#      (1, 2, 3, -1, -2, -3).
 #   3. On a periodic lattice of size 2, s + e_k and s - e_k are the same
 #      site, so four controls repeat a control of an earlier vertex and are
 #      dropped: v2's +e1 (v1's -e1), v3's +e2 (v2's -e2), v4's +e2 (v1's -e2)
@@ -2034,10 +2308,11 @@ _D3_WIRING_CONTROLS_BY_PLANE = {
 # plane changes the rotation angle.
 _D3_WIRING_MATRIX_ELEMENT_BY_PLANE = {(1, 2): 0.11, (1, 3): 0.22, (2, 3): 0.33}
 # The signature every plaquette has on a periodic d=3 lattice: all six
-# half-links at every corner (Signature in ymcirc._abstract.lattice_data).
-# The magnetic Hamiltonian is keyed by plane, then signature, so the dummy
+# half-links at every vertex (Signature in ymcirc._abstract.lattice_data).
+# The magnetic matrix elements are keyed by (plane, signature), so the dummy
 # matrix elements must use it to be applied.
-_D3_WIRING_SIGNATURE = ((1, 2, 3, -1, -2, -3),) * 4
+_D3_WIRING_SIGNATURE: Signature = (
+    (1, 2, 3, -1, -2, -3), (1, 2, 3, -1, -2, -3), (1, 2, 3, -1, -2, -3), (1, 2, 3, -1, -2, -3))
 # The initial and final active links encode to 000 100 110 111 and
 # 100 011 000 001, after the four vertex bits. They first differ at position
 # 4 (the first bit of l1), and then at positions 7, 8, 9 (all of l2), 10, 11
@@ -2204,16 +2479,16 @@ _D3_WIRING_EXPECTED_REGISTERS = {
 }
 
 
-def _d3_wiring_dummy_data() -> tuple[list, dict]:
+def _d3_wiring_dummy_data() -> tuple[list[PlaquetteState], PlaquetteMatrixElements]:
     """Return the dummy physical plaquette states and magnetic Hamiltonian of the d=3 wiring tests."""
-    dummy_phys_states = []
-    dummy_mag_hamiltonian: HamiltonianData = {}
+    dummy_phys_states: list[PlaquetteState] = []
+    dummy_mag_hamiltonian: PlaquetteMatrixElements = {}
     for plane, controls in _D3_WIRING_CONTROLS_BY_PLANE.items():
         initial_state = (_D3_WIRING_VERTEX_MULTIPLICITIES, _D3_WIRING_INITIAL_ACTIVE_LINKS, controls)
         final_state = (_D3_WIRING_VERTEX_MULTIPLICITIES, _D3_WIRING_FINAL_ACTIVE_LINKS, controls)
         dummy_phys_states += [initial_state, final_state]
-        dummy_mag_hamiltonian[(final_state, initial_state)] = {
-            plane: {_D3_WIRING_SIGNATURE: _D3_WIRING_MATRIX_ELEMENT_BY_PLANE[plane]}
+        dummy_mag_hamiltonian[(plane, _D3_WIRING_SIGNATURE)] = {
+            (final_state, initial_state): _D3_WIRING_MATRIX_ELEMENT_BY_PLANE[plane]
         }
     return dummy_phys_states, dummy_mag_hamiltonian
 
@@ -2293,14 +2568,9 @@ def _d3_wiring_built_rotation(circuit: QuantumCircuit, rotation_index: int) -> d
 ])
 def test_apply_magnetic_trotter_step_d_3_wiring(size: int, checked_vertices: list[tuple[int, int, int]]):
     print(f"Checking the qubits of the d=3 magnetic Trotter step on a size-{size} periodic lattice.")
-    dummy_phys_states, dummy_mag_hamiltonian_by_state = _d3_wiring_dummy_data()
+    dummy_phys_states, dummy_mag_hamiltonian = _d3_wiring_dummy_data()
     lattice_def = LatticeDef(3, size)
     lattice_encoder = LatticeStateEncoder(_T2_LINK_BITMAP, dummy_phys_states, lattice=lattice_def)
-    dummy_mag_hamiltonian: HamiltonianData = {
-        (lattice_encoder.encode_plaquette_state_as_bit_string(final_state),
-         lattice_encoder.encode_plaquette_state_as_bit_string(initial_state)): value
-        for (final_state, initial_state), value in dummy_mag_hamiltonian_by_state.items()
-    }
     lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
     circ_mgr = LatticeCircuitManager(lattice_encoder, dummy_mag_hamiltonian)
     master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
@@ -2334,49 +2604,155 @@ def test_apply_magnetic_trotter_step_d_3_wiring(size: int, checked_vertices: lis
             assert built["RY angle"] == expected["RY angle"]
 
 
-# --- Building the magnetic Hamiltonian from the box matrix elements ---
+def test_apply_magnetic_trotter_step_independent_params_d_3():
+    """
+    With independent Givens parameters, each (plane, signature) has a parameter vector of its own, shared by its plaquettes.
 
-def test_filter_matrix_element_value():
-    """Test LatticeCircuitManager._filter_matrix_element_value with Dict[Plane, Dict[Signature, float]] inputs."""
-    plane_a = (1, 2)
-    plane_b = (1, 3)
-    sig_a = ((-1,), (1,), (1,), (-1,))
-    sig_b = ((1,), (-1,), (-1,), (1,))
+    On the d=3 periodic lattice of size 2, every plaquette has the same
+    signature, so the three planes give three (plane, signature) pairs. The
+    d=3 wiring data have one Givens rotation for each. The 24 plaquettes'
+    rotations must therefore use 3 parameters, one per plane. All 8
+    plaquettes of a plane share its parameter, and each parameter is the
+    only element of a vector whose name no other vector has.
+    """
+    dummy_phys_states, dummy_mag_hamiltonian = _d3_wiring_dummy_data()
+    lattice_def = LatticeDef(3, 2)
+    lattice_encoder = LatticeStateEncoder(_T2_LINK_BITMAP, dummy_phys_states, lattice=lattice_def)
+    lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
+    circ_mgr = LatticeCircuitManager(lattice_encoder, dummy_mag_hamiltonian)
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
+    circ_mgr.apply_magnetic_trotter_step(
+        master_circuit,
+        lattice_registers,
+        optimize_circuits=False,
+        givens_have_independent_params=True
+    )
 
-    value: MatrixElementValue = {
-        plane_a: {sig_a: 0.5, sig_b: 0.001},
-        plane_b: {sig_a: 0.002},
+    # One rotation per plaquette, visited by vertex, then by plane
+    # (LatticeDef.plaquette_addresses), so the plane of the rotation_index-th
+    # rotation is planes[rotation_index % len(planes)].
+    planes: list[Plane] = sorted(_D3_WIRING_CONTROLS_BY_PLANE)
+    n_plaquettes = 2**3 * len(planes)
+    assert len(master_circuit.data) == _D3_WIRING_GATES_PER_ROTATION * n_plaquettes
+    parameters_by_plane: dict[Plane, set[Parameter]] = {plane: set() for plane in planes}
+    for rotation_index in range(n_plaquettes):
+        plane = planes[rotation_index % len(planes)]
+        first_gate = rotation_index * _D3_WIRING_GATES_PER_ROTATION
+        for gate in master_circuit.data[first_gate:first_gate + _D3_WIRING_GATES_PER_ROTATION]:
+            for gate_parameter in gate.operation.params:
+                if isinstance(gate_parameter, ParameterExpression):
+                    parameters_by_plane[plane] |= gate_parameter.parameters
+
+    assert all(len(parameters) == 1 for parameters in parameters_by_plane.values()), parameters_by_plane
+    parameter_of_each_plane = [next(iter(parameters_by_plane[plane])) for plane in planes]
+    assert all(isinstance(parameter, ParameterVectorElement) for parameter in parameter_of_each_plane)
+    vectors = [parameter.vector for parameter in parameter_of_each_plane]
+    assert len({vector.name for vector in vectors}) == len(planes)
+    assert all(len(vector) == 1 for vector in vectors)
+    assert len(master_circuit.parameters) == len(planes)
+
+    # The mapping gives each (plane, signature) the parameters its plaquettes
+    # use. The (plane, signature) pairs differ only in their planes, so their
+    # sorted order, which numbers the vectors, is (1, 2), (1, 3), (2, 3).
+    expected_names_by_plane: dict[Plane, list[str]] = {
+        (1, 2): ["theta_0[0]"],
+        (1, 3): ["theta_1[0]"],
+        (2, 3): ["theta_2[0]"],
     }
+    mapping = circ_mgr.independent_givens_parameters_by_plane_and_signature(master_circuit)
+    assert set(mapping) == {(plane, _D3_WIRING_SIGNATURE) for plane in planes}
+    for plane in planes:
+        parameters = mapping[(plane, _D3_WIRING_SIGNATURE)]
+        assert set(parameters) == parameters_by_plane[plane]
+        assert [parameter.name for parameter in parameters] == expected_names_by_plane[plane]
 
-    # With threshold=0.01: sig_b under plane_a and sig_a under plane_b should be dropped.
-    result = LatticeCircuitManager._filter_matrix_element_value(value, 0.01)
-    assert result == {plane_a: {sig_a: 0.5}}
 
-    # With threshold=0: everything preserved.
-    result_no_threshold = LatticeCircuitManager._filter_matrix_element_value(value, 0)
-    assert result_no_threshold == value
+# --- Building the magnetic Hamiltonian from the matrix elements of box + box^dagger ---
 
-    # With threshold above all values: returns None.
-    result_all_filtered = LatticeCircuitManager._filter_matrix_element_value(value, 1.0)
-    assert result_all_filtered is None
+def test_for_truncation_threshold_keeps_matrix_elements_at_least_as_large():
+    """
+    for_truncation keeps exactly the matrix elements whose magnitude is at least its threshold.
+
+    Checked on a d=3/2 periodic lattice of size 3 at T1, with the median of
+    the magnitudes as the threshold, so that some matrix elements are kept and
+    some dropped.
+    """
+    encoder = LatticeStateEncoder.for_truncation(LatticeDef(1.5, 3), "T", 1)
+    all_matrix_elements = LatticeCircuitManager.for_truncation(encoder)._encoded_mag_hamiltonian
+    magnitudes = sorted({abs(value) for elements in all_matrix_elements.values() for value in elements.values()})
+    assert len(magnitudes) > 1, "With a single magnitude, no threshold keeps some matrix elements and drops others."
+    threshold = magnitudes[len(magnitudes) // 2]
+
+    kept_matrix_elements = LatticeCircuitManager.for_truncation(
+        encoder, mag_hamiltonian_matrix_element_threshold=threshold)._encoded_mag_hamiltonian
+
+    expected = {
+        plane_and_signature: {pair: value for pair, value in elements.items() if abs(value) >= threshold}
+        for plane_and_signature, elements in all_matrix_elements.items()
+    }
+    assert kept_matrix_elements == expected
+
+
+@pytest.mark.parametrize("link_bitmap", [
+    _T1_LINK_BITMAP,
+    {ONE: "11", THREE: "10", THREE_BAR: "01"},
+    {ONE: "10", THREE: "00", THREE_BAR: "01"},
+], ids=["singlet 00", "singlet 11", "singlet 10"])
+def test_for_truncation_keeps_matrix_elements_connected_to_vacuum_whatever_the_link_bitmap(link_bitmap: IrrepBitmap):
+    """
+    With only_include_elems_connected_to_electric_vacuum, for_truncation keeps exactly the matrix elements with the electric vacuum as one of their states.
+
+    The electric vacuum has the singlet on every link. Which matrix elements
+    are kept must not depend on how the link bitmap encodes the singlet, so
+    the test runs with three link bitmaps that encode it differently. Checked
+    on a d=2 periodic lattice of size 3 at T1. In d=2, unlike d=3/2, a vertex
+    whose active links carry the singlet can have two control links carrying
+    a 3 and a 3bar, so the test also fails if the control links are not
+    checked.
+    """
+    lattice_def = LatticeDef(2, 3)
+    encoder = LatticeStateEncoder.for_truncation(lattice_def, "T", 1, link_bitmap=link_bitmap)
+    vacuum: PlaquetteState = ((0, 0, 0, 0), (ONE, ONE, ONE, ONE), ((ONE, ONE), (ONE, ONE), (ONE, ONE), (ONE, ONE)))
+    all_matrix_elements = box_plus_box_dagger_matrix_elements(lattice_def, "T", 1)[((1, 2), _SIG_2)]
+    expected_pairs = {
+        (encoder.encode_plaquette_state_as_bit_string(final_state, (1, 2), _SIG_2),
+         encoder.encode_plaquette_state_as_bit_string(initial_state, (1, 2), _SIG_2))
+        for final_state, initial_state in all_matrix_elements
+        if vacuum in (final_state, initial_state)
+    }
+    assert 0 < len(expected_pairs) < len(all_matrix_elements), (
+        "Some matrix elements, but not all, should have the vacuum as one of their states.")
+
+    kept_matrix_elements = LatticeCircuitManager.for_truncation(
+        encoder, only_include_elems_connected_to_electric_vacuum=True)._encoded_mag_hamiltonian
+
+    assert set(kept_matrix_elements[((1, 2), _SIG_2)]) == expected_pairs
 
 
 @pytest.mark.parametrize("dims", [1.5, 2])
-def test_box_has_no_matrix_element_in_both_directions_or_on_the_diagonal(dims):
+def test_box_plus_box_dagger_matrix_elements_list_each_pair_once_and_none_on_the_diagonal(dims):
     """
-    No two plaquette states are connected by box in both directions, and box has no diagonal matrix elements.
+    The matrix elements of box + box^dagger list no pair of plaquette states in both orders, and pair no state with itself.
 
-    LatticeCircuitManager.for_truncation relies on this (see the module
-    docstring of ymcirc.circuit): each matrix element of box is then also that
-    of box + box^dagger. Checked
-    at T1 on periodic lattices of size 3 in d=3/2 and d=2.
+    The docstring of box_plus_box_dagger_matrix_elements argues this from
+    triality; LatticeCircuitManager makes one Givens rotation per pair.
+    Checked for each plane and signature at T1 on periodic lattices of size
+    3 in d=3/2 and d=2.
     """
-    box_matrix_elements = box_terms(LatticeDef(dims, 3), "T", 1)
-    assert box_matrix_elements, "No matrix elements of box."
-    pairs_in_both_directions = [(f, i) for f, i in box_matrix_elements if (i, f) in box_matrix_elements]
-    diagonal = [(f, i) for f, i in box_matrix_elements if f == i]
-    assert pairs_in_both_directions == [], f"{len(pairs_in_both_directions)} matrix elements of box have their reverse too."
-    assert diagonal == [], f"{len(diagonal)} diagonal matrix elements of box."
+    matrix_elements_by_plane_and_signature = box_plus_box_dagger_matrix_elements(LatticeDef(dims, 3), "T", 1)
+    assert matrix_elements_by_plane_and_signature, "No matrix elements."
+    pairs_in_both_orders = [
+        (f, i)
+        for matrix_elements in matrix_elements_by_plane_and_signature.values()
+        for f, i in matrix_elements if (i, f) in matrix_elements
+    ]
+    diagonal = [
+        (f, i)
+        for matrix_elements in matrix_elements_by_plane_and_signature.values()
+        for f, i in matrix_elements if f == i
+    ]
+    assert pairs_in_both_orders == [], f"{len(pairs_in_both_orders)} pairs of states are listed in both orders."
+    assert diagonal == [], f"{len(diagonal)} diagonal matrix elements."
 
 
 def test_for_truncation_magnetic_hamiltonian_has_only_states_of_the_encoders_truncation():
@@ -2392,15 +2768,15 @@ def test_for_truncation_magnetic_hamiltonian_has_only_states_of_the_encoders_tru
     lattice_def = LatticeDef(1.5, 3)
     encoder = LatticeStateEncoder.for_truncation(lattice_def, "B", 3)
     encoded_states_at_b3 = {
-        encoder.encode_plaquette_state_as_bit_string(state)
-        for state in physical_plaquette_states(lattice_def, "B", 3)
+        encoder.encode_plaquette_state_as_bit_string(state, (1, 2), _SIG_3_2)
+        for state in physical_plaquette_states(lattice_def, "B", 3)[((1, 2), _SIG_3_2)]
     }
 
     circ_mgr = LatticeCircuitManager.for_truncation(encoder)
 
     states_in_hamiltonian = {
         bit_string
-        for elements_by_pair in circ_mgr._mag_hamiltonian.values()
+        for elements_by_pair in circ_mgr._encoded_mag_hamiltonian.values()
         for pair in elements_by_pair
         for bit_string in pair
     }
@@ -2414,6 +2790,542 @@ def test_for_truncation_magnetic_hamiltonian_has_only_states_of_the_encoders_tru
 def test_for_truncation_refuses_encoder_without_truncation():
     """An encoder built from its constructor records no truncation, so the manager has no truncation to compute its magnetic Hamiltonian for."""
     lattice_def = LatticeDef(1.5, 3)
-    encoder = LatticeStateEncoder(_T1_LINK_BITMAP, physical_plaquette_states(lattice_def, "T", 1), lattice_def)
+    encoder = LatticeStateEncoder(
+        _T1_LINK_BITMAP, list(physical_plaquette_states(lattice_def, "T", 1)[((1, 2), _SIG_3_2)]), lattice_def)
     with pytest.raises(ValueError, match="LatticeStateEncoder.for_truncation"):
         LatticeCircuitManager.for_truncation(encoder)
+
+
+# --- Magnetic Trotter steps at open boundaries, with expected circuits worked out by hand ---
+#
+# Each test has one made-up matrix element per plaquette signature, between
+# made-up plaquette states with every multiplicity index 0 (so no vertex
+# bits). A plaquette's bit string lists the bits of its active links l1, l2,
+# l3, l4, then those of its control links, vertex by vertex. The magnetic
+# Trotter step builds each plaquette's rotations as a separate circuit, the
+# plaquette circuit, with one qubit per bit of that string, in the same
+# order. It then stitches the plaquette circuit's qubits into those of the
+# lattice circuit. The expected circuits below are written on lattice-circuit
+# qubits, so each test lists which lattice-circuit qubit holds each bit of
+# the plaquette's bit string. For example, "bits 0-7 -> qubits 0, 1, 6, 7,
+# 4, 5, 2, 3" says that bit 2 of the plaquette's bit string is on qubit 6 of
+# the lattice circuit. For a matrix element m between bit strings b and b':
+# - the pivot is the first bit where b and b' differ;
+# - the CX targets are the later bits where they differ, in increasing order;
+# - the controls are all bits except the pivot, each triggering on its value
+#   in whichever of b and b' has 0 at the pivot (after the CX layer, b and b'
+#   agree on every bit except the pivot);
+# - the gates are those of _expected_givens_rotation, whose docstring says
+#   where they come from.
+# Each test's docstring works these out in a table, bit by bit.
+# The lattice circuit's qubits follow LatticeDef.get_traversal_order: for each
+# vertex in lexicographic order, the links leaving it in the positive
+# directions that exist.
+
+
+def _expected_givens_rotation(
+        n_qubits: int, pivot: int, cx_targets: list[int], controls: dict[int, int], matrix_element: float
+) -> QuantumCircuit:
+    """
+    The circuit of one Givens rotation, from its pivot, CX targets and controls, worked out by hand.
+
+    controls maps each control qubit to the value that triggers the MCX.
+
+    The gates are those ymcirc.givens.givens builds for one Givens rotation
+    without control pruning, following P. Balaji et al., arXiv:2503.08866.
+    A layer of CX gates from the pivot to the CX targets maps the two bit
+    strings to two that differ only at the pivot. A rotation of the pivot,
+    conditioned on every control, then mixes them, and the same CX layer
+    undoes the first. The conditioned rotation is RZ(-pi/2), RY(-theta),
+    MCX, RY(theta), MCX, RZ(pi/2) on the pivot, as
+    ymcirc.givens._CRXCircuit_with_MCX decomposes it. For a matrix element
+    m, LatticeCircuitManager._sort_matrix_elements_into_lp_bins sets
+    theta = -m dt / g**2. With dt and the coupling g set to 1, as in these
+    tests, the RY gates are RY(m) and RY(-m).
+    """
+    cx_layer = QuantumCircuit(n_qubits)
+    for target in cx_targets:
+        cx_layer.cx(control_qubit=pivot, target_qubit=target)
+    control_qubits = list(controls)
+    # Qiskit's control states are little-endian (rightmost = the first control
+    # qubit), so the values in control-qubit order are reversed.
+    control_state = "".join(str(controls[qubit]) for qubit in control_qubits)[::-1]
+    rotation = QuantumCircuit(n_qubits)
+    rotation.append(RZGate(-np.pi / 2), [pivot])
+    rotation.append(RYGate(matrix_element), [pivot])
+    rotation.mcx(control_qubits, pivot, ctrl_state=control_state)
+    rotation.append(RYGate(-matrix_element), [pivot])
+    rotation.mcx(control_qubits, pivot, ctrl_state=control_state)
+    rotation.append(RZGate(np.pi / 2), [pivot])
+    circuit = QuantumCircuit(n_qubits)
+    circuit.compose(cx_layer, inplace=True)
+    circuit.compose(rotation, inplace=True)
+    circuit.compose(cx_layer, inplace=True)
+    return circuit
+
+
+def _built_magnetic_trotter_step(
+        lattice_def: LatticeDef,
+        link_bitmap: IrrepBitmap,
+        states: list[PlaquetteState],
+        matrix_elements: PlaquetteMatrixElements,
+        physical_states_for_control_pruning: dict[tuple[Plane, Signature], set[PlaquetteState]] | None = None,
+) -> QuantumCircuit:
+    """The lattice circuit of one magnetic Trotter step, with dt and the coupling set to 1, flattened to one register."""
+    encoder = LatticeStateEncoder(link_bitmap, states, lattice=lattice_def)
+    registers = LatticeRegisters.from_lattice_state_encoder(encoder)
+    circ_mgr = LatticeCircuitManager(encoder, matrix_elements)
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(registers)
+    circ_mgr.apply_magnetic_trotter_step(
+        master_circuit,
+        registers,
+        optimize_circuits=False,
+        physical_states_for_control_pruning=physical_states_for_control_pruning,
+    )
+    master_circuit.assign_parameters({"dt_mag__0": 1, "coupling_g_mag__0": 1}, inplace=True)
+    return _flatten_circuit(master_circuit)
+
+
+# d=2 2x2 open, with one plaquette, at (0, 0):
+#
+#   (0, 1) ------- (1, 1)
+#     |              |
+#     |              |
+#     |              |
+#   (0, 0) ------- (1, 0)
+#
+# Each vertex has only two links, both the plaquette's own, so the plaquette
+# has no controls. The lattice circuit's links, in the traversal order, are
+# ((0, 0), 1), ((0, 0), 2), ((0, 1), 1) and ((1, 0), 2). Without vertex
+# qubits, the bits of the plaquette's bit string are on these qubits:
+#
+#   2-bit links   bits    link              qubits
+#                 0, 1    l1, ((0, 0), 1)   0, 1
+#                 2, 3    l2, ((1, 0), 2)   6, 7
+#                 4, 5    l3, ((0, 1), 1)   4, 5
+#                 6, 7    l4, ((0, 0), 2)   2, 3
+#
+#   3-bit links   bits    link              qubits
+#                 0-2     l1, ((0, 0), 1)   0, 1, 2
+#                 3-5     l2, ((1, 0), 2)   9, 10, 11
+#                 6-8     l3, ((0, 1), 1)   6, 7, 8
+#                 9-11    l4, ((0, 0), 2)   3, 4, 5
+#
+# The test with vertex qubits has its own table, in its docstring.
+#
+# The plaquette's signature lists the half-links at each of its vertices
+# (+k for a link leaving along axis k, -k for one arriving) in the default
+# F-order, (1, 2, 3, -1, -2, -3):
+#   (0, 1): (1, -2)    (1, 1): (-1, -2)
+#   (0, 0): (1, 2)     (1, 0): (2, -1)
+# Its vertices v1-v4 are (0, 0), (1, 0), (1, 1), (0, 1).
+_SIG_2_OPEN_2X2: Signature = ((1, 2), (2, -1), (-1, -2), (1, -2))
+
+
+def test_apply_magnetic_trotter_step_d_2_open_one_plaquette():
+    """
+    Wiring of the one plaquette of d=2 2x2 open, with 2-bit links.
+
+    Link bit strings (_T1_LINK_BITMAP): 1 -> 00, 3 -> 10, 3bar -> 01. The
+    initial state has links 1, 1, 1, 1, and the final state 3, 3, 3bar,
+    3bar. The qubits are those of the comment above _SIG_2_OPEN_2X2.
+
+        bit       0  1  2  3  4  5  6  7
+        bits of   l1    l2    l3    l4
+        initial   0  0  0  0  0  0  0  0
+        final     1  0  1  0  0  1  0  1
+        differ    *     *        *     *
+        qubit     0  1  6  7  4  5  2  3
+
+    The pivot is the first bit that differs: bit 0, on qubit 0. The CX
+    targets are the later bits that differ: bits 2, 5 and 7, on qubits 6, 5
+    and 3. The controls are all bits except the pivot: bits 1-7, on qubits
+    1, 6, 7, 4, 5, 2 and 3. Each triggers on its value in the initial state,
+    the one with 0 at the pivot. Here every one of those values is 0.
+    """
+    initial: PlaquetteState = ((0, 0, 0, 0), (ONE, ONE, ONE, ONE), ((), (), (), ()))
+    final: PlaquetteState = ((0, 0, 0, 0), (THREE, THREE, THREE_BAR, THREE_BAR), ((), (), (), ()))
+    matrix_element = 0.5
+    expected = _expected_givens_rotation(
+        8, pivot=0, cx_targets=[6, 5, 3],
+        controls={1: 0, 6: 0, 7: 0, 4: 0, 5: 0, 2: 0, 3: 0}, matrix_element=matrix_element)
+
+    built = _built_magnetic_trotter_step(
+        LatticeDef(2, 2, False), _T1_LINK_BITMAP, [initial, final],
+        {((1, 2), _SIG_2_OPEN_2X2): {(final, initial): matrix_element}})
+    assert _check_circuits_logically_equivalent(built, expected)
+
+
+def test_apply_magnetic_trotter_step_d_2_open_one_plaquette_three_bit_links():
+    """
+    Wiring of the one plaquette of d=2 2x2 open, with 3-bit links (_T2_LINK_BITMAP).
+
+    Link bit strings (_T2_LINK_BITMAP): 1 -> 000, 3 -> 100, 3bar -> 001,
+    6 -> 110, 6bar -> 011, 8 -> 111. The initial state has links 8, 6, 1,
+    6bar, and the final state 1, 6, 8, 3. The qubits are those of the
+    comment above _SIG_2_OPEN_2X2.
+
+        bit       0  1  2  3  4  5  6  7  8  9 10 11
+        bits of   l1       l2       l3       l4
+        initial   1  1  1  1  1  0  0  0  0  0  1  1
+        final     0  0  0  1  1  0  1  1  1  1  0  0
+        differ    *  *  *           *  *  *  *  *  *
+        qubit     0  1  2  9 10 11  6  7  8  3  4  5
+
+    The pivot is the first bit that differs: bit 0, on qubit 0. The CX
+    targets are the later bits that differ: bits 1, 2 and 6-11, on qubits
+    1, 2, 6, 7, 8, 3, 4 and 5. The controls are all bits except the pivot:
+    bits 1-11, on qubits 1, 2, 9, 10, 11, 6, 7, 8, 3, 4 and 5. Each triggers
+    on its value in the final state, the one with 0 at the pivot: 0, 0, 1,
+    1, 0, 1, 1, 1, 1, 0, 0 in that order.
+    """
+    initial: PlaquetteState = ((0, 0, 0, 0), (EIGHT, SIX, ONE, SIX_BAR), ((), (), (), ()))
+    final: PlaquetteState = ((0, 0, 0, 0), (ONE, SIX, EIGHT, THREE), ((), (), (), ()))
+    matrix_element = 0.25
+    expected = _expected_givens_rotation(
+        12, pivot=0, cx_targets=[1, 2, 6, 7, 8, 3, 4, 5],
+        controls={1: 0, 2: 0, 9: 1, 10: 1, 11: 0, 6: 1, 7: 1, 8: 1, 3: 1, 4: 0, 5: 0},
+        matrix_element=matrix_element)
+
+    built = _built_magnetic_trotter_step(
+        LatticeDef(2, 2, False), _T2_LINK_BITMAP, [initial, final],
+        {((1, 2), _SIG_2_OPEN_2X2): {(final, initial): matrix_element}})
+    assert _check_circuits_logically_equivalent(built, expected)
+
+
+def test_apply_magnetic_trotter_step_d_2_open_one_plaquette_vertex_qubits():
+    """
+    Wiring of the one plaquette of d=2 2x2 open, with 2-bit links and a vertex bit.
+
+    A made-up state with multiplicity index 1 gives every vertex one bit
+    (index 0 is "0", 1 is "1"). The plaquette's bit string then begins with
+    the bits of its vertices v1 = (0, 0), v2 = (1, 0), v3 = (1, 1), v4 =
+    (0, 1), before those of its active links. The lattice circuit's qubits are
+        (0, 0): 0    ((0, 0), 1): 1, 2    ((0, 0), 2): 3, 4    (0, 1): 5
+        ((0, 1), 1): 6, 7    (1, 0): 8    ((1, 0), 2): 9, 10    (1, 1): 11
+    each vertex before the links leaving it, so bits 0-11 -> qubits 0, 8,
+    11, 5, 1, 2, 9, 10, 6, 7, 3, 4.
+
+    Link bit strings (_T1_LINK_BITMAP): 1 -> 00, 3 -> 10, 3bar -> 01. The
+    initial state has multiplicity indices 0, 1, 0, 0 and links 1, 3bar, 1,
+    1. The final state has indices 1, 1, 0, 1 and links 3, 3bar, 1, 3bar.
+
+        bit       0  1  2  3  4  5  6  7  8  9 10 11
+        bits of   v1 v2 v3 v4 l1    l2    l3    l4
+        initial   0  1  0  0  0  0  0  1  0  0  0  0
+        final     1  1  0  1  1  0  0  1  0  0  0  1
+        differ    *        *  *                    *
+        qubit     0  8 11  5  1  2  9 10  6  7  3  4
+
+    The pivot is the first bit that differs: bit 0, on qubit 0. The CX
+    targets are the later bits that differ: bits 3, 4 and 11, on qubits 5, 1
+    and 4. The controls are all bits except the pivot: bits 1-11, on qubits
+    8, 11, 5, 1, 2, 9, 10, 6, 7, 3 and 4. Each triggers on its value in the
+    initial state, the one with 0 at the pivot: 1 at bits 1 and 7 (qubits 8
+    and 10), else 0.
+    """
+    initial: PlaquetteState = ((0, 1, 0, 0), (ONE, THREE_BAR, ONE, ONE), ((), (), (), ()))
+    final: PlaquetteState = ((1, 1, 0, 1), (THREE, THREE_BAR, ONE, THREE_BAR), ((), (), (), ()))
+    matrix_element = 0.5
+    expected = _expected_givens_rotation(
+        12, pivot=0, cx_targets=[5, 1, 4],
+        controls={8: 1, 11: 0, 5: 0, 1: 0, 2: 0, 9: 0, 10: 1, 6: 0, 7: 0, 3: 0, 4: 0},
+        matrix_element=matrix_element)
+
+    built = _built_magnetic_trotter_step(
+        LatticeDef(2, 2, False), _T1_LINK_BITMAP, [initial, final],
+        {((1, 2), _SIG_2_OPEN_2X2): {(final, initial): matrix_element}})
+    assert _check_circuits_logically_equivalent(built, expected)
+
+
+# d=2 3x2 open, with two plaquettes, A at (0, 0) and B at (1, 0), which share
+# the link ((1, 0), 2) (A's l2 and B's l4):
+#
+#   (0, 1) ------- (1, 1) ------- (2, 1)
+#     |              |              |
+#     |      A       |      B       |
+#     |              |              |
+#   (0, 0) ------- (1, 0) ------- (2, 0)
+#
+# With 2-bit links, the lattice circuit's qubits, in the traversal order, are
+#   ((0, 0), 1): 0, 1      ((1, 0), 1): 6, 7      ((2, 0), 2): 12, 13
+#   ((0, 0), 2): 2, 3      ((1, 0), 2): 8, 9
+#   ((0, 1), 1): 4, 5      ((1, 1), 1): 10, 11
+#
+# A control of a plaquette is a link at one of its vertices other than its
+# own four links. Each vertex of A and B has at most one. The bits of each
+# plaquette's bit string are on these qubits:
+#
+#   A   bits    link                          qubits
+#       0, 1    l1, ((0, 0), 1)               0, 1
+#       2, 3    l2, ((1, 0), 2)               8, 9
+#       4, 5    l3, ((0, 1), 1)               4, 5
+#       6, 7    l4, ((0, 0), 2)               2, 3
+#       8, 9    control at v2, ((1, 0), 1)    6, 7
+#       10, 11  control at v3, ((1, 1), 1)    10, 11
+#
+#   B   bits    link                          qubits
+#       0, 1    l1, ((1, 0), 1)               6, 7
+#       2, 3    l2, ((2, 0), 2)               12, 13
+#       4, 5    l3, ((1, 1), 1)               10, 11
+#       6, 7    l4, ((1, 0), 2)               8, 9
+#       8, 9    control at v1, ((0, 0), 1)    0, 1
+#       10, 11  control at v4, ((0, 1), 1)    4, 5
+#
+# A plaquette's signature lists the half-links at each of its vertices (+k
+# for a link leaving along axis k, -k for one arriving) in the default
+# F-order, (1, 2, 3, -1, -2, -3):
+#   (0, 1): (1, -2)    (1, 1): (1, -1, -2)    (2, 1): (-1, -2)
+#   (0, 0): (1, 2)     (1, 0): (1, 2, -1)     (2, 0): (2, -1)
+# A's vertices v1-v4 are (0, 0), (1, 0), (1, 1), (0, 1), and B's are
+# (1, 0), (2, 0), (2, 1), (1, 1).
+_SIG_2_OPEN_3X2_A: Signature = ((1, 2), (1, 2, -1), (1, -1, -2), (1, -2))
+_SIG_2_OPEN_3X2_B: Signature = ((1, 2, -1), (2, -1), (-1, -2), (1, -1, -2))
+# The bit strings of these states are worked out in
+# test_apply_magnetic_trotter_step_d_2_open_two_signatures.
+_OPEN_3X2_A_INITIAL: PlaquetteState = ((0, 0, 0, 0), (ONE, ONE, ONE, ONE), ((), (THREE,), (ONE,), ()))
+_OPEN_3X2_A_FINAL: PlaquetteState = ((0, 0, 0, 0), (THREE, THREE_BAR, ONE, THREE), ((), (THREE,), (ONE,), ()))
+_OPEN_3X2_B_INITIAL: PlaquetteState = ((0, 0, 0, 0), (ONE, ONE, ONE, ONE), ((THREE_BAR,), (), (), (THREE,)))
+_OPEN_3X2_B_FINAL: PlaquetteState = ((0, 0, 0, 0), (ONE, THREE, THREE, THREE_BAR), ((THREE_BAR,), (), (), (THREE,)))
+_OPEN_3X2_MATRIX_ELEMENTS: PlaquetteMatrixElements = {
+    ((1, 2), _SIG_2_OPEN_3X2_A): {(_OPEN_3X2_A_FINAL, _OPEN_3X2_A_INITIAL): 0.11},
+    ((1, 2), _SIG_2_OPEN_3X2_B): {(_OPEN_3X2_B_FINAL, _OPEN_3X2_B_INITIAL): 0.22},
+}
+# Further states for control pruning, two for A and one for B, whose bit
+# strings are worked out in
+# test_apply_magnetic_trotter_step_d_2_open_two_signatures_control_pruning.
+_OPEN_3X2_A_PRUNING_ONLY: list[PlaquetteState] = [
+    ((0, 0, 0, 0), (ONE, ONE, ONE, ONE), ((), (ONE,), (ONE,), ())),
+    ((0, 0, 0, 0), (ONE, ONE, THREE_BAR, ONE), ((), (THREE,), (THREE,), ())),
+]
+_OPEN_3X2_B_PRUNING_ONLY: list[PlaquetteState] = [
+    ((0, 0, 0, 0), (ONE, ONE, ONE, ONE), ((ONE,), (), (), (THREE,))),
+]
+_OPEN_3X2_STATES: list[PlaquetteState] = [
+    _OPEN_3X2_A_INITIAL, _OPEN_3X2_A_FINAL, _OPEN_3X2_B_INITIAL, _OPEN_3X2_B_FINAL,
+    *_OPEN_3X2_A_PRUNING_ONLY, *_OPEN_3X2_B_PRUNING_ONLY,
+]
+
+
+def test_apply_magnetic_trotter_step_d_2_open_two_signatures():
+    """
+    Wiring of the two plaquettes of d=2 3x2 open, which have different signatures and share a link.
+
+    One rotation for A, then one for B (LatticeDef.plaquette_addresses).
+    Link bit strings (_T1_LINK_BITMAP): 1 -> 00, 3 -> 10, 3bar -> 01. The
+    qubits are those of the comment above _SIG_2_OPEN_3X2_A.
+
+    A's initial state has links 1, 1, 1, 1, with 3 on its control at v2 and
+    1 on its control at v3. Its final state has links 3, 3bar, 1, 3, with the
+    same controls.
+
+        bit       0  1  2  3  4  5  6  7  8  9 10 11
+        bits of   l1    l2    l3    l4    c2    c3
+        initial   0  0  0  0  0  0  0  0  1  0  0  0
+        final     1  0  0  1  0  0  1  0  1  0  0  0
+        differ    *        *        *
+        qubit     0  1  8  9  4  5  2  3  6  7 10 11
+
+    The pivot is the first bit that differs: bit 0, on qubit 0. The CX
+    targets are the later bits that differ: bits 3 and 6, on qubits 9 and 2.
+    The controls are all bits except the pivot: bits 1-11, on qubits 1, 8,
+    9, 4, 5, 2, 3, 6, 7, 10 and 11. Each triggers on its value in the
+    initial state, the one with 0 at the pivot: 1 at bit 8 (qubit 6, the
+    control ((1, 0), 1) carrying a 3), else 0.
+
+    B's initial state has links 1, 1, 1, 1, with 3bar on its control at v1
+    and 3 on its control at v4. Its final state has links 1, 3, 3, 3bar,
+    with the same controls.
+
+        bit       0  1  2  3  4  5  6  7  8  9 10 11
+        bits of   l1    l2    l3    l4    c1    c4
+        initial   0  0  0  0  0  0  0  0  0  1  1  0
+        final     0  0  1  0  1  0  0  1  0  1  1  0
+        differ          *     *        *
+        qubit     6  7 12 13 10 11  8  9  0  1  4  5
+
+    The pivot is the first bit that differs: bit 2, on qubit 12. The CX
+    targets are the later bits that differ: bits 4 and 7, on qubits 10 and
+    9. The controls are all bits except the pivot: bits 0, 1 and 3-11, on
+    qubits 6, 7, 13, 10, 11, 8, 9, 0, 1, 4 and 5. Each triggers on its value
+    in the initial state, the one with 0 at the pivot: 1 at bits 9 and 10
+    (qubits 1 and 4, the controls carrying a 3bar and a 3), else 0.
+    """
+    expected = _expected_givens_rotation(
+        14, pivot=0, cx_targets=[9, 2],
+        controls={1: 0, 8: 0, 9: 0, 4: 0, 5: 0, 2: 0, 3: 0, 6: 1, 7: 0, 10: 0, 11: 0},
+        matrix_element=0.11)
+    expected.compose(_expected_givens_rotation(
+        14, pivot=12, cx_targets=[10, 9],
+        controls={6: 0, 7: 0, 13: 0, 10: 0, 11: 0, 8: 0, 9: 0, 0: 0, 1: 1, 4: 1, 5: 0},
+        matrix_element=0.22), inplace=True)
+
+    built = _built_magnetic_trotter_step(
+        LatticeDef(2, (3, 2), False), _T1_LINK_BITMAP, _OPEN_3X2_STATES, _OPEN_3X2_MATRIX_ELEMENTS)
+    assert _check_circuits_logically_equivalent(built, expected)
+
+
+def test_apply_magnetic_trotter_step_d_2_open_two_signatures_control_pruning():
+    """
+    Wiring of d=2 3x2 open with control pruning, the controls pruned by hand.
+
+    Pruning (ymcirc.givens.prune_controls) applies the CX layer to every
+    physical state, drops the pivot, and compares the result with the
+    representative, the bit string with 0 at the pivot without its pivot
+    bit. It keeps first the controls where some state differs from the
+    representative in exactly one bit, then, while states still differ from
+    it, the control where most of them differ (the earliest on a tie).
+
+    The bits, pivots and CX targets are those of the test without pruning,
+    whose docstring has the tables of the initial and final states. The
+    kept controls trigger on the representative's values.
+
+    A's pivot is bit 0, and its CX layer flips bits 3 and 6 of a state with
+    1 at bit 0. Its physical states, besides its initial and final states,
+    are s1, with links 1, 1, 1, 1 and 1 on both controls, and s2, with links
+    1, 1, 3bar, 1 and 3 on both controls. After the CX layer (which changes
+    only the final state, the one with 1 at bit 0), without bit 0:
+
+        bit              1  2  3  4  5  6  7  8  9 10 11
+        representative   0  0  0  0  0  0  0  1  0  0  0
+        final            0  0  0  0  0  0  0  1  0  0  0
+        s1               0  0  0  0  0  0  0  0  0  0  0
+        s2               0  0  0  0  1  0  0  1  0  1  0
+
+    s1 differs from the representative only at bit 8, which is kept. s2
+    agrees with it there and differs at bits 5 and 10. Of these, bit 5 is
+    kept, the earlier on a tie. Controls: bits 5 and 8, on qubits 5 and 6,
+    triggering on 0 and 1.
+
+    B's pivot is bit 2, and its CX layer flips bits 4 and 7 of a state with
+    1 at bit 2. Its one other physical state, besides its initial and final
+    states, is s3, with links 1, 1, 1, 1, with 1 on its control at v1, and
+    with 3 on its control at v4. After the CX layer, without bit 2:
+
+        bit              0  1  3  4  5  6  7  8  9 10 11
+        representative   0  0  0  0  0  0  0  0  1  1  0
+        final            0  0  0  0  0  0  0  0  1  1  0
+        s3               0  0  0  0  0  0  0  0  0  1  0
+
+    s3 differs from the representative only at bit 9, which is kept.
+    Controls: bit 9, on qubit 1, triggering on 1.
+
+    The pivots and CX targets are those of the test without pruning.
+    """
+    expected = _expected_givens_rotation(14, pivot=0, cx_targets=[9, 2], controls={5: 0, 6: 1}, matrix_element=0.11)
+    expected.compose(
+        _expected_givens_rotation(14, pivot=12, cx_targets=[10, 9], controls={1: 1}, matrix_element=0.22),
+        inplace=True)
+
+    pruning_states = {
+        ((1, 2), _SIG_2_OPEN_3X2_A): {_OPEN_3X2_A_INITIAL, _OPEN_3X2_A_FINAL, *_OPEN_3X2_A_PRUNING_ONLY},
+        ((1, 2), _SIG_2_OPEN_3X2_B): {_OPEN_3X2_B_INITIAL, _OPEN_3X2_B_FINAL, *_OPEN_3X2_B_PRUNING_ONLY},
+    }
+    built = _built_magnetic_trotter_step(
+        LatticeDef(2, (3, 2), False), _T1_LINK_BITMAP, _OPEN_3X2_STATES, _OPEN_3X2_MATRIX_ELEMENTS,
+        physical_states_for_control_pruning=pruning_states)
+    assert _check_circuits_logically_equivalent(built, expected)
+
+
+def test_apply_magnetic_trotter_step_independent_params_d_2_open():
+    """
+    With independent Givens parameters on d=2 3x2 open, each of the two signatures has a parameter vector of its own.
+
+    The two plaquettes are in plane (1, 2) and have the signatures
+    _SIG_2_OPEN_3X2_A and _SIG_2_OPEN_3X2_B, which sort in that order (A's
+    first vertex entry, (1, 2), is a prefix of B's, (1, 2, -1)). So A's one
+    rotation uses theta_0[0], and B's theta_1[0].
+    """
+    encoder = LatticeStateEncoder(_T1_LINK_BITMAP, _OPEN_3X2_STATES, lattice=LatticeDef(2, (3, 2), False))
+    registers = LatticeRegisters.from_lattice_state_encoder(encoder)
+    circ_mgr = LatticeCircuitManager(encoder, _OPEN_3X2_MATRIX_ELEMENTS)
+    master_circuit = circ_mgr.create_blank_full_lattice_circuit(registers)
+    circ_mgr.apply_magnetic_trotter_step(
+        master_circuit, registers, optimize_circuits=False, givens_have_independent_params=True)
+
+    assert [parameter.name for parameter in _parameters_in_order_of_first_use(master_circuit)] == [
+        "theta_0[0]", "theta_1[0]"]
+    mapping = circ_mgr.independent_givens_parameters_by_plane_and_signature(master_circuit)
+    assert {key: [parameter.name for parameter in parameters] for key, parameters in mapping.items()} == {
+        ((1, 2), _SIG_2_OPEN_3X2_A): ["theta_0[0]"],
+        ((1, 2), _SIG_2_OPEN_3X2_B): ["theta_1[0]"],
+    }
+
+
+# --- A d=3/2 lattice against the d=2 lattice of the same shape ---
+
+
+def _magnetic_trotter_step_from_pyclebsch(lattice_def: LatticeDef, truncation_mode: str, cutoff: int) -> QuantumCircuit:
+    """One magnetic Trotter step, with matrix elements from pyclebsch, dt and the coupling set to 1, and control pruning off."""
+    encoder = LatticeStateEncoder.for_truncation(lattice_def, truncation_mode, cutoff)
+    registers = LatticeRegisters.from_lattice_state_encoder(encoder)
+    circ_mgr = LatticeCircuitManager.for_truncation(encoder)
+    circuit = circ_mgr.create_blank_full_lattice_circuit(registers)
+    circ_mgr.apply_magnetic_trotter_step(circuit, registers, optimize_circuits=False)
+    circuit.assign_parameters({"dt_mag__0": 1, "coupling_g_mag__0": 1}, inplace=True)
+    return circuit
+
+
+@pytest.mark.parametrize(("truncation_mode", "cutoff"), [("T", 1), ("B", 3)])
+@pytest.mark.parametrize(
+    ("length", "periodic"),
+    [
+        (2, True),
+        (3, True),
+        # An open chain of two plaquettes.
+        (3, False),
+    ],
+)
+def test_apply_magnetic_trotter_step_d_3_2_matches_d_2_two_vertices_tall(length, periodic, truncation_mode, cutoff):
+    """
+    The magnetic Trotter step on d=3/2 of size L equals, gate for gate, that on the d=2 lattice of shape (L, 2), open along axis 2.
+
+    The two are the same lattice, so they have the same registers, with the
+    same names, and the same matrix elements from pyclebsch.
+    """
+    d_3_2 = _magnetic_trotter_step_from_pyclebsch(LatticeDef(1.5, length, periodic), truncation_mode, cutoff)
+    d_2 = _magnetic_trotter_step_from_pyclebsch(
+        LatticeDef(2, (length, 2), (periodic, False)), truncation_mode, cutoff)
+    assert [register.name for register in d_3_2.qregs] == [register.name for register in d_2.qregs]
+    assert _check_circuits_logically_equivalent(_flatten_circuit(d_3_2), _flatten_circuit(d_2))
+
+
+def _unitary_from_aer(circuit: QuantumCircuit) -> np.ndarray:
+    """
+    The unitary of a circuit, computed by Aer's unitary simulator in double precision.
+
+    Aer applies multi-controlled gates directly, while Qiskit's Operator
+    builds a dense matrix for each, which is far slower for circuits with
+    many controls.
+
+    When Aer runs a circuit, the result it returns contains only data that
+    instructions in the circuit produce. A measurement produces counts, and
+    a SaveUnitary instruction (qiskit_aer.library) produces a copy of the
+    unitary the simulation has reached at that point. Simulating with
+    method="unitary" decides what Aer tracks during the run, not what Aer
+    reports. Without a SaveUnitary instruction, the result holds no unitary,
+    and result.get_unitary() raises a QiskitError. So SaveUnitary is
+    appended as the circuit's last instruction, which puts the unitary of
+    the whole circuit in the result.
+    """
+    backend = AerSimulator(method="unitary")
+    compiled = transpile(circuit, backend, optimization_level=0)
+    compiled.append(SaveUnitary(compiled.num_qubits), compiled.qubits)
+    return np.asarray(backend.run(compiled).result().get_unitary())
+
+
+@pytest.mark.slow
+def test_apply_magnetic_trotter_step_d_3_2_matches_d_2_two_vertices_tall_as_unitaries():
+    """
+    The magnetic Trotter steps on d=3/2 of size 2 and on d=2 of shape (2, 2), open along axis 2, at T1, have equal unitaries.
+
+    Unlike a gate-for-gate comparison, this would also hold if commuting
+    rotations within an LP bin came in another order. With control pruning
+    off, every rotation acts the same way on every bit string, so the
+    unitaries must agree on every state, physical or not. They are compared
+    with Qiskit's default tolerances for equal matrices.
+    """
+    d_3_2 = _unitary_from_aer(_flatten_circuit(_magnetic_trotter_step_from_pyclebsch(LatticeDef(1.5, 2), "T", 1)))
+    d_2 = _unitary_from_aer(_flatten_circuit(
+        _magnetic_trotter_step_from_pyclebsch(LatticeDef(2, (2, 2), (True, False)), "T", 1)))
+    assert matrix_equal(d_3_2, d_2)

@@ -13,7 +13,7 @@ import logging
 import matplotlib.pyplot as plt
 import numpy as np
 from run.functions import (
-    config_ymcirc_logger, configure_script_options,
+    config_ymcirc_logger, configure_script_options, periodic_boundary_conds_str,
     create_time_evol_circuit, save_circuit, load_circuit, run_circuit_simulations,
     save_circuit_sim_data, plot_data
 )
@@ -38,6 +38,7 @@ if __name__ == "__main__":
         truncation_mode="B",
         cutoff=3,
         lattice_size=(2, 2),
+        use_periodic_boundary_conds=(True, False),
         sim_times=np.linspace(0.0, 2.5, num=20),
         n_trotter_steps=2,
         n_shots=10000,  # Set to None to skip circuit execution.
@@ -52,7 +53,7 @@ if __name__ == "__main__":
         save_circuit_to_qasm=False,
         save_circuit_to_qpy=False,
         save_circuit_diagrams=False,
-        save_plots=False,
+        save_plots=True,
         save_sim_data=False,
         serialized_circ_dir=PROJECT_ROOT / "serialized-circuits",
         plots_dir=PROJECT_ROOT / "plots",
@@ -61,7 +62,7 @@ if __name__ == "__main__":
     )
 
     # Generate a descriptive prefix for all filenames based on simulation params.
-    simulation_category_str_prefix = f"{script_options['lattice_def'].n_plaquettes}-plaquettes-in-d={script_options['lattice_def'].dim}-shape={'x'.join(str(length) for length in script_options['lattice_def'].shape)}-irrep_trunc={script_options['truncation_mode']}{script_options['cutoff']}-n_trotter_steps={script_options['n_trotter_steps']}-mat_elem_cut={script_options['mag_hamiltonian_matrix_element_threshold']}-vac_connected_only={script_options['mag_hamiltonian_use_electric_vacuum_transitions_only']}-vchain={script_options['use_ancillas']}-control_fusion={script_options['control_fusion']}-prune_controls={script_options['prune_controls']}"
+    simulation_category_str_prefix = f"{script_options['lattice_def'].n_plaquettes}-plaquettes-in-d={script_options['lattice_def'].dim}-shape={'x'.join(str(length) for length in script_options['lattice_def'].shape)}-pbc={periodic_boundary_conds_str(script_options['lattice_def'])}-irrep_trunc={script_options['truncation_mode']}{script_options['cutoff']}-n_trotter_steps={script_options['n_trotter_steps']}-mat_elem_cut={script_options['mag_hamiltonian_matrix_element_threshold']}-vac_connected_only={script_options['mag_hamiltonian_use_electric_vacuum_transitions_only']}-vchain={script_options['use_ancillas']}-control_fusion={script_options['control_fusion']}-prune_controls={script_options['prune_controls']}"
 
     # Create or load circuit to simulate, optionally save to disk.
     # Note that if we don't transpile the circuit,

@@ -5,7 +5,7 @@ ymcirc encodes the states of a lattice's links and vertices, at an irrep
 truncation, in registers of qubits, and builds circuits on them: Trotter
 steps of time evolution (electric and magnetic), and measurements of links,
 vertices and plaquettes. Lattices are the plaquette chain (d=3/2), the square
-lattice (d=2) and the cubic lattice (d=3), with periodic boundary conditions.
+lattice (d=2) and the cubic lattice (d=3). Each axis is periodic or open.
 The physical plaquette states and the magnetic Hamiltonian's matrix elements
 are computed by pyclebsch (https://github.com/hepqis-uiuc/pyclebsch), a
 dependency.

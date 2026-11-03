@@ -5,11 +5,10 @@ import logging
 import warnings
 from ymcirc._abstract.lattice_data import (
     LatticeData, LatticeDef, Plaquette, DimensionalitySpecifier, LatticeVector,
-    LinkAddress)
+    LinkAddress, Plane)
 from pyclebsch.matrix_elements.lattice_data import SiteMultiplicityIndex
-from pyclebsch.su_n_operators import IrrepWeight
+from pyclebsch.su_n_operators import IrrepWeight, calc_casimir
 from ymcirc.conventions import LatticeStateEncoder
-from ymcirc.lattice_registers import LatticeRegisters
 
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
@@ -32,11 +31,29 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
     measurements of all the registers in a simulation circuit to minimize the possibility
     of subtle errors.
 
-    There is a convenience method from initializing instances of ParsedLatticeResult
-    using a LatticeRegisters instance to extract information about lattice geometry.
-    Additionally, a LatticeStateEncoder instance is needed because this class contains
-    information about how to map bit substrings corresponding to local degrees of
-    freedom onto physically meaningful irrep data.
+    A LatticeStateEncoder instance is needed because it holds the map from the
+    bit substrings of local degrees of freedom to physically meaningful irrep
+    data. The arguments dimensions, size and periodic_boundary_conds must
+    describe the encoder's lattice; the constructor raises a ValueError if
+    they do not. The factory methods from_links_and_vertices and
+    from_partial_measurement build results in which only some links and
+    vertices are known.
+
+    The encoder must match the one used to build the circuit that produced the
+    bit strings: the same lattice, F-order included, the same link bitmap and
+    the same vertex bitmap. ParsedLatticeResult cannot check this. Parsing
+    saved measurement results with an encoder rebuilt with a different link
+    bitmap, for example, reads each link as a different irrep, with no error
+    unless the lengths differ.
+
+    A different F-order is also a source of silent error. For bit strings of
+    the whole lattice, each link's irrep is unaffected, but get_plaquette
+    lists each vertex's control links in the F-order of the encoder's
+    lattice. Read in another F-order, those plaquette states are different
+    states (see PlaquetteState in ymcirc._abstract). For a plaquette measured
+    on its own (from_partial_measurement), the F-order decides which link
+    each bit belongs to, so a different F-order assigns irreps to the wrong
+    links.
 
     Note that this class assumes NO ancilla qubits are included in measurement
     strings!
@@ -53,7 +70,15 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         """Parse through global_lattice_measurement_bitstring and convert to i-weights."""
         super().__init__(dimensions, size, periodic_boundary_conds, forder=lattice_encoder.lattice_def.forder)
 
-        # Do some validation.
+        # Do some validation. The boundary conditions are compared first: a
+        # lattice with other boundary conditions has other links, so a bit
+        # string meant for it can fail the length check with a message that
+        # does not name the cause.
+        if self.periodic_boundary_conds != lattice_encoder.lattice_def.periodic_boundary_conds:
+            raise ValueError(
+                f"Specified boundary conditions {self.periodic_boundary_conds}, but using a "
+                f"{LatticeStateEncoder.__name__} for a lattice with boundary conditions "
+                f"{lattice_encoder.lattice_def.periodic_boundary_conds}.")
         expected_num_bits = self.n_links * lattice_encoder.expected_link_bit_string_length + self.n_vertices * lattice_encoder.expected_vertex_bit_string_length
         has_non_binary_char = any(char not in ['0', '1'] for char in global_lattice_measurement_bit_string)
         if expected_num_bits != len(global_lattice_measurement_bit_string):
@@ -195,32 +220,21 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         else:
             return self._bit_strings_links[normalized_link_address]
 
-    def get_plaquettes(self,
-                       lattice_vector: LatticeVector,
-                       e1: int | None = None,
-                       e2: int | None = None,
-                       get_bit_string: bool = False,
-                       ) -> Plaquette[MeasurementData] | list[Plaquette[MeasurementData]]:
+    def get_plaquette(self,
+                      lattice_vector: LatticeVector,
+                      plane: Plane,
+                      get_bit_string: bool = False,
+                      ) -> Plaquette[MeasurementData]:
         """
-        Return the list of all "positive" Plaquettes associated with the vertex lattice_vector (a single Plaquette in d=3/2 and d=2).
+        Return the Plaquette whose bottom-left vertex is lattice_vector, in plane.
 
         As with get_vertex and get_link methods, get_bit_string controls whether to
         return underlying bit string data for each degree of freedom, or the decoded
-        result.
+        result. LatticeData.get_plaquette describes the planes, the KeyError
+        raised for a plaquette the lattice lacks, and how to visit the
+        plaquettes that exist.
 
-        The "positivity" convention is that the list of returned plaquettes corresponds to those
-        defined by all pairs of orthogonal positive unit vectors at the vertex lattice_vector.
-        Conventionally, the "lower" dimension labels the first element of the tuples
-        representing planes, and the plaquettes are sorted.
-
-        In d=3/2 and d=2 there is one plane, (1, 2); in d=3 there are three,
-        (1, 2), (1, 3) and (2, 3).
-
-        If a particular plaquette is desired, this can be specified by either providing the
-        link unit vector directions e1 and e2 to defining a plane. Sign is ignored when
-        manually specifying the plane of a specific plaquette.
-
-        Return plaquettes will all have lattice_vector as the "bottom-left" vertex.
+        lattice_vector is the "bottom-left" vertex of the plaquette.
         This corresponds to "v1" in the following diagram:
 
         v4 ----l3--- v3
@@ -234,7 +248,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         Note that this ordering of data DOES NOT match the ordering of links
         and vertices when iterating over the entire lattice!
         """
-        return super().get_plaquettes(lattice_vector, e1, e2, get_bit_string=get_bit_string)
+        return super().get_plaquette(lattice_vector, plane, get_bit_string=get_bit_string)
 
     def __hash__(self):
         """Hash based on measurement string, and data that uniquely specifies lattice geometry."""
@@ -338,7 +352,11 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         encountered, a ValueError will be raised.
 
         For plaquette measurements, the bitstring follows the plaquette encoding
-        convention: |v1 v2 v3 v4 l1 l2 l3 l4 c1... c2... c3... c4...>.
+        convention: |v1 v2 v3 v4 l1 l2 l3 l4 c1... c2... c3... c4...>. As in
+        measure_plaquette of ymcirc.circuit.LatticeCircuitManager, a control
+        link that is the same link as an earlier control of the plaquette (on
+        a periodic axis of length 2) appears once, at the earlier control
+        (LatticeStateEncoder.encode_plaquette_state_as_bit_string).
 
         Unmeasured degrees of freedom return None (decoded) or "X"-padded
         strings (undecoded bitstring).
@@ -374,15 +392,26 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
                 instance._decoded_links[link_addr] = encoder.decode_bit_string_to_link_state(bitstring)
 
             elif addr_type == "plaquette":
-                # TODO: would be nice to find a way to construct using Plaquette class,
-                # but might not be possible without significant refactor since that requires
-                # a LatticeData instance (one doesn't exist yet when using the from_partial_measurement
-                # factory method).
                 bottom_left_vertex = tuple(addr[0])
                 e1, e2 = addr[1], addr[2]
 
-                # Decode the full plaquette bitstring.
-                decoded_plaq = encoder.decode_bit_string_to_plaquette_state(bitstring)
+                # We construct a Plaquette instance to get information about
+                # the requested plaquette's geometry. This includes
+                # its signature and the directions of the control links at
+                # each of its vertices. Plaquette's constructor takes
+                # these from a LatticeData instance of the plaquette's
+                # lattice. The partial ParsedLatticeResult built above
+                # (instance) is such a LatticeData instance, for the
+                # encoder's lattice, so it works.
+                plaquette = Plaquette(instance, bottom_left_vertex, (e1, e2))
+
+                # Decode the full plaquette bitstring, which leaves out the
+                # controls that repeat an earlier control of the plaquette (on
+                # a periodic axis of length 2), as measure_plaquette does.
+                plane = (e1, e2)
+                signature = plaquette.signature
+                duplicate_control_indices = lattice_def._duplicate_control_indices(plane, signature)
+                decoded_plaq = encoder.decode_bit_string_to_plaquette_state(bitstring, plane, signature)
                 vertex_mults, a_links, c_links = decoded_plaq
 
                 # Compute plaquette vertex and link addresses.
@@ -418,16 +447,17 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
                     instance._decoded_links[normalized] = a_links[i]
                     plaq_bits_idx += link_len
 
-                # Populate control link data in canonical ordering.
-                # Use a representative plaquette's control_link_dirs_per_vertex to match
-                # the bitstring encoding order (same as control_links_ordered).
-                # TODO: bit of an abuse to use LatticeRegisters for this purpose.
-                # Consider cleaner solution for creating a LatticeDef subclass instance.
-                _temp_lattice = LatticeRegisters.from_lattice_state_encoder(encoder)
-                _temp_plaq = _temp_lattice.get_plaquettes(bottom_left_vertex, e1, e2)
-                control_link_dirs = _temp_plaq.control_link_dirs_per_vertex
+                # Populate control link data in the order of the plaquette's
+                # bit string. We go vertex by vertex, and at each vertex in the
+                # lattice's F-order, link order comes from
+                # control_link_dirs_per_vertex.
+                control_link_dirs = plaquette.control_link_dirs_per_vertex
                 for vertex_idx, v_addr in enumerate(vertex_addrs):
-                    for link_dir in control_link_dirs[vertex_idx]:
+                    for control_idx, link_dir in enumerate(control_link_dirs[vertex_idx]):
+                        # A duplicate is the link of an earlier control, read
+                        # from the bit string already.
+                        if (vertex_idx, control_idx) in duplicate_control_indices:
+                            continue
                         c_link_addr = (v_addr, link_dir)
                         normalized = instance._normalize_link_address(c_link_addr)
                         c_bits = bitstring[plaq_bits_idx:plaq_bits_idx + link_len]
@@ -453,8 +483,8 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
         """
         Return the electric Casimir energy for the specified link.
 
-        Returns gt_pattern_iweight_to_casimir(irrep) for the link's irrep,
-        or None if the decoded to an unphysical state.
+        Returns the quadratic Casimir of the link's irrep (pyclebsch's
+        calc_casimir), or None if the link decoded to an unphysical state.
 
         The optional argument unphys_mode customizes the behavior for unphysical links.
         Options are to emit a warning, raise an error, or silently return.
@@ -470,8 +500,6 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
               other value, None will be silently returned for unphysical
               or unmeasured links.
         """
-        from ymcirc.electric_helper import gt_pattern_iweight_to_casimir # TODO: import in method to avoid circuilar import; kinda nasty and would be nice to avoid
-
         # Deal with unphysical/unmeasured cases first.
         link_state = self.get_link(link_address)
         if link_state is None:
@@ -489,7 +517,7 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
                     pass
             return None
         
-        return gt_pattern_iweight_to_casimir(link_state)
+        return calc_casimir(link_state)
 
     def get_lattice_electric_energy(self, average_result: bool = False, unphys_mode: str | None = 'warn', skip_unmeasured: bool = True) -> float:
         """

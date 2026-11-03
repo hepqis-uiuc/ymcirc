@@ -22,7 +22,7 @@ from qiskit import transpile
 from qiskit_aer import AerSimulator
 from qiskit.circuit import QuantumCircuit
 from typing import Any
-from ymcirc._abstract import LatticeDef
+from ymcirc._abstract import LatticeDef, Plane, PlaquetteState, Signature
 from ymcirc.circuit import LatticeCircuitManager
 from ymcirc.conventions import (
     LatticeStateEncoder, physical_plaquette_states)
@@ -38,7 +38,7 @@ def configure_script_options(
         sim_times: np.ndarray | list,
         n_trotter_steps: int,
         n_shots: int | None,
-        use_periodic_boundary_conds: bool = True,
+        use_periodic_boundary_conds: bool | tuple[bool, ...] = True,
         serialized_circ_dir: Path | str | None = None,
         plots_dir: Path | str | None = None,
         sim_results_dir: Path | str | None = None,
@@ -97,7 +97,11 @@ def configure_script_options(
               How many shots to use if simulating circuit execution. If None,
               no circuit simulations will be run.
         - use_periodic_boundary_conds:
-              Use periodic boundary conditions if True.
+              Whether each lattice direction is periodic, passed to LatticeDef
+              as periodic_boundary_conds. A bool applies to every direction (in
+              d=3/2, to the direction along the chain). In d=2 and d=3, a tuple
+              gives one bool per direction, such as (True, False) for a d=2
+              lattice periodic along axis 1 and open along axis 2.
         - serialized_circ_dir:
               Directory for read/write of circuit QASM/QPY files.
         - plots_dir:
@@ -113,9 +117,11 @@ def configure_script_options(
         - coupling_g:
               The value of the coupling constant in the Hamiltonian.
         - givens_have_independent_params:
-             If true, overrides coupling and dt parameters for the magnetic Trotter step.
-             instead, each Givens rotation in the plaquette evolution circuit has its
-             own theta Parameter.
+             If true, the magnetic Trotter step is a variational ansatz. Each Givens
+             rotation then takes a free angle parameter in place of the coupling and
+             dt, shared by the plaquettes with the same plane and signature. A circuit
+             holds at most one such step (see
+             LatticeCircuitManager.apply_magnetic_trotter_step).
         - mag_hamiltonian_matrix_element_threshold:
               A number between zero and
               one. All magnetic Hamiltonian matrix elements less than the
@@ -231,7 +237,8 @@ def configure_script_options(
 
 
 def initialize_lattice_tools(script_options: dict[str, Any]) -> tuple[
-        LatticeStateEncoder, set[str], LatticeRegisters, LatticeCircuitManager, QuantumCircuit]:
+        LatticeStateEncoder, dict[tuple[Plane, Signature], set[PlaquetteState]] | None, LatticeRegisters,
+        LatticeCircuitManager, QuantumCircuit]:
     """
     Initialize some tools for creating a new lattice circuit.
 
@@ -239,8 +246,9 @@ def initialize_lattice_tools(script_options: dict[str, Any]) -> tuple[
     (lattice_encoder, physical_states_for_control_pruning, lattice_registers, circ_mgr, lattice_circuit):
       - lattice_encoder: a LatticeStateEncoder for encoding/decoding
         state info on the lattice indicated by script_options.
-      - physical_states_for_control_pruning: Either None, or a Set of encoded plaquette
-        bitstrings corresponding to valid physical states. If not None,
+      - physical_states_for_control_pruning: Either None, or the physical
+        plaquette states of each plane and signature of the lattice's
+        plaquettes, as physical_plaquette_states returns them. If not None,
         then this information can be used for control pruning downstream.
       - lattice_registers: a new LatticeRegisters instance for organizing
         QuantumRegister instances in the lattice circuit.
@@ -263,10 +271,9 @@ def initialize_lattice_tools(script_options: dict[str, Any]) -> tuple[
     # Figure out physical states needed for control pruning. pyclebsch has
     # them in memory from building the encoder.
     if script_options["prune_controls"] is True:
-        physical_states_for_control_pruning: set[str] | None = set(
-            lattice_encoder.encode_plaquette_state_as_bit_string(plaquette)
-            for plaquette in physical_plaquette_states(
-                script_options["lattice_def"], script_options["truncation_mode"], script_options["cutoff"]))
+        physical_states_for_control_pruning: dict[tuple[Plane, Signature], set[PlaquetteState]] | None = \
+            physical_plaquette_states(
+                script_options["lattice_def"], script_options["truncation_mode"], script_options["cutoff"])
     else:
         physical_states_for_control_pruning = None
 
@@ -314,6 +321,19 @@ def create_time_evol_circuit(script_options: dict[str, Any]) -> QuantumCircuit:
                 electric_gray_order=script_options["electric_gray_order"])
 
     return master_circuit
+
+
+def periodic_boundary_conds_str(lattice_def: LatticeDef) -> str:
+    """
+    The boundary conditions of lattice_def, for file names.
+
+    "True" or "False" when every direction has the same boundary condition,
+    otherwise one value per direction joined by "-", such as "True-False".
+    """
+    periodic_boundary_conds = lattice_def.periodic_boundary_conds
+    if isinstance(periodic_boundary_conds, tuple):
+        return "-".join(str(periodic) for periodic in periodic_boundary_conds)
+    return str(periodic_boundary_conds)
 
 
 def save_circuit(circuit: QuantumCircuit, simulation_identifier: str, script_options: dict[str, Any]) -> None:

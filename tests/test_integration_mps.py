@@ -290,6 +290,7 @@ def _d3_counts_to_measurement_results(counts: dict[str, int], encoder, n_data_qu
     return MeasurementResults(parsed_counts, encoder)
 
 
+@pytest.mark.slow
 def test_d3_mps_time_evolution_observables_change():
     """d=3 B3 size=2: time-evolved lattice should show changing observables."""
     lattice_def = LatticeDef(3, 2, periodic_boundary_conds=True)

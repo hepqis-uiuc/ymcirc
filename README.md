@@ -95,12 +95,6 @@ def test_this_is_some_slow_test():
 uv run pytest --runslow
 ```
 
-## Benchmarks
-The `benchmarks/` directory contains scripts for profiling performance-critical code paths. These are useful for verifying that optimizations hold and for diagnosing future performance regressions. To run a benchmark:
-```shell
-uv run benchmarks/benchmark_plr.py
-```
-
 ## Usage
 See the `run` directory for example usage and logging configuration of ymcirc. To run the modules within `run`, call (for example):
 ```
@@ -108,7 +102,8 @@ uv run -m run.time_evol
 ```
 Replace `run.time_evol` with the particular desired module in the `run` directory.
 
-The physical plaquette states and the magnetic Hamiltonian's matrix elements for a lattice and truncation are computed by [pyclebsch](https://github.com/hepqis-uiuc/pyclebsch), a dependency of `ymcirc`. pyclebsch keeps them in in-memory caches, which last only as long as the process. These caches are unlimited by default; `pyclebsch.set_physical_plaquette_states_cache_limit(n)` and `pyclebsch.set_plaquette_matrix_elements_cache_limit(n)` cap them at `n` entries each (an entry holds the results for one plaquette signature at one truncation), evicting the least recently used. Repeated runs can reuse Clebsch-Gordan coefficients from a disk cache, which is off by default and is turned on with `pyclebsch.set_cgc_cache_dir(path)` or the environment variable `PYCLEBSCH_CACHE_DIR`; pyclebsch's README has the details.
+### Caching of magnetic Hamiltonian data
+The physical plaquette states and the magnetic Hamiltonian's matrix elements for a lattice and truncation are computed by [pyclebsch](https://github.com/hepqis-uiuc/pyclebsch), a dependency of `ymcirc`. pyclebsch keeps them in in-memory caches. These caches last for the duration of a running process, and are unlimited by default. To set cache limits, use `pyclebsch.set_physical_plaquette_states_cache_limit(n)` and `pyclebsch.set_plaquette_matrix_elements_cache_limit(n)` cap them at `n` entries each (an entry holds the results for one plane and plaquette signature at one truncation). When limits are in use, the least-recently used item is evicted from the corresponding cache. For repeated runs, Clebsch-Gordan coefficients can be reused by enabling an optional disk cache which is off by default. To turn it on, use `pyclebsch.set_cgc_cache_dir(path)` or the environment variable `PYCLEBSCH_CACHE_DIR`. See pyclebsch's README for more details on caching behavior.
 
 pyclebsch shows progress bars (from `tqdm`) while it computes. Setting the environment variable `TQDM_DISABLE=1` turns them off, along with every other `tqdm` progress bar in the process. For example, to run `run.time_evol` without progress bars:
 ```shell
@@ -118,6 +113,16 @@ Written this way, the variable is set only for that one command. To turn the pro
 ```shell
 export TQDM_DISABLE=1
 ```
+
+## Supported lattices
+ymcirc builds circuits on hypercubic lattices, with geometric data stipulated via a `LatticeDef` (in `ymcirc._abstract`). The following lattices are supported:
+- d=3/2, a chain of plaquettes. `LatticeDef("3/2", L)` (or `LatticeDef(1.5, L)`) has L vertices along the chain and is two vertices tall. It has the same vertices, links and plaquettes as the d=2 lattice of shape (L, 2) that is open "across" the chain.
+- d=2 and d=3, either with the same number of vertices along every axis (`size` an int, as in `LatticeDef(2, 3)`), or rectangular, with its own number of vertices along each axis (`size` a tuple, as in `LatticeDef(2, (4, 3))` or `LatticeDef(3, (3, 3, 2))`).
+
+Each axis is periodic or open, as set by the argument `periodic_boundary_conds`:
+- A bool applies to every axis. The default, `True`, makes every axis periodic.
+- In d=2 and d=3, a tuple holds one bool per axis, so a lattice can mix periodic and open axes, as in `LatticeDef(2, (4, 3), periodic_boundary_conds=(True, False))`.
+- In d=3/2, only a bool is accepted. It applies to the axis along the chain. The axis across the chain is always open.
 
 ## Citations
 If you use this code in a paper, please cite:
