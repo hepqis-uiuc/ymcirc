@@ -1,10 +1,11 @@
 from __future__ import annotations
 from math import ceil
+from collections import UserList
 from itertools import product
 import pytest
 from ymcirc.conventions import IrrepBitmap, VertexMultiplicityBitmap
 from ymcirc._abstract.lattice_data import (
-    Plaquette, DimensionalitySpecifier,
+    LatticeDef, Plaquette, DimensionalitySpecifier,
     VERTICAL_DIR_LABEL, VERTICAL_NUM_VERTICES_D_THREE_HALVES
 )
 from ymcirc.lattice_registers import LatticeRegisters
@@ -67,7 +68,7 @@ def test_d_3_lattice_initialization():
 def test_bad_lattice_dim_fails():
     """Check that a bad dim causes a ValueError."""
     print("Checking that dim = 0.5 causes a ValueError.")
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         LatticeRegisters(dimensions=0.5, size=7)
 
 
@@ -129,6 +130,33 @@ def test_get_register_traversal_order(dims):
     assert expected_register_traversal_order_dict[dims] == lattice.get_traversal_order()
 
 
+def test_get_register_traversal_order_d_3_open():
+    """
+    The traversal order, which orders the registers of a circuit, on the d=3 lattice of shape (3, 2, 2) with open boundaries.
+
+    Each vertex, in lexicographic order, is followed by the links leaving it
+    in the positive directions that exist: along axis k only if its k-th
+    coordinate is below the last on that axis (2 for axis 1, 1 for axes 2
+    and 3). That gives 20 links.
+    """
+    lattice = LatticeRegisters(dimensions=3, size=(3, 2, 2), periodic_boundary_conds=False)
+    expected_traversal_order = [
+        ((0, 0, 0), [((0, 0, 0), 1), ((0, 0, 0), 2), ((0, 0, 0), 3)]),
+        ((0, 0, 1), [((0, 0, 1), 1), ((0, 0, 1), 2)]),
+        ((0, 1, 0), [((0, 1, 0), 1), ((0, 1, 0), 3)]),
+        ((0, 1, 1), [((0, 1, 1), 1)]),
+        ((1, 0, 0), [((1, 0, 0), 1), ((1, 0, 0), 2), ((1, 0, 0), 3)]),
+        ((1, 0, 1), [((1, 0, 1), 1), ((1, 0, 1), 2)]),
+        ((1, 1, 0), [((1, 1, 0), 1), ((1, 1, 0), 3)]),
+        ((1, 1, 1), [((1, 1, 1), 1)]),
+        ((2, 0, 0), [((2, 0, 0), 2), ((2, 0, 0), 3)]),
+        ((2, 0, 1), [((2, 0, 1), 2)]),
+        ((2, 1, 0), [((2, 1, 0), 3)]),
+        ((2, 1, 1), []),
+    ]
+    assert lattice.get_traversal_order() == expected_traversal_order
+
+
 @pytest.mark.parametrize("dims", [3/2, 2, 3])
 def test_link_and_vertex_register_initialization(dims: DimensionalitySpecifier):
     """
@@ -154,11 +182,6 @@ def test_link_and_vertex_register_initialization(dims: DimensionalitySpecifier):
     print(f"\tobtained = {lattice._all_vertex_vectors}")
 
     assert expected_vertex_vectors == lattice._all_vertex_vectors
-    print("Checking that correct set of lattice unit vector labels was obtained,..")
-    print(f"\texpected = {expected_lattice_unit_vector_labels}")
-    print(f"\tobtained = {lattice._lattice_unit_vector_labels}")
-
-    assert expected_lattice_unit_vector_labels == lattice._lattice_unit_vector_labels
 
     # Check that expected registers are initialized.
     # This means for dim = 1.5 checking there aren't links above
@@ -191,12 +214,12 @@ def test_link_and_vertex_register_initialization(dims: DimensionalitySpecifier):
                 # or above the lattice.
                 is_lower_vertex = lattice_vector[1] == 0
                 if is_lower_vertex:
-                    with pytest.raises(KeyError) as e_info:
+                    with pytest.raises(KeyError):
                         print("Checking there's no link register below the chain at "
                               f"vertex (x={lattice_vector[0]}, y={lattice_vector[1]}) (should cause KeyError)")
                         lattice.get_link((lattice_vector, -link_unit_vector_label))
                 else:
-                    with pytest.raises(KeyError) as e_info:
+                    with pytest.raises(KeyError):
                         print("Checking there's no link register above the chain at "
                               f"vertex (x={lattice_vector[0]}, y={lattice_vector[1]}) (should cause KeyError)")
                         lattice.get_link((lattice_vector, link_unit_vector_label))
@@ -281,8 +304,8 @@ def test_get_link_keys(dims: DimensionalitySpecifier, size: int):
     (2, 4),
     (3, 4)
 ])
-def test_get_plaquettes(dims: DimensionalitySpecifier, size: int):
-    print(f"Testing get_plaquettes for d={dims}, size={size}.")
+def test_get_plaquette(dims: DimensionalitySpecifier, size: int):
+    print(f"Testing get_plaquette for d={dims}, size={size}.")
     # Construct lattice register
     lattice = LatticeRegisters(
         dimensions=dims, size=size, periodic_boundary_conds=True, n_qubits_per_link=4, n_qubits_per_vertex=1)
@@ -290,7 +313,7 @@ def test_get_plaquettes(dims: DimensionalitySpecifier, size: int):
     origin = ceil(dims)*(0,)
 
     # Grab a single plaquette from the origin.
-    plaquette_origin_xy = lattice.get_plaquettes(origin, 1, 2)
+    plaquette_origin_xy = lattice.get_plaquette(origin, (1, 2))
 
     # Construct the expected plaquette
     expected_steps_ccw = [1, 2, -1, -2]
@@ -385,23 +408,17 @@ def test_get_plaquettes(dims: DimensionalitySpecifier, size: int):
     # Grabbing the positive plaquettes test. Only need to test for d=3.
     print(f"Testing grabbing all positive plaquettes for dim={lattice.dim}")
     if lattice.dim == 3:
-        expected_pos_plaqs = [lattice.get_plaquettes(origin, 1, 2), lattice.get_plaquettes(origin, 1, 3), lattice.get_plaquettes(origin, 2, 3)]
-        plaquette_nonduplication_test_boolean_mask = list(map(_helper_test_plaquettes_have_same_registers, lattice.get_plaquettes(origin), expected_pos_plaqs))
+        expected_pos_plaqs = [lattice.get_plaquette(origin, (1, 2)), lattice.get_plaquette(origin, (1, 3)), lattice.get_plaquette(origin, (2, 3))]
+        plaquettes_at_origin = [
+            lattice.get_plaquette(vertex, plane) for vertex, plane in lattice.plaquette_addresses if vertex == origin]
+        plaquette_nonduplication_test_boolean_mask = list(map(_helper_test_plaquettes_have_same_registers, plaquettes_at_origin, expected_pos_plaqs))
         print(f"Plaquette nonduplication test checks: {plaquette_nonduplication_test_boolean_mask}\n")
         assert len(plaquette_nonduplication_test_boolean_mask[0]) == 1
 
     # Now we check that we don't miss any registers when building plaquettes for the whole lattice.
     print(f"Testing grabbing all the lattice plaquettes for dim={lattice.dim} and size={size}.")
     print("The set of names of all registers across all plaquettes should match the set of names of all vertex and link registers in the lattice.")
-    plaquette_lst = []
-    for vertex_vector in lattice.vertex_addresses:
-        if vertex_vector[VERTICAL_DIR_LABEL - 1] > 0 and lattice.dim == 1.5:
-            continue
-        plaquette_lst.append(lattice.get_plaquettes(vertex_vector))
-
-    if lattice.dim > 2:
-        # Need to flatten plaquette list in this case.
-        plaquette_lst = [plaquette for plaquette_group in plaquette_lst for plaquette in plaquette_group]
+    plaquette_lst = [lattice.get_plaquette(vertex, plane) for vertex, plane in lattice.plaquette_addresses]
 
     lattice_all_vertex_names = set(reg.name for reg in lattice._vertex_registers.values())
     lattice_all_link_names = set(reg.name for reg in lattice._link_registers.values())
@@ -414,48 +431,89 @@ def test_get_plaquettes(dims: DimensionalitySpecifier, size: int):
             assert link_reg.name in lattice_all_link_names
 
 
-def test_get_registers_in_local_hamiltonian_order():
-    print("Confirm that we get registers ordered by vertices, active links, then control links.")
-    lattice = LatticeRegisters(dimensions=2, size=3)
-    result_register_list = lattice.get_registers_in_local_hamiltonian_order(
-        lattice_vector=(0, 0),
-        e1=1,
-        e2=2)
-    plaquette = lattice.get_plaquettes(
-        lattice_vector=(0, 0),
-        e1=1,
-        e2=2)
-    expected_num_controls = 8
-    expected_num_total_regs = expected_num_controls + (2*4)
-    # Initialze the following test data.
-    expected_control_regs = []
-    actual_num_controls = 0  # Initialize this.
-    for v in plaquette.control_links:
-        actual_num_controls += len(v)
-        for link_address, reg in plaquette.control_links[v].items():
-            expected_control_regs.append(reg)
+# Register names of the plaquette at the origin of a periodic size-3 lattice,
+# in the order of the plaquette's bit string: vertices counterclockwise from
+# the bottom-left one, active links, then each vertex's control links in
+# F-order. Keyed by (dimensions, F-order as a tuple, plane).
+_D2_PLANE_12_PREFIX = [
+    "v:(0, 0)", "v:(1, 0)", "v:(1, 1)", "v:(0, 1)",
+    "l:((0, 0), 1)", "l:((1, 0), 2)", "l:((0, 1), 1)", "l:((0, 0), 2)",
+]
+_D3_PREFIXES = {
+    (1, 2): [
+        "v:(0, 0, 0)", "v:(1, 0, 0)", "v:(1, 1, 0)", "v:(0, 1, 0)",
+        "l:((0, 0, 0), 1)", "l:((1, 0, 0), 2)", "l:((0, 1, 0), 1)", "l:((0, 0, 0), 2)",
+    ],
+    (1, 3): [
+        "v:(0, 0, 0)", "v:(1, 0, 0)", "v:(1, 0, 1)", "v:(0, 0, 1)",
+        "l:((0, 0, 0), 1)", "l:((1, 0, 0), 3)", "l:((0, 0, 1), 1)", "l:((0, 0, 0), 3)",
+    ],
+    (2, 3): [
+        "v:(0, 0, 0)", "v:(0, 1, 0)", "v:(0, 1, 1)", "v:(0, 0, 1)",
+        "l:((0, 0, 0), 2)", "l:((0, 1, 0), 3)", "l:((0, 0, 1), 2)", "l:((0, 0, 0), 3)",
+    ],
+}
+_EXPECTED_LOCAL_HAMILTONIAN_ORDER = {
+    (2, (1, 2, 3, -1, -2, -3), (1, 2)): _D2_PLANE_12_PREFIX + [
+        "l:((2, 0), 1)", "l:((0, 2), 2)",
+        "l:((1, 0), 1)", "l:((1, 2), 2)",
+        "l:((1, 1), 1)", "l:((1, 1), 2)",
+        "l:((0, 1), 2)", "l:((2, 1), 1)",
+    ],
+    (2, (-1, -2, 1, 2, 3, -3), (1, 2)): _D2_PLANE_12_PREFIX + [
+        "l:((2, 0), 1)", "l:((0, 2), 2)",
+        "l:((1, 2), 2)", "l:((1, 0), 1)",
+        "l:((1, 1), 1)", "l:((1, 1), 2)",
+        "l:((2, 1), 1)", "l:((0, 1), 2)",
+    ],
+    (3, (1, 2, 3, -1, -2, -3), (1, 2)): _D3_PREFIXES[(1, 2)] + [
+        "l:((0, 0, 0), 3)", "l:((2, 0, 0), 1)", "l:((0, 2, 0), 2)", "l:((0, 0, 2), 3)",
+        "l:((1, 0, 0), 1)", "l:((1, 0, 0), 3)", "l:((1, 2, 0), 2)", "l:((1, 0, 2), 3)",
+        "l:((1, 1, 0), 1)", "l:((1, 1, 0), 2)", "l:((1, 1, 0), 3)", "l:((1, 1, 2), 3)",
+        "l:((0, 1, 0), 2)", "l:((0, 1, 0), 3)", "l:((2, 1, 0), 1)", "l:((0, 1, 2), 3)",
+    ],
+    (3, (1, 2, 3, -1, -2, -3), (1, 3)): _D3_PREFIXES[(1, 3)] + [
+        "l:((0, 0, 0), 2)", "l:((2, 0, 0), 1)", "l:((0, 2, 0), 2)", "l:((0, 0, 2), 3)",
+        "l:((1, 0, 0), 1)", "l:((1, 0, 0), 2)", "l:((1, 2, 0), 2)", "l:((1, 0, 2), 3)",
+        "l:((1, 0, 1), 1)", "l:((1, 0, 1), 2)", "l:((1, 0, 1), 3)", "l:((1, 2, 1), 2)",
+        "l:((0, 0, 1), 2)", "l:((0, 0, 1), 3)", "l:((2, 0, 1), 1)", "l:((0, 2, 1), 2)",
+    ],
+    (3, (1, 2, 3, -1, -2, -3), (2, 3)): _D3_PREFIXES[(2, 3)] + [
+        "l:((0, 0, 0), 1)", "l:((2, 0, 0), 1)", "l:((0, 2, 0), 2)", "l:((0, 0, 2), 3)",
+        "l:((0, 1, 0), 1)", "l:((0, 1, 0), 2)", "l:((2, 1, 0), 1)", "l:((0, 1, 2), 3)",
+        "l:((0, 1, 1), 1)", "l:((0, 1, 1), 2)", "l:((0, 1, 1), 3)", "l:((2, 1, 1), 1)",
+        "l:((0, 0, 1), 1)", "l:((0, 0, 1), 3)", "l:((2, 0, 1), 1)", "l:((0, 2, 1), 2)",
+    ],
+    (3, (-1, -2, 1, 2, 3, -3), (1, 2)): _D3_PREFIXES[(1, 2)] + [
+        "l:((2, 0, 0), 1)", "l:((0, 2, 0), 2)", "l:((0, 0, 0), 3)", "l:((0, 0, 2), 3)",
+        "l:((1, 2, 0), 2)", "l:((1, 0, 0), 1)", "l:((1, 0, 0), 3)", "l:((1, 0, 2), 3)",
+        "l:((1, 1, 0), 1)", "l:((1, 1, 0), 2)", "l:((1, 1, 0), 3)", "l:((1, 1, 2), 3)",
+        "l:((2, 1, 0), 1)", "l:((0, 1, 0), 2)", "l:((0, 1, 0), 3)", "l:((0, 1, 2), 3)",
+    ],
+    (3, (-1, -2, 1, 2, 3, -3), (1, 3)): _D3_PREFIXES[(1, 3)] + [
+        "l:((2, 0, 0), 1)", "l:((0, 2, 0), 2)", "l:((0, 0, 0), 2)", "l:((0, 0, 2), 3)",
+        "l:((1, 2, 0), 2)", "l:((1, 0, 0), 1)", "l:((1, 0, 0), 2)", "l:((1, 0, 2), 3)",
+        "l:((1, 2, 1), 2)", "l:((1, 0, 1), 1)", "l:((1, 0, 1), 2)", "l:((1, 0, 1), 3)",
+        "l:((2, 0, 1), 1)", "l:((0, 2, 1), 2)", "l:((0, 0, 1), 2)", "l:((0, 0, 1), 3)",
+    ],
+    (3, (-1, -2, 1, 2, 3, -3), (2, 3)): _D3_PREFIXES[(2, 3)] + [
+        "l:((2, 0, 0), 1)", "l:((0, 2, 0), 2)", "l:((0, 0, 0), 1)", "l:((0, 0, 2), 3)",
+        "l:((2, 1, 0), 1)", "l:((0, 1, 0), 1)", "l:((0, 1, 0), 2)", "l:((0, 1, 2), 3)",
+        "l:((2, 1, 1), 1)", "l:((0, 1, 1), 1)", "l:((0, 1, 1), 2)", "l:((0, 1, 1), 3)",
+        "l:((2, 0, 1), 1)", "l:((0, 2, 1), 2)", "l:((0, 0, 1), 1)", "l:((0, 0, 1), 3)",
+    ],
+}
 
-    # The actual tests start here.
-    print("Checking that we got the right number of registers...")
-    assert expected_num_total_regs == len(result_register_list), f"Expected {expected_num_total_regs}, encountered {len(result_register_list)}."
 
-    print("Scanning through individual result registers...")
-    for idx, reg in enumerate(result_register_list[:4]):
-        print(f"Vertex: {reg} == {plaquette.vertices[idx]}?")
-        assert reg == plaquette.vertices[idx], f"Register mismatch, {reg} != {plaquette.vertices[idx]}"
-
-    for idx, reg in enumerate(result_register_list[4:8]):
-        print(f"Active link: {reg} == {plaquette.active_links[idx]}?")
-        assert reg == plaquette.active_links[idx], f"Register mismatch, {reg} != {plaquette.active_links[idx]}"
-
-    print("Expecting controls:", expected_control_regs)
-    for idx, reg in enumerate(result_register_list[8:]):
-        # TODO should check ordering of control registers.
-        print(f"Control link {reg} in list of controls?")
-        assert reg in expected_control_regs, f"Register mismatch, {reg} not found in {expected_control_regs}."
-
-    print("Total number of control links matches expectation?")
-    assert actual_num_controls == expected_num_controls
+@pytest.mark.parametrize(
+    ("dims", "forder", "plane"), list(_EXPECTED_LOCAL_HAMILTONIAN_ORDER.keys())
+)
+def test_get_registers_in_local_hamiltonian_order(dims, forder, plane):
+    """Registers come in the order of the plaquette's bit string, controls in F-order at each vertex."""
+    lattice = LatticeRegisters(dimensions=dims, size=3, forder=list(forder))
+    origin = (0,) * dims
+    registers = lattice.get_registers_in_local_hamiltonian_order(origin, *plane)
+    assert [register.name for register in registers] == _EXPECTED_LOCAL_HAMILTONIAN_ORDER[(dims, forder, plane)]
 
 
 def test_all_plaquettes_are_indexed_only_one_time():
@@ -472,14 +530,7 @@ def test_all_plaquettes_are_indexed_only_one_time():
         print(f"Checking that a size {lattice.shape[0]} lattice in dim {lattice.dim} has {expected_num_plaquettes} plaquettes.")
 
         # Fetch all the plaquettes in the lattice.
-        plaquettes = []
-        for vertex in lattice.vertex_addresses:
-            if vertex[1] == 1 and lattice.dim == 1.5:
-                continue
-            if dim < 3:
-                plaquettes.append(lattice.get_plaquettes(vertex))
-            else:  # Returns a list of multiple plaquettes in this case.
-                plaquettes = plaquettes + lattice.get_plaquettes(vertex)
+        plaquettes = [lattice.get_plaquette(vertex, plane) for vertex, plane in lattice.plaquette_addresses]
 
         # Check that total number of fetched plaquettes meets expectation.
         print(len(plaquettes))
@@ -545,7 +596,7 @@ def test_get_vertex_pbc():
     assert lattice.get_vertex(lattice_vector=(-3, 1)).name == "v:(3, 1)"
 
     print("Checking that Vertex (1, 2) still raises a KeyError on a 1.5D lattice because of no pbc in the vertical direction.")
-    with pytest.raises(KeyError) as e_info:
+    with pytest.raises(KeyError):
         lattice.get_vertex(lattice_vector=(1, 2))
 
 
@@ -601,7 +652,7 @@ def test_lattice_init_fails_when_vertex_bitmap_has_wrong_num_links():
         (((2, 1, 0,), (2, 1, 0), (2, 1, 0)), 2): "1"
     }
     print(f"Checking for TypeError when creating a dim-2 lattice with a bitmap that has 3 links per vertex:\nvertex bitmap = {vertex_multiplicity_bitmap}")
-    with pytest.raises(TypeError) as e_info:
+    with pytest.raises(TypeError):
         LatticeRegisters(2, 2, vertex_bitmap=vertex_multiplicity_bitmap)
 
 
@@ -615,7 +666,7 @@ def test_value_error_for_link_bitmap_with_different_lengths():
         (1, 0, 0): "10",
         (0, 1, 0): "01"
     }
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         LatticeRegisters(dimensions=2, size=3, link_bitmap=bad_irrep_trunc_dict)
 
 
@@ -629,7 +680,7 @@ def test_value_error_for_vertex_bitmap_with_different_lengths():
         0: "0",
         1: "01"
     }
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         LatticeRegisters(dimensions=1.5, size=3, vertex_bitmap=bad_vertex_bitmap)
 
 
@@ -648,10 +699,10 @@ def test_type_error_for_bad_vertex_and_link_bitmap_keys():
         (((2, 1, 0,), (2, 1, 0), (2, 1, 0))): "1"  # Will fail because missing multiplicity int.
     }
 
-    with pytest.raises(TypeError) as e_info:
+    with pytest.raises(TypeError):
         LatticeRegisters(dimensions=2, size=3, link_bitmap=bad_irrep_trunc_dict)
 
-    with pytest.raises(TypeError) as e_info:
+    with pytest.raises(TypeError):
         LatticeRegisters(dimensions=2, size=3, vertex_bitmap=bad_vertex_bitmap)
 
 
@@ -670,7 +721,7 @@ def test_get_bitmaps_from_lattice():
         0: "0",
         1: "1"
     }
-    lattice = LatticeRegisters(4, 2, link_bitmap=irrep_trunc_dict, vertex_bitmap=vertex_bitmap)
+    lattice = LatticeRegisters(3, 2, link_bitmap=irrep_trunc_dict, vertex_bitmap=vertex_bitmap)
     print(
         f"Should find that:\nlattice.link_bitmap == {irrep_trunc_dict}\n"
         f"lattice.vertex_bitmap == {vertex_bitmap}"
@@ -697,7 +748,7 @@ def test_d_equals_2_lattice_from_bitmaps():
         4: '100',
         5: '101'
     }
-    link_bitmap = {
+    link_bitmap: IrrepBitmap = {
         (0, 0, 0): '00',
         (1, 0, 0): '10',
         (1, 1, 0): '01'
@@ -746,7 +797,6 @@ def test_n_plaquettes_whole_lattice():
         assert lattice.n_plaquettes == expected_n_plaquettes, f"Test failed: lattice has {lattice.n_plaquettes} unique plaquettes, expected {expected_n_plaquettes} unique plaquettes."
 
 
-# TODO there need to be tests for control link ordering in higher dimensions.
 def test_control_link_registers_have_correct_ordering():
     print("Checking that the ordering of control link registers matches expectations.\n")
 
@@ -777,8 +827,8 @@ def test_control_link_registers_have_correct_ordering():
             "expected control link names ordered": [
                 "l:((3, 6), 1)",
                 "l:((4, 5), 2)",
-                "l:((5, 5), 2)",
                 "l:((5, 6), 1)",
+                "l:((5, 5), 2)",
                 "l:((5, 7), 1)",
                 "l:((5, 7), 2)",
                 "l:((4, 7), 2)",
@@ -791,8 +841,8 @@ def test_control_link_registers_have_correct_ordering():
             "expected control link names ordered": [
                 "l:((1, 0), 1)",
                 "l:((0, 1), 2)",
-                "l:((1, 1), 2)",
                 "l:((1, 0), 1)",
+                "l:((1, 1), 2)",
                 "l:((1, 1), 1)",
                 "l:((1, 1), 2)",
                 "l:((0, 1), 2)",
@@ -803,10 +853,9 @@ def test_control_link_registers_have_correct_ordering():
 
     for case_name, case_data in cases_dict.items():
         print(f"Case: {case_name}.")
-        result_plaquette = case_data["lattice registers"].get_plaquettes(
+        result_plaquette = case_data["lattice registers"].get_plaquette(
             lattice_vector=case_data["bottom left vertex"],
-            e1=1,
-            e2=2
+            plane=(1, 2)
         )
         result_control_link_registers_ordered = result_plaquette.control_links_ordered
         print(f"Examining plaquette with bottom-left vertex {result_plaquette.bottom_left_vertex} in the {result_plaquette.plane}-plane.")
@@ -815,3 +864,213 @@ def test_control_link_registers_have_correct_ordering():
         for control_link_register, expected_register_name in zip(result_control_link_registers_ordered, case_data["expected control link names ordered"]):
             print(f"Expected register {expected_register_name}, encountered {control_link_register.name}.")
             assert control_link_register.name == expected_register_name, "Link mismatch occured."
+
+
+def test_control_link_registers_have_correct_ordering_d_3():
+    """
+    Check the control link registers of one plaquette per plane in d=3.
+
+    The plaquettes have bottom-left vertex (0, 2, 1) on a size-3 periodic
+    lattice. There, half-links in direction -1 from x = 0 wrap around to
+    x = 2, and steps in direction +2 from y = 2 wrap around to y = 0.
+
+    The expected registers were derived by hand from these definitions:
+      - A vertex has six half-links, one for each direction +k or -k in
+        which a link leaves it. The half-link at site s in direction +k
+        is the link (s, k); in direction -k it is the link
+        (s - e_k mod 3, k).
+      - In plane (e1, e2), the vertices are v1 = v, v2 = v + e1,
+        v3 = v + e1 + e2, v4 = v + e2 (mod 3), and the half-links that
+        are active links are (+e1, +e2) at v1, (-e1, +e2) at v2,
+        (-e1, -e2) at v3 and (+e1, -e2) at v4.
+      - The controls at a vertex are its other four half-links, sorted
+        by the default F-order (1, 2, 3, -1, -2, -3). The controls of v1
+        come first, then those of v2, v3 and v4.
+    """
+    print("Checking that the ordering of control link registers matches expectations in d=3.\n")
+    lattice = LatticeRegisters(3, 3)
+    bottom_left_vertex = (0, 2, 1)
+    expected_control_link_names_by_plane = {
+        (1, 2): [
+            # v1 = (0, 2, 1): directions (+3, -1, -2, -3).
+            "l:((0, 2, 1), 3)", "l:((2, 2, 1), 1)", "l:((0, 1, 1), 2)", "l:((0, 2, 0), 3)",
+            # v2 = (1, 2, 1): directions (+1, +3, -2, -3).
+            "l:((1, 2, 1), 1)", "l:((1, 2, 1), 3)", "l:((1, 1, 1), 2)", "l:((1, 2, 0), 3)",
+            # v3 = (1, 0, 1): directions (+1, +2, +3, -3).
+            "l:((1, 0, 1), 1)", "l:((1, 0, 1), 2)", "l:((1, 0, 1), 3)", "l:((1, 0, 0), 3)",
+            # v4 = (0, 0, 1): directions (+2, +3, -1, -3).
+            "l:((0, 0, 1), 2)", "l:((0, 0, 1), 3)", "l:((2, 0, 1), 1)", "l:((0, 0, 0), 3)",
+        ],
+        (1, 3): [
+            # v1 = (0, 2, 1): directions (+2, -1, -2, -3).
+            "l:((0, 2, 1), 2)", "l:((2, 2, 1), 1)", "l:((0, 1, 1), 2)", "l:((0, 2, 0), 3)",
+            # v2 = (1, 2, 1): directions (+1, +2, -2, -3).
+            "l:((1, 2, 1), 1)", "l:((1, 2, 1), 2)", "l:((1, 1, 1), 2)", "l:((1, 2, 0), 3)",
+            # v3 = (1, 2, 2): directions (+1, +2, +3, -2).
+            "l:((1, 2, 2), 1)", "l:((1, 2, 2), 2)", "l:((1, 2, 2), 3)", "l:((1, 1, 2), 2)",
+            # v4 = (0, 2, 2): directions (+2, +3, -1, -2).
+            "l:((0, 2, 2), 2)", "l:((0, 2, 2), 3)", "l:((2, 2, 2), 1)", "l:((0, 1, 2), 2)",
+        ],
+        (2, 3): [
+            # v1 = (0, 2, 1): directions (+1, -1, -2, -3).
+            "l:((0, 2, 1), 1)", "l:((2, 2, 1), 1)", "l:((0, 1, 1), 2)", "l:((0, 2, 0), 3)",
+            # v2 = (0, 0, 1): directions (+1, +2, -1, -3).
+            "l:((0, 0, 1), 1)", "l:((0, 0, 1), 2)", "l:((2, 0, 1), 1)", "l:((0, 0, 0), 3)",
+            # v3 = (0, 0, 2): directions (+1, +2, +3, -1).
+            "l:((0, 0, 2), 1)", "l:((0, 0, 2), 2)", "l:((0, 0, 2), 3)", "l:((2, 0, 2), 1)",
+            # v4 = (0, 2, 2): directions (+1, +3, -1, -2).
+            "l:((0, 2, 2), 1)", "l:((0, 2, 2), 3)", "l:((2, 2, 2), 1)", "l:((0, 1, 2), 2)",
+        ],
+    }
+
+    for (e1, e2), expected_names in expected_control_link_names_by_plane.items():
+        print(f"Examining plaquette with bottom-left vertex {bottom_left_vertex} in the {(e1, e2)}-plane.")
+        result_plaquette = lattice.get_plaquette(lattice_vector=bottom_left_vertex, plane=(e1, e2))
+        result_names = [register.name for register in result_plaquette.control_links_ordered]
+        assert len(result_names) == len(expected_names), "Length mismatch in number of control link registers."
+        for result_name, expected_name in zip(result_names, expected_names):
+            print(f"Expected register {expected_name}, encountered {result_name}.")
+            assert result_name == expected_name, "Link mismatch occured."
+
+
+def test_bad_forder_raises_value_error():
+    """Check that LatticeDef raises ValueError for invalid forder arguments."""
+    print("Checking that invalid forder values raise ValueError...")
+    bad_forders = [
+        [1, 2, 4, -1, -2, -4],    # Wrong elements (4 instead of 3)
+        [1, 2, 3, -1, -1, -3],    # Duplicate element (-1 appears twice, -2 missing)
+        [1, 2, -1, -2],           # Too short
+        [1, 2, 3, -1, -2, -3, 4], # Too long
+    ]
+    for bad_forder in bad_forders:
+        print(f"  Checking forder={bad_forder} raises ValueError.")
+        with pytest.raises(ValueError):
+            LatticeDef(dimensions=2, size=2, forder=bad_forder)
+
+    # Valid non-default forder should not raise.
+    valid_alt_forder = [-1, -2, 1, 2, 3, -3]
+    print(f"  Checking forder={valid_alt_forder} does not raise.")
+    lattice_def = LatticeDef(dimensions=2, size=2, forder=valid_alt_forder)
+    assert lattice_def.forder == (-1, -2, 1, 2, 3, -3)
+
+
+@pytest.mark.parametrize(
+    "forder",
+    [[-1, -2, 1, 2, 3, -3], (-1, -2, 1, 2, 3, -3), UserList([-1, -2, 1, 2, 3, -3])],
+)
+def test_forder_accepts_any_sequence_and_is_kept_as_a_tuple(forder):
+    """An F-order may be given as any sequence; LatticeDef keeps and returns it as a tuple."""
+    lattice_def = LatticeDef(dimensions=2, size=2, forder=forder)
+    assert lattice_def.forder == (-1, -2, 1, 2, 3, -3)
+    assert isinstance(lattice_def.forder, tuple)
+    assert LatticeDef(dimensions=2, size=2).forder == (1, 2, 3, -1, -2, -3)
+
+
+@pytest.mark.parametrize(
+    "forder", [{1, 2, 3, -1, -2, -3}, (d for d in (1, 2, 3, -1, -2, -3))]
+)
+def test_forder_that_is_not_a_sequence_raises_type_error(forder):
+    """A set or an iterator has no reliable order, so it cannot be an F-order."""
+    with pytest.raises(TypeError):
+        LatticeDef(dimensions=2, size=2, forder=forder)
+
+
+def test_non_default_forder_changes_control_link_ordering():
+    """Check that a non-default forder changes the within-vertex ordering of control links when fetching plaquettes.
+
+    With alt forder [-1,-2,1,2,3,-3], control dirs at v2 change from (+1,-2) to (-2,+1),
+    and at v4 from (+2,-1) to (-1,+2). This swaps the register names at those positions
+    in control_links_ordered.
+    """
+    print("Checking that non-default forder changes control link ordering for d=2 small lattice.")
+    alt_forder = [-1, -2, 1, 2, 3, -3]
+    lattice_registers_alt = LatticeRegisters(2, 2, forder=alt_forder)
+
+    result_plaquette = lattice_registers_alt.get_plaquette(
+        lattice_vector=(0, 0), plane=(1, 2)
+    )
+    result_names = [reg.name for reg in result_plaquette.control_links_ordered]
+
+    # With alt forder, v2 and v4 control link positions are swapped vs default.
+    expected_control_link_names_alt_forder = [
+        # v1: dirs (-1, -2) — same order as default (both negative, -1 at pos 0, -2 at pos 1)
+        "l:((1, 0), 1)",
+        "l:((0, 1), 2)",
+        # v2: dirs (-2, +1) — swapped vs default (+1, -2)
+        "l:((1, 1), 2)",
+        "l:((1, 0), 1)",
+        # v3: dirs (+1, +2) — same order as default (+1 at pos 2, +2 at pos 3)
+        "l:((1, 1), 1)",
+        "l:((1, 1), 2)",
+        # v4: dirs (-1, +2) — swapped vs default (+2, -1)
+        "l:((1, 1), 1)",
+        "l:((0, 1), 2)",
+    ]
+
+    assert len(result_names) == len(expected_control_link_names_alt_forder), \
+        "Length mismatch in number of control link registers."
+    for actual, expected in zip(result_names, expected_control_link_names_alt_forder):
+        print(f"  Expected {expected}, encountered {actual}.")
+        assert actual == expected, f"Control link register mismatch: expected {expected}, got {actual}."
+
+    # Also verify that the default-forder ordering is different at v2 and v4 positions.
+    lattice_registers_default = LatticeRegisters(2, 2)
+    default_plaquette = lattice_registers_default.get_plaquette(
+        lattice_vector=(0, 0), plane=(1, 2)
+    )
+    default_names = [reg.name for reg in default_plaquette.control_links_ordered]
+    # v2 (positions 2,3) and v4 (positions 6,7) should differ.
+    assert result_names[2:4] != default_names[2:4], "v2 control links should differ between forders."
+    assert result_names[6:8] != default_names[6:8], "v4 control links should differ between forders."
+    # v1 (positions 0,1) and v3 (positions 4,5) should remain the same.
+    assert result_names[0:2] == default_names[0:2], "v1 control links should be the same."
+    assert result_names[4:6] == default_names[4:6], "v3 control links should be the same."
+
+
+@pytest.mark.parametrize(
+    ("dims", "size", "periodic", "vertex", "expected_plaquettes"),
+    [
+        # On a periodic lattice, each vertex is the bottom-left vertex of one
+        # plaquette per plane.
+        (2, 3, True, (2, 2), [((2, 2), (1, 2))]),
+        (3, 3, True, (0, 0, 0), [((0, 0, 0), (1, 2)), ((0, 0, 0), (1, 3)), ((0, 0, 0), (2, 3))]),
+        # 2x2 open: only (0, 0) is a bottom-left vertex.
+        (2, 2, False, (0, 0), [((0, 0), (1, 2))]),
+        (2, 2, False, (1, 0), []),
+        (2, 2, False, (1, 1), []),
+        # d=3/2 of size 3, open: the top vertices have no plaquette.
+        (1.5, 3, False, (1, 0), [((1, 0), (1, 2))]),
+        (1.5, 3, False, (1, 1), []),
+        # 2x2x2 periodic along axes 1 and 2, open along axis 3: on the top
+        # layer (z = 1), no plaquette extends along axis 3.
+        (3, 2, (True, True, False), (1, 1, 0), [((1, 1, 0), (1, 2)), ((1, 1, 0), (1, 3)), ((1, 1, 0), (2, 3))]),
+        (3, 2, (True, True, False), (1, 1, 1), [((1, 1, 1), (1, 2))]),
+    ],
+)
+def test_plaquettes_at_a_vertex_from_plaquette_addresses(dims, size, periodic, vertex, expected_plaquettes):
+    """
+    The plaquettes whose bottom-left vertex is vertex, collected as LatticeData.get_plaquette's docstring shows.
+
+    The comprehension takes the plaquettes that exist from plaquette_addresses
+    and builds each with get_plaquette, which raises no KeyError for them.
+    """
+    lattice = LatticeRegisters(dims, size, periodic)
+    plaquettes = [lattice.get_plaquette(v, plane) for v, plane in lattice.plaquette_addresses if v == vertex]
+    assert [(plaquette.bottom_left_vertex, plaquette.plane) for plaquette in plaquettes] == expected_plaquettes
+
+
+@pytest.mark.parametrize(
+    ("dims", "size", "periodic", "vertex", "plane"),
+    [
+        (2, 2, False, (1, 0), (1, 2)),
+        (1.5, 3, False, (1, 1), (1, 2)),
+        (3, 2, (True, True, False), (1, 1, 1), (1, 3)),
+        (3, 2, (True, True, False), (1, 1, 1), (2, 3)),
+    ],
+)
+def test_get_plaquette_refuses_a_plaquette_the_lattice_lacks(dims, size, periodic, vertex, plane):
+    """get_plaquette refuses, with a KeyError naming the plane and vertex, a plaquette the lattice lacks."""
+    lattice = LatticeRegisters(dims, size, periodic)
+    with pytest.raises(KeyError, match=rf"No plaquette in plane \({plane[0]}, {plane[1]}\) at vertex"):
+        lattice.get_plaquette(vertex, plane)
+

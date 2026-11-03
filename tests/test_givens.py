@@ -9,7 +9,7 @@ from scipy.linalg import expm
 from ymcirc.givens import (
     givens, compute_LP_family, LPFamily, _build_Xcirc,
     _compute_ctrls_and_state_for_givens_MCRX, _CRXCircuit_with_MCX,
-    _apply_LP_family_to_bit_string, prune_controls,
+    _apply_LP_family_to_bit_string, prune_controls, compute_p_tilde,
     _eliminate_phys_states_that_differ_from_rep_at_Q_idx,
     fuse_controls, gray_to_index, givens_fused_controls, bitstring_value_of_LP_family,
     LPOperator
@@ -341,8 +341,6 @@ def test_MCRX_with_ancillas_fails_with_less_ancillas():
     bs2 = "011011"
     control_qubit = 2
     angle = 0.5
-    expected_ctrls = [0, 1, 3, 4, 5]
-    expected_ctrl_state = "11010"
     num_ancillas = 2 # technically should be 3 ancillas
     print(
         f"Case incorrect ancillas: bs1 = {bs1}, bs2 = {bs2}, ctrl_qubit = {control_qubit}, angle = {angle}, ancillas = {num_ancillas}"
@@ -350,7 +348,7 @@ def test_MCRX_with_ancillas_fails_with_less_ancillas():
     actual_ctrls, actual_ctrl_state = _compute_ctrls_and_state_for_givens_MCRX(
         bs1, bs2, target=control_qubit
     )
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         _CRXCircuit_with_MCX([actual_ctrl_state, actual_ctrls], angle, control_qubit, 6, num_ancillas)
 
 
@@ -375,7 +373,7 @@ def test_compute_LP_family_fails_on_bad_input():
     bs2 = "00"
     print(f"Checking that computing LP family of {bs1} and {bs2} raises IndexError.")
 
-    with pytest.raises(IndexError) as e_info:
+    with pytest.raises(IndexError):
         compute_LP_family(bs1, bs2)
 
 
@@ -385,7 +383,7 @@ def test_compute_LP_family_fails_for_non_bitstrings():
     bs2 = "1011"
     print(f"Checking that expected_LP_family({bs1}, {bs2}) raises a ValueError.")
 
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         compute_LP_family(bs1, bs2)
 
 
@@ -556,7 +554,7 @@ def test_eliminate_phys_states_that_differ_from_rep_at_Q_idx():
 def test_control_fusion_fails_for_inconsistent_lp_bin():
     bin_value = "10110101"
     bitstring_list = [("0000", "1111", 1.0)]
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         fuse_controls(bin_value, bitstring_list)
 
 
@@ -723,6 +721,18 @@ def test_givens_fused_controls():
     assert expected_circuit == generated_circuit
 
 
+def test_givens_fused_controls_refuses_pair_outside_its_lp_bin():
+    """A pair of bit strings whose LP family differs from the LP bin's is refused with a ValueError."""
+    # "0000" and "1100" differ on the first two bits, so their LP family is
+    # LLPP. The bin given is PLLP.
+    with pytest.raises(ValueError, match="LP bin"):
+        givens_fused_controls(
+            [("0000", "1100", 1.0)],
+            LPFamily(("P", "L", "L", "P")),
+            encoded_physical_states=None,
+        )
+
+
 def test_bitstring_value_of_LP_fam():
     lp_fam = ("L", "P", "L", "L", "P", "P")
     expected_bitstring = "010011"
@@ -741,13 +751,83 @@ def test_LPOperator_works():
         assert LPOperator(val).value == val
 
     print(f"Check that {incorrect_val} causes a ValueError.")
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         LPOperator(incorrect_val)
 
     print("Check that LPOperator is immutable.")
     lp_op = LPOperator("L")
-    with pytest.raises(FrozenInstanceError) as e_info:
+    with pytest.raises(FrozenInstanceError):
         lp_op.value = "P"
+
+
+def test_prune_controls_with_precomputed_p_tilde():
+    """Verify that precomputed_p_tilde produces identical results to the default path."""
+    # Case 1 (from test_prune_controls_acts_as_expected)
+    bs1 = "11001001"
+    bs2 = "11000110"
+    ctrls, ctrl_state = _compute_ctrls_and_state_for_givens_MCRX(bs1, bs2, 4)
+    phys_states = {bs1, bs2, "11111111"}
+    lp_fam = compute_LP_family(bs1, bs2)
+
+    p_tilde = compute_p_tilde(lp_fam, phys_states)
+
+    result_with_precomputed = prune_controls(
+        lp_fam, ctrls, ctrl_state, encoded_physical_states=None,
+        precomputed_p_tilde=p_tilde,
+    )
+    result_without_precomputed = prune_controls(
+        lp_fam, ctrls, ctrl_state, phys_states,
+    )
+
+    assert result_with_precomputed == result_without_precomputed, (
+        f"Precomputed path gave {result_with_precomputed}, "
+        f"default path gave {result_without_precomputed}"
+    )
+    # Also check against known expected values.
+    assert result_with_precomputed == ([2], "0")
+
+    # Case 2 (from test_prune_controls_acts_as_expected)
+    bs1 = "11000011"
+    bs2 = "11001001"
+    ctrls, ctrl_state = _compute_ctrls_and_state_for_givens_MCRX(bs1, bs2, 4)
+    phys_states = {bs1, bs2, "11111111", "00000000"}
+    lp_fam = compute_LP_family(bs1, bs2)
+
+    p_tilde = compute_p_tilde(lp_fam, phys_states)
+
+    result_with_precomputed = prune_controls(
+        lp_fam, ctrls, ctrl_state, encoded_physical_states=None,
+        precomputed_p_tilde=p_tilde,
+    )
+    result_without_precomputed = prune_controls(
+        lp_fam, ctrls, ctrl_state, phys_states,
+    )
+
+    assert result_with_precomputed == result_without_precomputed, (
+        f"Precomputed path gave {result_with_precomputed}, "
+        f"default path gave {result_without_precomputed}"
+    )
+    assert result_with_precomputed == ([6], "1")
+
+
+def test_givens_with_precomputed_p_tilde():
+    """Verify that givens() with precomputed_p_tilde is operator-equivalent to the default path."""
+    bs1 = "11001001"
+    bs2 = "11000110"
+    angle = 0.7
+    phys_states = {bs1, bs2, "11111111"}
+    lp_fam = compute_LP_family(bs1, bs2)
+
+    p_tilde = compute_p_tilde(lp_fam, phys_states)
+
+    circ_with = givens(bs1, bs2, angle, encoded_physical_states=None, precomputed_p_tilde=p_tilde)
+    circ_without = givens(bs1, bs2, angle, phys_states)
+
+    op_with = Operator(circ_with)
+    op_without = Operator(circ_without)
+    assert op_with.equiv(op_without), (
+        "Circuits with and without precomputed_p_tilde are not operator-equivalent."
+    )
 
 
 def test_LPFamily_works():
@@ -766,11 +846,11 @@ def test_LPFamily_works():
     # Test that creation with bad strings fails.
     bad_lp_family = ("L", "Q")
     print(f"Checking {bad_lp_family} causes ValueError.")
-    with pytest.raises(ValueError) as e_info:
+    with pytest.raises(ValueError):
         LPFamily(bad_lp_family)
 
     # Test immutability.
     print("Checking that LPFamily instances are immutable.")
     lp_fam = LPFamily(lp_family_str)
-    with pytest.raises(FrozenInstanceError) as e_info:
+    with pytest.raises(FrozenInstanceError):
         lp_fam.value = LPFamily(("P", "L"))

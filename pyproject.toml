@@ -1,0 +1,30 @@
+[project]
+name = "ymcirc"
+version = "0.2.0"
+description = "Quantum circuits to simulate lattice SU(3) gauge theories"
+readme = "README.md"
+requires-python = ">=3.15"
+dependencies = [
+    "matplotlib~=3.9",
+    "matplotlib-label-lines~=0.7.0",
+    "numpy~=2.1",
+    "pandas~=3.0",
+    "pyclebsch @ git+https://github.com/hepqis-uiuc/pyclebsch.git@v0.3.0",
+    "pylatexenc~=2.10",
+    "qiskit~=2.1",
+    "qiskit-aer~=0.17",
+    "qiskit-qasm3-import~=0.6",
+    "scipy~=1.14",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["ymcirc*"]

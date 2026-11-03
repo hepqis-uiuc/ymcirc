@@ -1,5 +1,7 @@
 """This script demonstrates one way of building a simulation pipeline with ymcirc."""
 from __future__ import annotations
+from ymcirc.measurement_results import MeasurementResults
+from ymcirc.parsed_lattice_result import ParsedLatticeResult
 
 # Hacky way to make ymcirc imports work.
 import sys
@@ -16,27 +18,27 @@ from matplotlib.figure import Figure
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from qiskit import transpile, qpy
+from qiskit import transpile
 from qiskit_aer import AerSimulator
 from qiskit.circuit import QuantumCircuit
-from qiskit.qasm3 import dumps, load
-from typing import Any, Set
-from ymcirc._abstract import LatticeDef
-from ymcirc.circuit import LatticeCircuitManager
+from typing import Any
+from ymcirc._abstract import LatticeDef, Plane, PlaquetteState, Signature
+from ymcirc.circuit import ANCILLA_REGISTER_NAME, LatticeCircuitManager
 from ymcirc.conventions import (
-    IRREP_TRUNCATIONS, LatticeStateEncoder, load_magnetic_hamiltonian, PHYSICAL_PLAQUETTE_STATES)
-from ymcirc.electric_helper import convert_bitstring_to_evalue, electric_hamiltonian
+    LatticeStateEncoder, physical_plaquette_states)
+from ymcirc.electric_helper import electric_hamiltonian
 from ymcirc.lattice_registers import LatticeRegisters
 
 
 def configure_script_options(
         dimensionality_string: str,
-        truncation_string: str,
-        lattice_size: int,
+        truncation_mode: str,
+        cutoff: int,
+        lattice_size: int | tuple[int, ...],
         sim_times: np.ndarray | list,
         n_trotter_steps: int,
         n_shots: int | None,
-        use_periodic_boundary_conds: bool = True,
+        use_periodic_boundary_conds: bool | tuple[bool, ...] = True,
         serialized_circ_dir: Path | str | None = None,
         plots_dir: Path | str | None = None,
         sim_results_dir: Path | str | None = None,
@@ -47,6 +49,7 @@ def configure_script_options(
         mag_hamiltonian_matrix_element_threshold: float | int = 0,
         optimize_circuits: bool = False,
         method: str = 'statevector',
+        matrix_product_state_max_bond_dimension: int | None = None,
         mag_hamiltonian_use_electric_vacuum_transitions_only: bool = False,
         warn_unphysical_links: bool = True,
         error_unphysical_links: bool = False,
@@ -70,23 +73,20 @@ def configure_script_options(
 
     Inputs:
         - dimensionality_string:
-              A string of the form
-              "d=[dimesionality]" where "dimensionality"
-              can be 3/2, 2, 3, ...
-
-              Currently supported configurations: d=3/2, T1 or T2; d=2, T1.
-              See ymcirc.conventions for more info.
-        - truncation_string:
-              A string specifying what link irrep truncation to use.
-
-              Current supported configurations: 'T1' and 'T2', when using d=3/2,
-              'T1' when using d=2.
-
-              See ymcirc.conventions for more info.
+              "d=3/2" (or "d=1.5") for the plaquette chain, "d=2" for the
+              square lattice, or "d=3" for the cubic lattice.
+        - truncation_mode, cutoff:
+              The link irrep truncation, as pyclebsch's irreps_and_singlets
+              takes it, for example ("T", 1) or ("B", 3); the module
+              docstring of ymcirc.conventions explains the truncation
+              modes. pyclebsch computes
+              the physical plaquette states and magnetic matrix elements for it,
+              and validates it.
         - lattice_size:
-              For 2 or more dimensions, the number of vertices in
-              each direction for a (hypercubic) lattice. For d=3/2, how many
-              vertices long the chain is.
+              The size argument of LatticeDef. For d=2 and d=3, either one
+              int, the number of vertices along every direction, or a tuple
+              of the number of vertices along each direction, such as (4, 3).
+              For d=3/2, one int: how many vertices long the chain is.
         - sim_times:
               A list of durations to generate simulation circuits for.
               n_trotter_steps will be used for each one.
@@ -97,7 +97,11 @@ def configure_script_options(
               How many shots to use if simulating circuit execution. If None,
               no circuit simulations will be run.
         - use_periodic_boundary_conds:
-              Use periodic boundary conditions if True.
+              Whether each lattice direction is periodic, passed to LatticeDef
+              as periodic_boundary_conds. A bool applies to every direction (in
+              d=3/2, to the direction along the chain). In d=2 and d=3, a tuple
+              gives one bool per direction, such as (True, False) for a d=2
+              lattice periodic along axis 1 and open along axis 2.
         - serialized_circ_dir:
               Directory for read/write of circuit QASM/QPY files.
         - plots_dir:
@@ -113,9 +117,11 @@ def configure_script_options(
         - coupling_g:
               The value of the coupling constant in the Hamiltonian.
         - givens_have_independent_params:
-             If true, overrides coupling and dt parameters for the magnetic Trotter step.
-             instead, each Givens rotation in the plaquette evolution circuit has its
-             own theta Parameter.
+             If true, the magnetic Trotter step is a variational ansatz. Each Givens
+             rotation then takes a free angle parameter in place of the coupling and
+             dt, shared by the plaquettes with the same plane and signature. A circuit
+             holds at most one such step (see
+             LatticeCircuitManager.apply_magnetic_trotter_step).
         - mag_hamiltonian_matrix_element_threshold:
               A number between zero and
               one. All magnetic Hamiltonian matrix elements less than the
@@ -125,6 +131,10 @@ def configure_script_options(
         - method:
               String specification of the simulation method to use to transpile/execute circuits.
               See Qiskit Aer documentation for current list of valid options.
+        - matrix_product_state_max_bond_dimension:
+              The maximium bond dimension to be used if method specifies use of MPS simulation.
+              If None, no limit. If method does not specify MPS simulation, this setting is ignored.
+              See Qiskit Aer documentation for current information about this option.
         - mag_hamiltonian_use_electric_vacuum_transitions_only:
               If True, all
               magnetic Hamiltonian matrix elements which don't induce transitions
@@ -133,6 +143,7 @@ def configure_script_options(
         - warn_unphysical_links:
               Whether to emit a warning on unphysical link
               data when analyzing circuit execution results.
+              If False, unphysical links silently skipped.
         - error_unphysical_links:
               Whether to raise an error on unphysical link
               data when analyzing circuit execution results.
@@ -183,13 +194,15 @@ def configure_script_options(
     options["do_electric_evolution"] = do_electric_evolution
     options["do_magnetic_evolution"] = do_magnetic_evolution
     options["dimensionality_string"] = dimensionality_string
-    options["truncation_string"] = truncation_string
+    options["truncation_mode"] = truncation_mode
+    options["cutoff"] = cutoff
     options["lattice_size"] = lattice_size
     options["coupling_g"] = coupling_g
     options["givens_have_independent_params"] = givens_have_independent_params
     options["mag_hamiltonian_matrix_element_threshold"] = mag_hamiltonian_matrix_element_threshold
     options["optimize_circuits"] = optimize_circuits
     options["method"] = method
+    options["matrix_product_state_max_bond_dimension"] = matrix_product_state_max_bond_dimension
     options["n_trotter_steps"] = n_trotter_steps
     options["sim_times"] = sim_times
     options["mag_hamiltonian_use_electric_vacuum_transitions_only"] = mag_hamiltonian_use_electric_vacuum_transitions_only
@@ -212,8 +225,9 @@ def configure_script_options(
     options["load_circuit_from_file"] = load_circuit_from_file
 
     # Automatically set some additional options based on user input above.
+    # The lattice has the default F-order; pyclebsch computes the physical
+    # plaquette states and matrix elements in the F-order of the lattice.
     options["dimensions"] = 1.5 if (dimensionality_string == "d=3/2" or dimensionality_string == "d=1.5") else int(dimensionality_string[2:])
-    options["link_bitmap"] = IRREP_TRUNCATIONS[options["truncation_string"]]
     options["lattice_def"] = LatticeDef(
         dimensions=options["dimensions"],
         size=options["lattice_size"],
@@ -223,16 +237,18 @@ def configure_script_options(
 
 
 def initialize_lattice_tools(script_options: dict[str, Any]) -> tuple[
-        LatticeStateEncoder, Set[str], LatticeRegisters, LatticeCircuitManager, QuantumCircuit]:
+        LatticeStateEncoder, dict[tuple[Plane, Signature], set[PlaquetteState]] | None, LatticeRegisters,
+        LatticeCircuitManager, QuantumCircuit]:
     """
     Initialize some tools for creating a new lattice circuit.
 
     Using the parameters given in script_options, returns the tuple
-    (lattice_encoder, physical_plaquette_states, lattice_registers, circ_mgr, lattice_circuit):
+    (lattice_encoder, physical_states_for_control_pruning, lattice_registers, circ_mgr, lattice_circuit):
       - lattice_encoder: a LatticeStateEncoder for encoding/decoding
         state info on the lattice indicated by script_options.
-      - physical_plaquette_states: Either None, or a Set of encoded plaquette
-        bitstrings corresponding to valid physical states. If not None,
+      - physical_states_for_control_pruning: Either None, or the physical
+        plaquette states of each plane and signature of the lattice's
+        plaquettes, as physical_plaquette_states returns them. If not None,
         then this information can be used for control pruning downstream.
       - lattice_registers: a new LatticeRegisters instance for organizing
         QuantumRegister instances in the lattice circuit.
@@ -244,37 +260,36 @@ def initialize_lattice_tools(script_options: dict[str, Any]) -> tuple[
     # Create lattice_encoder instance.
     lattice_encoder = create_lattice_encoder(script_options)
 
-    # Load mag Hamiltonian data.
-    print("Loading magnetic Hamiltonian data...")
-    mag_hamiltonian = load_magnetic_hamiltonian(
-        script_options["dimensionality_string"],
-        script_options["truncation_string"],
+    # Create the circuit manager, with the magnetic Hamiltonian.
+    print("Computing magnetic Hamiltonian data...")
+    circ_mgr = LatticeCircuitManager.for_truncation(
         lattice_encoder,
         mag_hamiltonian_matrix_element_threshold=script_options["mag_hamiltonian_matrix_element_threshold"],
         only_include_elems_connected_to_electric_vacuum=script_options["mag_hamiltonian_use_electric_vacuum_transitions_only"])
     print("Done.")
 
-    # Figure out physical states needed for control pruning.
+    # Figure out physical states needed for control pruning. pyclebsch has
+    # them in memory from building the encoder.
     if script_options["prune_controls"] is True:
-        physical_plaquette_states: Set[str] = set(
-            lattice_encoder.encode_plaquette_state_as_bit_string(plaquette) for plaquette in PHYSICAL_PLAQUETTE_STATES[script_options["dimensionality_string"]][script_options["truncation_string"]])
+        physical_states_for_control_pruning: dict[tuple[Plane, Signature], set[PlaquetteState]] | None = \
+            physical_plaquette_states(
+                script_options["lattice_def"], script_options["truncation_mode"], script_options["cutoff"])
     else:
-        physical_plaquette_states = None
+        physical_states_for_control_pruning = None
 
     # Initialize the current circuit's registers.
     lattice_registers = LatticeRegisters.from_lattice_state_encoder(lattice_encoder)
-    circ_mgr = LatticeCircuitManager(lattice_encoder, mag_hamiltonian)
     lattice_circuit = circ_mgr.create_blank_full_lattice_circuit(lattice_registers)
 
     # Add ancilla register if needed.
     if script_options["use_ancillas"] is True:
         circ_mgr.num_ancillas = circ_mgr.compute_num_ancillas_needed_from_mag_trotter_step(
             lattice_circuit, lattice_registers, control_fusion=script_options["control_fusion"],
-            physical_states_for_control_pruning=physical_plaquette_states,
+            physical_states_for_control_pruning=physical_states_for_control_pruning,
             optimize_circuits=script_options["optimize_circuits"])
         circ_mgr.add_ancilla_register_to_quantum_circuit(lattice_circuit)
 
-    return lattice_encoder, physical_plaquette_states, lattice_registers, circ_mgr, lattice_circuit
+    return lattice_encoder, physical_states_for_control_pruning, lattice_registers, circ_mgr, lattice_circuit
 
 
 def create_time_evol_circuit(script_options: dict[str, Any]) -> QuantumCircuit:
@@ -308,6 +323,19 @@ def create_time_evol_circuit(script_options: dict[str, Any]) -> QuantumCircuit:
     return master_circuit
 
 
+def periodic_boundary_conds_str(lattice_def: LatticeDef) -> str:
+    """
+    The boundary conditions of lattice_def, for file names.
+
+    "True" or "False" when every direction has the same boundary condition,
+    otherwise one value per direction joined by "-", such as "True-False".
+    """
+    periodic_boundary_conds = lattice_def.periodic_boundary_conds
+    if isinstance(periodic_boundary_conds, tuple):
+        return "-".join(str(periodic) for periodic in periodic_boundary_conds)
+    return str(periodic_boundary_conds)
+
+
 def save_circuit(circuit: QuantumCircuit, simulation_identifier: str, script_options: dict[str, Any]) -> None:
     """
     Write a QuantumCircuit instance to
@@ -336,13 +364,11 @@ def save_circuit(circuit: QuantumCircuit, simulation_identifier: str, script_opt
     if script_options["save_circuit_to_qasm"] is True and circuits_dir is not None:
         qasm_circuit_filename = simulation_identifier + ".qasm"
         qasm_file_path = circuits_dir / qasm_circuit_filename
-        with qasm_file_path.open('w') as qasm_file:
-            qasm_file.write(dumps(circuit))
+        LatticeCircuitManager.save_circuit(circuit, qasm_file_path)
     if script_options["save_circuit_to_qpy"] is True and circuits_dir is not None:
         qpy_circuit_filename = simulation_identifier + ".qpy"
         qpy_file_path = circuits_dir / qpy_circuit_filename
-        with open(qpy_file_path, "wb") as qpy_file:
-            qpy.dump(circuit, qpy_file)
+        LatticeCircuitManager.save_circuit(circuit, qpy_file_path)
     if script_options["save_circuit_diagrams"] is True and circuit_diagram_dir is not None:
         diagram_filename = simulation_identifier + ".pdf"
         diagram_file_path = circuit_diagram_dir / diagram_filename
@@ -353,7 +379,7 @@ def save_circuit(circuit: QuantumCircuit, simulation_identifier: str, script_opt
         )
 
 
-def load_circuit(circuit_load_path: str | Path) -> QuantumCircuit:
+def load_circuit(circuit_load_path: str | Path, script_options: dict[str, Any]) -> QuantumCircuit:
     """
     Load the circuit specified by circuit_load_path.
 
@@ -362,13 +388,11 @@ def load_circuit(circuit_load_path: str | Path) -> QuantumCircuit:
     circuit_load_path = Path(circuit_load_path)
     if circuit_load_path.exists() is False:
         raise FileExistsError(f"Tried to load nonexistent file: '{circuit_load_path}'")
-    if circuit_load_path.suffix == ".qpy":
-        with open(circuit_load_path, "rb") as handle:
-            simulation_circuit = qpy.load(handle)[0]
-    elif circuit_load_path.suffix == ".qasm":
-        simulation_circuit = load(circuit_load_path)
+
+    if script_options['use_ancillas'] is True:
+        simulation_circuit = LatticeCircuitManager.load_circuit(circuit_load_path, ancilla_reg_name=ANCILLA_REGISTER_NAME)
     else:
-        raise ValueError(f"Attempted to load circuit file of unknown type '{circuit_load_path.suffix}'.")
+        simulation_circuit = LatticeCircuitManager.load_circuit(circuit_load_path)
 
     return simulation_circuit
 
@@ -382,7 +406,13 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
     Returns the results as a DataFrame.
     """
     # Set up objects needed for executing circuits and processing results.
-    simulator = AerSimulator(method=script_options['method'])
+    if script_options['method'] == 'matrix_product_state':
+        simulator = AerSimulator(
+            method=script_options['method'],
+            matrix_product_state_max_bond_dimension=script_options['matrix_product_state_max_bond_dimension'])
+        print(f"MPS simulation with max bond dimension: {script_options['matrix_product_state_max_bond_dimension']}")
+    else:
+        simulator = AerSimulator(method=script_options['method'])
     n_ancilla_qubits = len(circuit.ancillas)
     n_total_qubits = len(circuit.qubits)
     n_data_qubits = n_total_qubits - n_ancilla_qubits
@@ -398,6 +428,19 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
     # for each electric or magnetic Trotter step individually,
     # but in this case, we use the same dt for both at each total sim duration,
     # and use one value of the coupling g for all simulations.
+    # For MPS simulations (Aer version 0.17.2), AerSimulator.configuration().n_qubits is a conservative
+    # metadata estimate (hardcoded to 63) that the Qiskit transpiler enforces as a hard qubit-count
+    # cap. For large circuits we temporarily raise it to the actual circuit size so transpilation
+    # succeeds; the MPS simulator itself imposes no such limit.
+    n_circuit_qubits = len(circuit.qubits)
+    original_simulator_n_qubits = simulator.configuration().n_qubits
+    _mps_n_qubits_overridden = (
+        script_options['method'] == 'matrix_product_state'
+        and n_circuit_qubits > original_simulator_n_qubits
+    )
+    if _mps_n_qubits_overridden:
+        simulator._set_configuration_option("n_qubits", n_circuit_qubits)
+
     transpiled_circuits_with_assigned_params = []
     for idx, sim_time in enumerate(script_options["sim_times"]):
         print(f"Setting parameters for circuit {idx+1}/{len(script_options['sim_times'])} (sim_time = {sim_time})")
@@ -413,6 +456,9 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
         transpiled_circuit_with_final_measurement.measure_all()
         transpiled_circuit_with_final_measurement = transpile(transpiled_circuit_with_final_measurement, simulator, optimization_level=3)
         transpiled_circuits_with_assigned_params.append(transpiled_circuit_with_final_measurement)
+
+    if _mps_n_qubits_overridden:
+        simulator._set_configuration_option("n_qubits", original_simulator_n_qubits)
     print(f"Gate counts for circuit(s) after transpiling with set params for '{script_options['method']}' simulation method:\n{transpiled_circuits_with_assigned_params[0].count_ops()}")
 
     # Execute circuits.
@@ -422,23 +468,38 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
     print("Done.")
 
     # Organize job results into dataframe.
+    # Cache ParsedLatticeResult instances to avoid redundant construction
+    # for the same bit string across different simulation time steps.
+    plr_cache: dict[str, ParsedLatticeResult] = {}
     df_job_results = pd.DataFrame(columns=["vacuum_persistence_probability", "electric_energy"], index=script_options["sim_times"])
     for job_result, sim_time in zip(job_results, script_options["sim_times"]):
         # Strip out ancilla bits, and reverse to big-endian convention.
-        counts_dict_big_endian = {little_endian_state[::-1][:n_data_qubits]: count for little_endian_state, count in job_result.items()}
-        for big_endian_state, counts in counts_dict_big_endian.items():
+        # Use PLR cache to avoid re-parsing identical bit strings.
+        counts_dict_big_endian = {}
+        for little_endian_state, count in job_result.items():
+            big_endian_state = little_endian_state[::-1][:n_data_qubits]
+            if big_endian_state not in plr_cache:
+                plr_cache[big_endian_state] = ParsedLatticeResult(
+                    lattice_encoder.lattice_def.dim,
+                    lattice_encoder.lattice_def.size,
+                    big_endian_state,
+                    lattice_encoder,
+                    lattice_encoder.lattice_def.periodic_boundary_conds,
+                )
+            counts_dict_big_endian[plr_cache[big_endian_state]] = count
+        mr = MeasurementResults(counts_dict_big_endian, lattice_encoder)
+        counts_by_bit_string = mr.get_counts(str_keys=True)
+        for big_endian_state, counts in counts_by_bit_string.items():
             df_job_results.loc[sim_time, big_endian_state] = counts
 
         # Ensure existence of vacuum state data.
-        if vacuum_state not in counts_dict_big_endian.keys():
+        if vacuum_state not in counts_by_bit_string:
             df_job_results.loc[sim_time, vacuum_state] = 0
 
         # Compute vacuum persistence probability and average electric energy per link.
-        df_job_results.loc[sim_time, "vacuum_persistence_probability"] = df_job_results.loc[sim_time, vacuum_state] / script_options["n_shots"]
-        avg_electric_energy = 0
-        for state, counts in counts_dict_big_endian.items():
-            avg_electric_energy += convert_bitstring_to_evalue(state, lattice_encoder, script_options["warn_unphysical_links"], script_options["error_unphysical_links"]) * (counts / script_options["n_shots"]) / script_options["lattice_def"].n_links
-        df_job_results.loc[sim_time, "electric_energy"] = avg_electric_energy
+        df_job_results.loc[sim_time, "vacuum_persistence_probability"] = mr.vacuum_persistence_probability()
+        unphys_mode = 'warn' if script_options["warn_unphysical_links"] else None
+        df_job_results.loc[sim_time, "electric_energy"] = mr.get_lattice_electric_energy(average_result=True, unphys_mode=unphys_mode)
 
     return df_job_results
 
@@ -479,11 +540,9 @@ def plot_data(data: pd.DataFrame, col: str, title: str, script_options: dict[str
     return fig
 
 
-def create_lattice_encoder(script_options: dict[str, Any]) -> None:
-    lattice_encoder = LatticeStateEncoder(
-        link_bitmap=script_options["link_bitmap"],
-        physical_plaquette_states=PHYSICAL_PLAQUETTE_STATES[script_options["dimensionality_string"]][script_options["truncation_string"]],
-        lattice=script_options["lattice_def"])
+def create_lattice_encoder(script_options: dict[str, Any]) -> LatticeStateEncoder:
+    lattice_encoder = LatticeStateEncoder.for_truncation(
+        script_options["lattice_def"], script_options["truncation_mode"], script_options["cutoff"])
 
     return lattice_encoder
 

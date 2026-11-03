@@ -10,15 +10,11 @@ two multi-qubit states into each other.
 from __future__ import annotations
 from dataclasses import dataclass
 import logging
-from qiskit import QuantumCircuit, QuantumRegister, AncillaRegister
+from qiskit import QuantumCircuit, AncillaRegister
 from qiskit.circuit import ControlledGate, Parameter, ParameterExpression
 from qiskit.circuit.library.standard_gates import RXGate, RZGate, RYGate
-from qiskit.quantum_info import Operator, Statevector
-from random import random
 from math import isclose
 import numpy as np
-import copy
-from typing import Tuple, List, Set, Dict, Union
 
 # Set up module-specific logger
 logger = logging.getLogger(__name__)
@@ -52,7 +48,7 @@ class LPFamily:
     The LPOperator class is used for validation, but data remains a tuple of strings.
     """
 
-    value: Tuple[str]
+    value: tuple[str, ...]
 
     def __post_init__(self):
         # Validate.
@@ -71,9 +67,10 @@ def givens(
     bit_string_1: str,
     bit_string_2: str,
     angle: float | Parameter | ParameterExpression,
-    encoded_physical_states: Set[str] | None = None,
+    encoded_physical_states: set[str] | None = None,
     num_ancillas: int = 0,
     reverse: bool = False,
+    precomputed_p_tilde: set[str] | None = None,
 ) -> QuantumCircuit:
     """
     Build QuantumCircuit rotating two bit strings into each other by angle.
@@ -87,17 +84,22 @@ def givens(
     a pre/post computation circuit consisting of CX gates. The pre/post
     computation is essentially just a change of basis for the MCRX.
 
-    If a set physical_control_qubits consisting is provided which
-    contains data indexing qubits in a QuantumRegister, only
-    those qubits appearing in physical_control_qubits will be
-    used when adding controls to construct the givens rotation. This is
-    relevant for "control pruning" where we allow the givens rotation
-    to rotate pairs of unphysical states into each other in addition
-    to the target states bit_string_1 and bit_string_2.
+    If a set encoded_physical_states is provided which
+    consists of all the physical states encoded as bit strings,
+    then control pruning will be performed (i.e. a greedy
+    algorithm will run which eliminates controls which
+    don't actually distinguish between the set of physical states).
+    This algorithm is described in more detail in
+    https://journals.aps.org/prd/abstract/10.1103/k8f6-yft8.
+    When this argument is None, no pruning is performed.
 
     If num_ancillas > 0, circuit construction uses v-chain
     gate synthesis using the provided number of ancillas. This
     increases qubit cost in order to reduce CX gate depth.
+
+    If precomputed_p_tilde is provided, it is passed through to
+    prune_controls for efficiency when the caller has already
+    computed it for the LP bin (via compute_p_tilde).
     """
     logger.debug(f"Constructing Givens rotation circuit by angle {angle} for '{bit_string_1}' <-> '{bit_string_2}'.")
     # Input validation and sanity checks.
@@ -131,7 +133,8 @@ def givens(
         # Note that this step will become redundant when control_pruning is turned off
         # i.e., when encoded_physical_states = None.
         pruned_ctrls, pruned_ctrl_state = prune_controls(
-            lp_fam, ctrls, ctrl_state, encoded_physical_states
+            lp_fam, ctrls, ctrl_state, encoded_physical_states,
+            precomputed_p_tilde=precomputed_p_tilde,
         )
 
         # adds an ancilla register is num_ancillas > 0
@@ -155,11 +158,12 @@ def givens(
 
 
 def givens_fused_controls(
-    lp_bin_w_angle: List[(str, str, float)],
+    lp_bin_w_angle: list[tuple[str, str, float]],
     lp_bin: LPFamily,
-    encoded_physical_states: Set[str] | None,
+    encoded_physical_states: set[str] | None,
     num_ancillas: int = 0,
     reverse: bool = False,
+    precomputed_p_tilde: set[str] | None = None,
 ) -> QuantumCircuit:
     """
     Implements givens rotation using the same logic as the givens function but for fused multiRX's.
@@ -167,11 +171,14 @@ def givens_fused_controls(
     Inputs:
         - lp_bin_w_angle: list of bitstrings of the same LP family and the angle they have to be rotated by.
         - lp_bin: the LP family the bitstrings in the bin belong to.
-        - encoded_physical_states: the set of physical states for control pruning 
+        - encoded_physical_states: the set of physical states for control pruning
         - num_ancillas: the number of ancillas to use in the local circuit. If num_ancillas > 0, circuit construction uses v-chain
                         gate synthesis using the provided number of ancillas. This
                         increases qubit cost in order to reduce CX gate depth.
         - reverse: optional argument to deal with endianess issues
+        - precomputed_p_tilde: if provided, passed through to prune_controls
+                for efficiency when the caller has already computed it for
+                the LP bin (via compute_p_tilde).
 
     Output:
         QuantumCircuit object that has the necessary givens rotation.
@@ -187,7 +194,7 @@ def givens_fused_controls(
         bs1_bs2_lp_family = compute_LP_family(bit_string_1, bit_string_2)
         lp_bin_matches = bs1_bs2_lp_family.value == lp_bin.value
         if lp_bin_matches is False:
-            return ValueError(
+            raise ValueError(
                 "The LP value of the bitstrings should match with the LP bin value."
             )
         no_rotation_is_needed = bit_string_1 == bit_string_2
@@ -216,7 +223,8 @@ def givens_fused_controls(
             continue
         for ctrls, ctrl_state in ctrl_list:
             pruned_ctrls, pruned_ctrl_state = prune_controls(
-                lp_bin, ctrls, ctrl_state, encoded_physical_states
+                lp_bin, ctrls, ctrl_state, encoded_physical_states,
+                precomputed_p_tilde=precomputed_p_tilde,
             )
             crxcircuit = _CRXCircuit_with_MCX([pruned_ctrl_state, pruned_ctrls], 
         angle, target, num_qubits, num_ancillas)
@@ -233,7 +241,7 @@ def givens_fused_controls(
 
 def _compute_ctrls_and_state_for_givens_MCRX(
     bs1_little_endian: str, bs2_little_endian: str, target: int
-) -> Tuple[List[int], str]:
+) -> tuple[list[int], str]:
     """
 
     Find the controls and control state of the multi-control RX gate involved in
@@ -301,21 +309,51 @@ def _build_Xcirc(lp_fam: LPFamily, control: int) -> QuantumCircuit:
     return Xcirc
 
 
+def compute_p_tilde(
+    lp_fam: LPFamily,
+    encoded_physical_states: set[str],
+) -> set[str]:
+    """
+    Apply the LP-family CX change-of-basis transformation to every physical state.
+
+    This produces the set P_tilde used in control pruning. It is the
+    hoistable portion of prune_controls — it depends only on the LP family
+    and the set of physical states, not on the specific controls of any
+    individual Givens rotation. Computing it once per LP bin and passing
+    the result into prune_controls via the precomputed_p_tilde parameter
+    avoids redundant recomputation.
+
+    Input:
+        - lp_fam: the LP family defining the CX change-of-basis.
+        - encoded_physical_states: the set of physical states encoded as
+          bit strings.
+
+    Output:
+        - The set of transformed bit strings (P_tilde).
+    """
+    q_prime_idx = _determine_target_of_lp_fam(lp_fam)
+    return {
+        _apply_LP_family_to_bit_string(lp_fam, q_prime_idx, phys_state)
+        for phys_state in encoded_physical_states
+    }
+
+
 def prune_controls(
     lp_fam: LPFamily,
-    ctrls: List[int],
+    ctrls: list[int],
     ctrl_state: str,
-    encoded_physical_states: Set[str] | None,
-) -> Tuple[List[int], str]:
+    encoded_physical_states: set[str] | None,
+    precomputed_p_tilde: set[str] | None = None,
+) -> tuple[list[int], str]:
     """
-    Perform control pruning on circ to reduce multi-control unitaries (MCUs).
+    Perform control pruning to reduce multi-control unitaries (MCUs).
 
     This algorithm decreases the two-qubit gate depth of resulting
     circuits by determining the set of necessary control qubits to
     implement a Givens rotation without inducing any rotations
-    between states in encoded_physical_states. If the Set
-    encoded_physical_states is None, then the inputs
-    (ctrls, ctrl_state) are simply returned as a tuple with
+    between states in encoded_physical_states. If both
+    encoded_physical_states and precomputed_p_tilde are None, then the
+    inputs (ctrls, ctrl_state) are simply returned as a tuple with
     no changes.
 
     Input:
@@ -324,22 +362,29 @@ def prune_controls(
                 Note that a list of controls post-fusion can also be used here.
         - ctrl_state: The control state corresponding to the list of controls
         - encoded_physical_states: a set of physical states encoded in a bit string.
+        - precomputed_p_tilde: if provided, the LP-family transformation of
+                physical states is skipped (assumed already done by caller via
+                compute_p_tilde). This avoids redundant recomputation when
+                multiple prune_controls calls share the same LP bin.
     Output:
         - A tuple of pruned controls and the corresponding control state.
 
     """
 
-    if encoded_physical_states == None:
+    if encoded_physical_states is None and precomputed_p_tilde is None:
         return (ctrls, ctrl_state)
     else:
         q_prime_idx = _determine_target_of_lp_fam(lp_fam)
 
         # Use the LP family and q', compute the states tilde_p after the prefix
         # circuit. Do this to the representative too.
-        P_tilde = {
-            _apply_LP_family_to_bit_string(lp_fam, q_prime_idx, phys_state)
-            for phys_state in encoded_physical_states
-        }
+        if precomputed_p_tilde is not None:
+            P_tilde = precomputed_p_tilde
+        else:
+            P_tilde = {
+                _apply_LP_family_to_bit_string(lp_fam, q_prime_idx, phys_state)
+                for phys_state in encoded_physical_states
+            }
 
         # if there is a control missing from the ctrls list, we can remove that qubit from
         # all physical states in P_tilde
@@ -422,9 +467,9 @@ def prune_controls(
 
 def fuse_controls(
     lp_fam: LPFamily,
-    lp_bin_w_angle: List[(str, str, float | Parameter | ParameterExpression)],
+    lp_bin_w_angle: list[tuple[str, str, float | Parameter | ParameterExpression]],
     round_close_angles: bool = True,
-) -> Dict[float, tuple[List[int], str]]:
+) -> dict[float | Parameter | ParameterExpression, list[tuple[list[int], str]]]:
     """
     This function fuses the controls of multiple multi-RX gates of the same LP family.
 
@@ -439,7 +484,7 @@ def fuse_controls(
         - A dictionary in which the entries are fused controls binned according to angles. Each is of the form List[(controls,control_state)].
     """
 
-    angle_bin = {}
+    angle_bin: dict[float | Parameter | ParameterExpression, list[tuple[list[int], str]]] = {}
     target = _determine_target_of_lp_fam(lp_fam)
     # If a target couldn't be found, it means that the givens rotation is the identity rotation.
     if target is None:
@@ -495,10 +540,10 @@ def compute_LP_family(bit_string_1: str, bit_string_2: str) -> LPFamily:
     Compare each element of bit_string_1 and bit_string_2 to obtain LP family.
 
     Input:
-        - Two equal-length bit strings strings bit_string_1 and bit_string 2.
+        - Two equal-length bit strings bit_string_1 and bit_string_2.
     Output:
-        - A list of the same length as one of the input bitstrings. Each element of
-            the return list consists of the following:
+        - An LPFamily whose value is a tuple of the same length as the input
+            bit strings. Each element of the tuple is:
             - "P" if both inputs have the same value at that index
             - "L" if the inputs differ at that index
     """
@@ -525,7 +570,7 @@ def compute_LP_family(bit_string_1: str, bit_string_2: str) -> LPFamily:
 
 
 def _apply_LP_family_to_bit_string(
-    LP_family: LPFamily | List[str], q_prime_idx: int, bit_string: str
+    LP_family: LPFamily | list[str], q_prime_idx: int, bit_string: str
 ) -> str:
     """
     Use LP_family to figure out how bit_string will transform under the CX
@@ -556,8 +601,8 @@ def _apply_LP_family_to_bit_string(
 
 
 def _eliminate_phys_states_that_differ_from_rep_at_Q_idx(
-    representative: str, phys_states_set: Set[str], Q_set: Set[int]
-) -> Set[str]:
+    representative: str, phys_states_set: set[str], Q_set: set[int]
+) -> set[str]:
     """
     Return a version of phys_states_set that only contains strings which match representative
     at the indices specified by Q_set.
@@ -578,8 +623,8 @@ def _eliminate_phys_states_that_differ_from_rep_at_Q_idx(
 
 
 def _fuse_ctrls_of_ctrls_list(
-    sorted_ctrls_list: List[(List[int], str)],
-) -> List[(List[int], str)]:
+    sorted_ctrls_list: list[tuple[list[int], str]],
+) -> list[tuple[list[int], str]]:
     """
     Fuses the control states when the control states only differ in one bit.
     After fusion, the position in the control state where the fusion occurred is
@@ -630,7 +675,7 @@ def _CRXGate(num_ctrls: int, ctrl_state: str, angle: float) -> ControlledGate:
 
 
 def _CRXCircuit_with_MCX(
-        ctrl_list: List[Union[str, List[int]]], 
+        ctrl_list: list[str | list[int]],
         angle: float | Parameter | ParameterExpression,
         target: int,
         num_qubits: int,
@@ -691,9 +736,14 @@ def _CRXCircuit_with_MCX(
     return circ_with_mcx
 
 
-# FIX: type hint of lp_fam
-def bitstring_value_of_LP_family(lp_fam: List[str] | LPFamily) -> str:
-    """Validates form of lp_fam with LPFamily class if List[str]."""
+def bitstring_value_of_LP_family(lp_fam: tuple[str, ...] | LPFamily) -> str:
+    """
+    Return the bit string that orders LP families: "0" for each "L" and "1" for each "P".
+
+    lp_fam is an LPFamily, or a tuple of "L" and "P" strings, which is
+    validated by making an LPFamily of it. A list raises a ValueError, as
+    LPFamily accepts only tuples.
+    """
     if not isinstance(lp_fam, LPFamily):
         lp_fam = LPFamily(lp_fam)
     # Assigns a bitstring value to the LP family. This will help in binning LP families and
@@ -731,7 +781,7 @@ def gray_to_index(gray_str: str) -> int:
 
 def _bitstrings_differ_in_one_bit(
     bitstring1: str, bitstring2: str
-) -> tuple[bool, Union[int | None]]:
+) -> tuple[bool, int | None]:
     """Checks if two bitstrings differ just in one bit."""
     if len(bitstring1) != len(bitstring2):
         raise AttributeError("The length of the two bitstrings must be equal")
@@ -763,8 +813,8 @@ def _determine_target_of_lp_fam(lp_fam: LPFamily) -> int:
 
 
 def _remove_redundant_controls(
-    ctrls: List[int], ctrl_state: str
-) -> tuple[List[int], str]:
+    ctrls: list[int], ctrl_state: str
+) -> tuple[list[int], str]:
     if len(ctrls) != len(ctrl_state):
         raise ValueError("The length of the controls and control state must be equal")
     new_ctrls = []
@@ -777,7 +827,7 @@ def _remove_redundant_controls(
 
 
 def _find_pruned_ctrl_list_from_Q_set(
-    Q_set: Set[int], ctrls: List[int], ctrl_state: str
+    Q_set: set[int], ctrls: list[int], ctrl_state: str
 ):
     """Finds the pruned control list by only retaining pruned controls"""
     pruned_ctrls = []
