@@ -18,6 +18,13 @@ There is no need to manually activate or deactivate the virtual environment. Inf
 uv pip list
 ```
 
+### Troubleshooting install issues
+If you encounter unexpected errors while attempting to install `ymcirc`, a good first troubleshooting step is to ensure there are no stale versions of packages in the virtual environment `uv` creates (this can cause version conflicts). Perform the following steps to ensure that there are no stale dependencies:
+1. Delete the `.venv` directory (if present) inside your cloned copy of `ymcirc`.
+2. Update `uv`. Note that the specific [update instructions for `uv`](https://docs.astral.sh/uv/getting-started/installation/#upgrading-uv) depend on how you installed `uv`.
+3. Run `uv python upgrade 3.15` (note that the version `3.15` may change in the future).
+4. Now that `uv` is up to date and has access to the most recent version of Python, run `uv sync` to rebuild the `.venv` directory in `ymcirc`.
+
 ### Using ymcirc in another project
 To add ymcirc to a uv project, name a released version by its tag, a branch, or a commit:
 ```shell
