@@ -30,10 +30,7 @@ uv records the choice under `[tool.uv.sources]` in the project's `pyproject.toml
 The project must allow only the versions of Python that ymcirc supports (`requires-python` in ymcirc's `pyproject.toml`), or uv cannot add ymcirc.
 
 ### Installation for Windows subsystem for Linux (WSL)
-After setting up WSL there is a checklist of programs you will need before proceeding with the regular installation instructions above:
-
-1. Download / update Git by running `sudo apt-get install git`.
-2. Download / update Python3 by running `sudo apt install python3 python3-pip`
+After setting up WSL, download / update Git by running `sudo apt-get install git` before proceeding with the regular installation instructions above. Python does not need to be installed separately: uv installs the version of Python that ymcirc requires.
 
 ## Adding, updating, and removing dependencies
 To add a package to the project (for example, `numpy`):
@@ -75,7 +72,7 @@ When adding new tests, group the functionality being tested by file. For example
 Note that all test files must be named `test_[something].py`!
 
 ### Running tests
-If you want to run all tests in the `test` directory, activate the virtual environment and then type:
+If you want to run all tests in the `tests` directory, type:
 ```
 uv run pytest -v
 ```
@@ -88,7 +85,7 @@ uv run pytest tests/test_[file].py
 
 If you want to run *just one* test:
 ```
-uv run pytest tests/test_mod.py::test_func.
+uv run pytest tests/test_mod.py::test_func
 ```
 
 There's also more complete documentation on [how to invoke pytest](https://docs.pytest.org/en/stable/how-to/usage.html) which presents some additional features.
@@ -116,7 +113,7 @@ Replace `run.time_evol` with the particular desired module in the `run` director
 Building circuits primarily utilizes four classes:
 1. `LatticeDef` (in `ymcirc._abstract`), which sets up the lattice geometry and boundary conditions.
 2. `LatticeStateEncoder` (in `ymcirc.conventions`), which defines bitmaps (maps from link irreps and vertex multiplicity indices to bit strings) for encoding gauge field configurations in qubits. In practice, instances are created via `LatticeStateEncoder.for_truncation`, which takes an irrep truncation.
-3. `LatticeRegisters` (in `ymcirc.lattice_registers`), which holds the qubit registers, names them according to their location in the lattice so this information is not lost when saving circuits to disk, and provides indexing functionality for working with registers at specific lattice locations.
+3. `LatticeRegisters` (in `ymcirc.lattice_registers`), which holds the qubit registers, names them according to their location in the lattice so this information is not lost when saving circuits to disk, and provides indexing functionality for working with registers at specific lattice locations. (Note that a QASM file holds each name rewritten as a valid identifier, such as `_l___0__0___1_` for the link register `l:((0, 0), 1)`.)
 4. `LatticeCircuitManager` (in `ymcirc.circuit`), created with `LatticeCircuitManager.for_truncation`. This class adds Trotter steps and measurements to a circuit.
 
 Working with measurements primarily makes use of two classes:

@@ -1,7 +1,7 @@
 [project]
 name = "ymcirc"
 version = "0.2.0"
-description = "Circuit Hamiltonians for SU(3) lattice gauge theory"
+description = "Quantum circuits to simulate lattice SU(3) gauge theories"
 readme = "README.md"
 requires-python = ">=3.15"
 dependencies = [

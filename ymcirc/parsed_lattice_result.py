@@ -494,11 +494,9 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
 
         Arguments:
             - link_address: Address of the link, e.g. ((0,0), 1).
-            - unphys_mode: 'warn' will cause a warning to be emitted if the
-              requested link is unphysical. 'err' will cause a KeyError
-              to be raised. If this argument is omitted or takes on any
-              other value, None will be silently returned for unphysical
-              or unmeasured links.
+            - unphys_mode: what to do if the requested link is unphysical.
+              'warn' (the default) emits a warning and returns None. 'err'
+              raises a KeyError. Any other value returns None silently.
         """
         # Deal with unphysical/unmeasured cases first.
         link_state = self.get_link(link_address)
@@ -535,22 +533,27 @@ class ParsedLatticeResult(LatticeData[MeasurementData]):
 
         The optional argument skip_unmeasured overrides the behavior
         of raising an error when attempting to obtain the energy of
-        an unmeasured like. If this argument is True, any such links
+        an unmeasured link. If this argument is True, any such links
         are skipped in the sum over lattice link energies.
 
-        Note that If average_result is True, any skipped links will be
+        Note that if average_result is True, any skipped links will be
         omitted from the count of links in the denominator of the average.
 
         Arguments:
             - average_result: If True, return energy per link; if False, total.
-            - unphys_mode: 'warn' will cause a warning to be emitted if the
-              requested link is unphysical. 'err' will cause a ValueError
-              to be raised. If this argument is omitted or takes on any
-              other value, None will be silently returned for unphysical
-              or unmeasured links.
-            - skip_unmeasured: If True, unmeasured links will be skipped when
-              computing the lattice electric energy. If False, then a KeyError
-              will be raised if an unmeasured link is encountered.
+            - unphys_mode: what to do with an unphysical link. 'warn' (the
+              default) emits a warning and skips it. 'err' raises a KeyError.
+              Any other value skips it silently. 'err' also raises a KeyError
+              for an unmeasured link, even when skip_unmeasured is True.
+            - skip_unmeasured: If True, unmeasured links are skipped (with a
+              warning when unphys_mode is 'warn'), unless unphys_mode is
+              'err'. If False, a KeyError is raised if an unmeasured link is
+              encountered.
+
+        Returns:
+            The total electric energy of the links that are not skipped, or,
+            if average_result is True, its average over those links, as a
+            float.
         """
         total_energy = 0.0
         none_count = 0
