@@ -28,7 +28,7 @@ If you encounter unexpected errors while attempting to install `ymcirc`, a good 
 ### Using ymcirc in another project
 To add ymcirc to a uv project, name a released version by its tag, a branch, or a commit:
 ```shell
-uv add git+https://github.com/hepqis-uiuc/ymcirc --tag v0.2.0     # a released version
+uv add git+https://github.com/hepqis-uiuc/ymcirc --tag v0.2.1     # a released version
 uv add git+https://github.com/hepqis-uiuc/ymcirc --branch develop # the latest commit on a branch
 uv add git+https://github.com/hepqis-uiuc/ymcirc --rev 5db799a    # a commit, by its hash
 ```
@@ -111,11 +111,11 @@ uv run pytest --runslow
 ```
 
 ## Usage
-See the `run` directory for example usage and logging configuration of ymcirc. To run the modules within `run`, call (for example):
+See the `run` directory in the project root for a collection scripts demonstrating the usage and configuration of ymcirc. To run any of these examples, call (for example):
 ```
-uv run -m run.time_evol
+uv run -m run.demo
 ```
-Replace `run.time_evol` with the particular desired module in the `run` directory.
+This executes the script `run/demo.py`. Replace `run.demo` with the particular desired script in the `run` directory. The `demo.py` script illustrates basic usage of `ymcirc`, which involves orchestrating classes to first build circuits, and then orchestrating classes to interpret measurement results.
 
 Building circuits primarily utilizes four classes:
 1. `LatticeDef` (in `ymcirc._abstract`), which sets up the lattice geometry and boundary conditions.
@@ -123,12 +123,16 @@ Building circuits primarily utilizes four classes:
 3. `LatticeRegisters` (in `ymcirc.lattice_registers`), which holds the qubit registers, names them according to their location in the lattice so this information is not lost when saving circuits to disk, and provides indexing functionality for working with registers at specific lattice locations. (Note that a QASM file holds each name rewritten as a valid identifier, such as `_l___0__0___1_` for the link register `l:((0, 0), 1)`.)
 4. `LatticeCircuitManager` (in `ymcirc.circuit`), created with `LatticeCircuitManager.for_truncation`. This class adds Trotter steps and measurements to a circuit.
 
-Working with measurements primarily makes use of two classes:
+Interpreting measurements primarily makes use of two classes:
 1. `ParsedLatticeResult` (in `ymcirc.parsed_lattice_result`), which decodes a bit string measured on the lattice's registers into the irrep on each link and the multiplicity index at each vertex, and provides indexing functionality for these at specific lattice locations. It also computes electric energies of measured links. `ParsedLatticeResult.from_partial_measurement` can be used to create an instance from measurements of only some of the registers.
 2. `MeasurementResults` (in `ymcirc.measurement_results`) exists to aggregate shot counts. It is keyed by bit strings or by `ParsedLatticeResult` instances, and enables computation of the (empirical) expectation value of the electric energy, the vacuum persistence probability, and transition probabilities.
 
-### Scripts that build circuits
-`LatticeCircuitManager.for_truncation` has pyclebsch compute the magnetic Hamiltonian's matrix elements in parallel, in a pool of worker processes from Python's `multiprocessing`. On macOS and Windows, and on Linux from Python 3.14, each worker starts by importing the script that was run, so all code at the top level of that script runs again in every worker. A worker that reaches `for_truncation` tries to start a pool of its own, which Python refuses with a `RuntimeError`, and the script hangs. To avoid this, put a script's work under `if __name__ == "__main__":`, as the scripts in `run` do (see "Safe importing of main module" in Python's `multiprocessing` documentation).
+The `run/time_evol.py` script is a more sophisticated example which also includes functionality to optionally save circuits to/load circuits from disk, generate plots of vacuum persistence probability and electric energy, and generate circuit diagrams.
+
+The `run/state_prep.py` shows how to create a state preparation ansatz circuit based off of a magnetic Trotter step.
+
+### Building circuits must happen within `if __name__ == "__main___:"` block
+`LatticeCircuitManager.for_truncation` has pyclebsch compute the magnetic Hamiltonian's matrix elements in parallel, in a pool of worker processes from Python's `multiprocessing`. Each worker starts by importing the script that was run, so all code at the top level of that script runs again in every worker. A worker that reaches `for_truncation` tries to start a pool of its own, which Python refuses with a `RuntimeError`, and the script hangs. To avoid this, put a script's work under `if __name__ == "__main__":`, as the scripts in `run` do (see "Safe importing of main module" in Python's `multiprocessing` documentation).
 
 ### Caching of magnetic Hamiltonian data
 The physical plaquette states and the magnetic Hamiltonian's matrix elements for a lattice and truncation are computed by [pyclebsch](https://github.com/hepqis-uiuc/pyclebsch), a dependency of `ymcirc`. pyclebsch keeps them in in-memory caches. These caches last for the duration of a running process, and are unlimited by default. To set cache limits, use `pyclebsch.set_physical_plaquette_states_cache_limit(n)` and `pyclebsch.set_plaquette_matrix_elements_cache_limit(n)` to cap them at `n` entries each (an entry holds the results for one plane and plaquette signature at one truncation). When limits are in use, the least-recently used item is evicted from the corresponding cache. For repeated runs, Clebsch-Gordan coefficients can be reused by enabling an optional disk cache which is off by default. To turn it on, use `pyclebsch.set_cgc_cache_dir(path)` or the environment variable `PYCLEBSCH_CACHE_DIR`. See pyclebsch's README for more details on caching behavior.

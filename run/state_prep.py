@@ -32,7 +32,7 @@ if __name__ == "__main__":
         sim_times=[],  # Doesn't control anything in this script, but required argument.
         n_trotter_steps=1,  # Doesn't control anything in this script, but required argument.
         n_shots=None,
-        use_ancillas=True,  # NOTE: saving/loading circuits with ancillas to QPY is currently broken
+        use_ancillas=True,
         control_fusion=True,
         prune_controls=True,
         cache_mag_evol_circuit=True,
