@@ -28,7 +28,7 @@ If you encounter unexpected errors while attempting to install `ymcirc`, a good 
 ### Using ymcirc in another project
 To add ymcirc to a uv project, name a released version by its tag, a branch, or a commit:
 ```shell
-uv add git+https://github.com/hepqis-uiuc/ymcirc --tag v0.2.0     # a released version
+uv add git+https://github.com/hepqis-uiuc/ymcirc --tag v0.2.1     # a released version
 uv add git+https://github.com/hepqis-uiuc/ymcirc --branch develop # the latest commit on a branch
 uv add git+https://github.com/hepqis-uiuc/ymcirc --rev 5db799a    # a commit, by its hash
 ```
