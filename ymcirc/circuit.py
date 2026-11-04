@@ -811,10 +811,13 @@ class LatticeCircuitManager:
         filename. Currently supported types are QASM and QPY. Any other
         extension raises a ValueError.
 
-        QASM does not record which registers are ancilla registers. The
-        ancilla register of a circuit built by LatticeCircuitManager is
-        named ANCILLA_REGISTER_NAME ("anc"); load_circuit restores it when
-        given that name as ancilla_reg_name.
+        QASM does not record which registers are instances of AncillaRegister.
+        The ancilla register of a circuit built by LatticeCircuitManager is
+        named ANCILLA_REGISTER_NAME ("anc") as a workaround; load_circuit
+        restores a register with name ancilla_reg_name as an AncillaRegister.
+
+        QPY saves/loads ancilla registers in a fashion which preserves
+        the AncillaRegister type.
         """
         if isinstance(filename, str):
             filename = Path(filename)
@@ -837,15 +840,16 @@ class LatticeCircuitManager:
         The serialization type will be inferred from the extension on
         filename. Currently supported types are QASM and QPY.
 
-        For a QASM file, which does not record which registers are ancilla
-        registers, the register named ancilla_reg_name, if given, is loaded
-        as an AncillaRegister. A circuit built by LatticeCircuitManager names
-        its ancilla register ANCILLA_REGISTER_NAME ("anc"). With the default,
-        None, no register is loaded as an AncillaRegister.
+        QASM does not record which registers are instances of AncillaRegister.
+        The ancilla register of a circuit built by LatticeCircuitManager is
+        named ANCILLA_REGISTER_NAME ("anc") as a workaround; load_circuit
+        restores a register with name ancilla_reg_name as an AncillaRegister.
+        With the default of None, no register is loaded as an
+        AncillaRegister.
 
-        For a QPY file, ancilla_reg_name is ignored. Qiskit can fail to load
-        a QPY file whose circuit has an ancilla register
-        (https://github.com/Qiskit/qiskit/issues/11619).
+        QPY saves/loads ancilla registers in a fashion which preserves
+        the AncillaRegister type automatically, even when ancilla_reg_name
+        is None.
         """
         if isinstance(filename, str):
             filename = Path(filename)

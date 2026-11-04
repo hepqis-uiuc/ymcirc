@@ -31,8 +31,6 @@ if __name__ == "__main__":
     # Set simulation parameters here. See the docstring on
     # configure_script_options for an explanation of all
     # available options.
-    # NOTE for QPY files: Read/write for circuits WITH ANCILLAS broken
-    # due to parse error in Qiskit's QPY serializer (see https://github.com/Qiskit/qiskit/issues/11619).
     script_options = configure_script_options(
         dimensionality_string="d=2",
         truncation_mode="B",
