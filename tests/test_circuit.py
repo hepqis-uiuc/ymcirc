@@ -16,6 +16,7 @@ from qiskit.circuit.exceptions import CircuitError
 from qiskit import transpile
 from qiskit_aer import AerSimulator
 from qiskit_aer.library import SaveUnitary
+from qiskit.quantum_info import Statevector
 from qiskit.quantum_info.operators.predicates import matrix_equal
 
 # Link bitmaps for tests with made-up plaquette states: the link bit strings
@@ -222,6 +223,42 @@ def test_create_blank_full_lattice_circuit_has_promised_register_order():
                 expected_name == reg.name
             ), f"Expected: {expected_name}, encountered: {reg.name}"
             print(f"Verified location of the register for {expected_name}.")
+
+
+# A T1 link bitmap whose singlet is not the all-zeros bit string. Its bit
+# string for the singlet is not a palindrome, so preparing the singlet with
+# the bits in reverse order on the qubits of a link gives the 3bar instead.
+_T1_LINK_BITMAP_SINGLET_NOT_ZERO: IrrepBitmap = {ONE: "10", THREE: "00", THREE_BAR: "01"}
+
+
+def _blank_circuit(link_bitmap: IrrepBitmap | None, **create_blank_kwargs: bool) -> QuantumCircuit:
+    """A blank circuit of a periodic d=3/2 lattice of size 2 at T1 with link_bitmap."""
+    encoder = LatticeStateEncoder.for_truncation(LatticeDef(1.5, 2, True), "T", 1, link_bitmap=link_bitmap)
+    registers = LatticeRegisters.from_lattice_state_encoder(encoder)
+    return LatticeCircuitManager(encoder, {}).create_blank_full_lattice_circuit(registers, **create_blank_kwargs)
+
+
+def test_create_blank_full_lattice_circuit_starts_in_electric_vacuum_for_any_link_bitmap():
+    """With a link bitmap whose singlet is not all zeros, the blank circuit prepares the electric vacuum: every link in the singlet."""
+    circuit = _blank_circuit(_T1_LINK_BITMAP_SINGLET_NOT_ZERO)
+    # The lattice has six links and no site bits at T1, so the electric
+    # vacuum is the singlet's bit string "10" on every link, written here
+    # with qubit 0 first.
+    expected_vacuum_bit_string = "10" * 6
+    # Qiskit's labels put qubit 0 last, so the bit string is reversed.
+    assert Statevector(circuit) == Statevector.from_label(expected_vacuum_bit_string[::-1])
+
+
+def test_create_blank_full_lattice_circuit_has_no_gates_when_vacuum_is_all_zeros():
+    """With the link bitmap ymcirc registers for T1, whose singlet is all zeros, the blank circuit has no gates."""
+    circuit = _blank_circuit(None) # ymcirc should default with arg None to a bitmap with all zeros for the singlet.
+    assert circuit.size() == 0
+
+
+def test_create_blank_full_lattice_circuit_not_starting_in_electric_vacuum_has_no_gates():
+    """With start_in_electric_vacuum=False, the blank circuit has no gates, even when the singlet is not all zeros."""
+    circuit = _blank_circuit(_T1_LINK_BITMAP_SINGLET_NOT_ZERO, start_in_electric_vacuum=False)
+    assert circuit.size() == 0
 
 
 def test_apply_magnetic_trotter_step_d_3_2_large_lattice():

@@ -298,19 +298,53 @@ class LatticeCircuitManager:
 
 
     def create_blank_full_lattice_circuit(
-        self, lattice: LatticeRegisters
+        self, lattice: LatticeRegisters, start_in_electric_vacuum: bool = True
     ) -> QuantumCircuit:
         """
         Return a blank quantum circuit with all link and vertex registers in lattice.
+
+        "Blank" means that no time evolution has been applied yet. If
+        start_in_electric_vacuum is True (the default), the circuit begins
+        with X gates that take the all-zeros state of its qubits to the
+        electric vacuum (the singlet on every link, multiplicity index 0 at
+        every vertex) as the encoder's bitmaps encode it. With the link
+        bitmaps ymcirc registers in IRREP_TRUNCATIONS, the electric vacuum is
+        the all-zeros state, so the circuit has no gates. Pass
+        start_in_electric_vacuum=False for a circuit with no gates for any
+        bitmap.
 
         The registers are in the order of LatticeDef.get_traversal_order (a
         parent class of LatticeRegisters), which also orders the bits of a
         measured bit string. See the documentation of get_traversal_order
         for details.
+
+        Raises a ValueError if start_in_electric_vacuum is True and the
+        number of qubits of a register in lattice differs from the length of
+        the encoder's bit string for that link or vertex.
         """
         all_lattice_registers: list[QuantumRegister] = [reg for reg in lattice]
+        circuit = QuantumCircuit(*all_lattice_registers)
+        if not start_in_electric_vacuum:
+            return circuit
 
-        return QuantumCircuit(*all_lattice_registers)
+        link_singlet_bit_string = self._encoder.encode_link_state_as_bit_string(ONE)
+        # An encoder with no vertex bits has an empty vertex bitmap.
+        vertex_vacuum_bit_string = (
+            self._encoder.encode_vertex_state_as_bit_string(0)
+            if self._encoder.expected_vertex_bit_string_length > 0 else "")
+        for vertex_address, link_addresses in lattice.get_traversal_order():
+            registers_and_bit_strings_traversal_order = [
+                (lattice.get_vertex(vertex_address), vertex_vacuum_bit_string)
+            ] + [
+                (lattice.get_link(link_address), link_singlet_bit_string) for link_address in link_addresses
+            ]
+            for register, bit_string in registers_and_bit_strings_traversal_order:
+                # A bit string's first bit belongs to its register's qubit 0.
+                for qubit, bit in zip(register, bit_string, strict=True):
+                    if bit == "1":
+                        circuit.x(qubit)
+
+        return circuit
 
     def compute_num_ancillas_needed_from_mag_trotter_step(
             self,
