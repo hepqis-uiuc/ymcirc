@@ -28,6 +28,33 @@ from ymcirc.conventions import (
 from ymcirc.electric_helper import electric_hamiltonian
 from ymcirc.lattice_registers import LatticeRegisters
 
+# The memory of a matrix product state (MPS) in Vidal's canonical form
+# (Vidal, arXiv:quant-ph/0301063, Eqs. (4) and (5)), counted as Aer
+# 0.18.2's estimator of MPS memory counts it (in Aer's source,
+# src/simulators/matrix_product_state/
+# matrix_product_state_size_estimator.hpp). Per qubit, it holds one
+# complex matrix of size bond dimension x bond dimension for each of the
+# qubit's two basis states. Per bond, it holds as many real Schmidt
+# coefficients as the bond dimension. With bond dimension chi, that is
+# Vidal's count of about (2 chi^2 + chi) n parameters for n qubits (the
+# sentence after his Eq. (5)).
+_MPS_MATRICES_PER_QUBIT = 2
+_BYTES_PER_COMPLEX_DOUBLE = 16
+_BYTES_PER_DOUBLE = 8
+_BYTES_PER_GIB = 2**30
+
+# Applying a two-qubit gate needs memory beyond the stored MPS, for the
+# two-qubit tensor before it is truncated and for the workspace of its
+# singular value decomposition. That extra memory is for one pair of
+# qubits only. Vidal (arXiv:quant-ph/0301063, proof of Lemma 2) updates
+# the MPS after a two-qubit gate by storing O(chi^2) coefficients, while
+# the whole MPS holds about 2 chi^2 n. This factor allows for the extra
+# memory. It is a ballpark, not derived. Too small, and a run that
+# create_simulator admits can still exhaust memory. Too large, and
+# create_simulator refuses bond-dimension caps that the machine could
+# run.
+_MPS_GATE_WORKSPACE_SAFETY_FACTOR = 2
+
 
 def configure_script_options(
         dimensionality_string: str,
@@ -396,25 +423,100 @@ def load_circuit(circuit_load_path: str | Path, script_options: dict[str, Any]) 
     return simulation_circuit
 
 
+def _mps_memory_bytes(n_qubits: int, bond_dimension: int) -> int:
+    """
+    Return the bytes of an MPS with every bond at bond_dimension.
+
+    The MPS has n_qubits qubits. Like Aer's estimator, the count
+    includes one bond per qubit. An open chain of n_qubits qubits has
+    n_qubits - 1 bonds, so the count is slightly too large.
+    """
+    bytes_per_qubit = (
+        _MPS_MATRICES_PER_QUBIT
+        * _BYTES_PER_COMPLEX_DOUBLE
+        * bond_dimension**2
+        + _BYTES_PER_DOUBLE * bond_dimension
+    )
+    return n_qubits * bytes_per_qubit
+
+
+def create_simulator(
+    script_options: dict[str, Any], n_qubits: int
+) -> AerSimulator:
+    """
+    Return the Aer simulator for script_options' simulation method.
+
+    The simulator is for a circuit of n_qubits qubits. With the MPS
+    method and a bond-dimension cap
+    (matrix_product_state_max_bond_dimension), Aer's own memory check
+    is turned off (max_memory_mb=-1). Aer estimates an MPS run's
+    memory as if there were no cap, so it can refuse a capped run that
+    needs little memory, depending on which two-qubit gates the
+    transpiler emits. In its place, the memory of the capped state,
+    with every bond at the cap and times
+    _MPS_GATE_WORKSPACE_SAFETY_FACTOR, is compared with the machine's
+    physical memory, which is also Aer's default limit, and both are
+    printed. Memory used by other programs is not accounted for.
+    Without a cap, Aer's check stays on.
+
+    Raises a ValueError if the method is MPS with a cap whose estimated
+    memory exceeds the machine's physical memory.
+    """
+    method = script_options["method"]
+    if method != "matrix_product_state":
+        return AerSimulator(method=method)
+
+    max_bond_dimension = script_options[
+        "matrix_product_state_max_bond_dimension"
+    ]
+    print(f"MPS simulation with max bond dimension: {max_bond_dimension}")
+    if max_bond_dimension is None:
+        return AerSimulator(
+            method=method, matrix_product_state_max_bond_dimension=None
+        )
+
+    required_bytes = _MPS_GATE_WORKSPACE_SAFETY_FACTOR * _mps_memory_bytes(
+        n_qubits, max_bond_dimension
+    )
+    physical_memory_bytes = os.sysconf("SC_PAGE_SIZE") * os.sysconf(
+        "SC_PHYS_PAGES"
+    )
+    required_gib = required_bytes / _BYTES_PER_GIB
+    physical_memory_gib = physical_memory_bytes / _BYTES_PER_GIB
+    print(
+        f"Estimated MPS memory: up to {required_gib:.3g} GiB "
+        f"({n_qubits} qubits); physical memory: "
+        f"{physical_memory_gib:.3g} GiB"
+    )
+    if required_bytes > physical_memory_bytes:
+        raise ValueError(
+            f"An MPS simulation of {n_qubits} qubits with max bond "
+            f"dimension {max_bond_dimension} may need up to "
+            f"{required_gib:.3g} GiB, more than this machine's "
+            f"{physical_memory_gib:.3g} GiB of physical memory. Use a "
+            "smaller max bond dimension."
+        )
+    return AerSimulator(
+        method=method,
+        matrix_product_state_max_bond_dimension=max_bond_dimension,
+        max_memory_mb=-1,
+    )
+
+
 def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, Any]) -> pd.DataFrame:
     """
     Execute a simulation of circuit according
     to the parameters in script_options. There will be
     as many simulations as there are items in sim_times.
 
-    Returns the results as a DataFrame.
+    Returns the results as a DataFrame. Raises a ValueError if
+    create_simulator refuses the simulation for lack of memory.
     """
     # Set up objects needed for executing circuits and processing results.
-    if script_options['method'] == 'matrix_product_state':
-        simulator = AerSimulator(
-            method=script_options['method'],
-            matrix_product_state_max_bond_dimension=script_options['matrix_product_state_max_bond_dimension'])
-        print(f"MPS simulation with max bond dimension: {script_options['matrix_product_state_max_bond_dimension']}")
-    else:
-        simulator = AerSimulator(method=script_options['method'])
     n_ancilla_qubits = len(circuit.ancillas)
     n_total_qubits = len(circuit.qubits)
     n_data_qubits = n_total_qubits - n_ancilla_qubits
+    simulator = create_simulator(script_options, n_total_qubits)
     lattice_encoder = create_lattice_encoder(script_options)
     # The bit string of the electric vacuum (the singlet on every link,
     # multiplicity index 0 at every vertex) as the encoder encodes it.
