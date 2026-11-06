@@ -24,7 +24,7 @@ from typing import Any
 from ymcirc._abstract import LatticeDef, Plane, PlaquetteState, Signature
 from ymcirc.circuit import ANCILLA_REGISTER_NAME, LatticeCircuitManager
 from ymcirc.conventions import (
-    LatticeStateEncoder, physical_plaquette_states)
+    ONE, LatticeStateEncoder, physical_plaquette_states)
 from ymcirc.electric_helper import electric_hamiltonian
 from ymcirc.lattice_registers import LatticeRegisters
 
@@ -415,8 +415,18 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
     n_ancilla_qubits = len(circuit.ancillas)
     n_total_qubits = len(circuit.qubits)
     n_data_qubits = n_total_qubits - n_ancilla_qubits
-    vacuum_state = "0" * n_data_qubits
     lattice_encoder = create_lattice_encoder(script_options)
+    # The bit string of the electric vacuum (the singlet on every link,
+    # multiplicity index 0 at every vertex) as the encoder encodes it.
+    traversal_order = lattice_encoder.lattice_def.get_traversal_order()
+    vacuum_state_links = {link_address: ONE for _, link_addresses in traversal_order for link_address in link_addresses}
+    vacuum_state_vertices = {vertex_address: 0 for vertex_address, _ in traversal_order} \
+        if lattice_encoder.expected_vertex_bit_string_length > 0 else None
+    vacuum_state = ParsedLatticeResult.from_links_and_vertices(
+        vacuum_state_links,
+        vacuum_state_vertices,
+        encoder=lattice_encoder,
+    ).global_lattice_measurement_bit_string
     print(f"# data qubits: {n_data_qubits}")
     print(f"# ancilla qubits: {n_ancilla_qubits}")
 
