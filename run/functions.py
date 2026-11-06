@@ -11,7 +11,6 @@ parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 # Add the parent directory to sys.path
 sys.path.append(parent_dir)
 
-import copy
 import logging
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
@@ -25,7 +24,7 @@ from typing import Any
 from ymcirc._abstract import LatticeDef, Plane, PlaquetteState, Signature
 from ymcirc.circuit import ANCILLA_REGISTER_NAME, LatticeCircuitManager
 from ymcirc.conventions import (
-    LatticeStateEncoder, physical_plaquette_states)
+    ONE, LatticeStateEncoder, physical_plaquette_states)
 from ymcirc.electric_helper import electric_hamiltonian
 from ymcirc.lattice_registers import LatticeRegisters
 
@@ -416,14 +415,28 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
     n_ancilla_qubits = len(circuit.ancillas)
     n_total_qubits = len(circuit.qubits)
     n_data_qubits = n_total_qubits - n_ancilla_qubits
-    vacuum_state = "0" * n_data_qubits
     lattice_encoder = create_lattice_encoder(script_options)
+    # The bit string of the electric vacuum (the singlet on every link,
+    # multiplicity index 0 at every vertex) as the encoder encodes it.
+    traversal_order = lattice_encoder.lattice_def.get_traversal_order()
+    vacuum_state_links = {link_address: ONE for _, link_addresses in traversal_order for link_address in link_addresses}
+    vacuum_state_vertices = {vertex_address: 0 for vertex_address, _ in traversal_order} \
+        if lattice_encoder.expected_vertex_bit_string_length > 0 else None
+    vacuum_state = ParsedLatticeResult.from_links_and_vertices(
+        vacuum_state_links,
+        vacuum_state_vertices,
+        encoder=lattice_encoder,
+    ).global_lattice_measurement_bit_string
     print(f"# data qubits: {n_data_qubits}")
     print(f"# ancilla qubits: {n_ancilla_qubits}")
 
-    # Prepare a circuit for each sim_time by adding a
-    # measurement of all registers, assigning parameter values,
-    # and then transpiling.
+    # Add a measurement of all registers and transpile once, with the
+    # parameters unbound, since the circuits for different sim_times
+    # differ only in their parameter values. Then prepare a circuit for
+    # each sim_time by assigning parameter values to a copy of the
+    # transpiled circuit. Transpiling before assigning values can leave a
+    # few more gates, since the transpiler cannot simplify a gate whose
+    # angle is still a parameter.
     # In principle, we could set all the dt and coupling_g parameters
     # for each electric or magnetic Trotter step individually,
     # but in this case, we use the same dt for both at each total sim duration,
@@ -441,24 +454,25 @@ def run_circuit_simulations(circuit: QuantumCircuit, script_options: dict[str, A
     if _mps_n_qubits_overridden:
         simulator._set_configuration_option("n_qubits", n_circuit_qubits)
 
+    circuit_with_final_measurement = circuit.copy()
+    circuit_with_final_measurement.measure_all()
+    print("Transpiling circuit with unassigned parameters...")
+    transpiled_circuit_with_final_measurement = transpile(circuit_with_final_measurement, simulator, optimization_level=3)
+    if _mps_n_qubits_overridden:
+        simulator._set_configuration_option("n_qubits", original_simulator_n_qubits)
+
     transpiled_circuits_with_assigned_params = []
     for idx, sim_time in enumerate(script_options["sim_times"]):
         print(f"Setting parameters for circuit {idx+1}/{len(script_options['sim_times'])} (sim_time = {sim_time})")
         dt = sim_time / script_options["n_trotter_steps"]
-        transpiled_circuit_with_final_measurement = copy.deepcopy(circuit)
         parameter_values = dict()
         for param in transpiled_circuit_with_final_measurement.parameters:
             if 'dt' in param.name:
                 parameter_values[param.name] = dt
             elif 'coupling_g' in param.name:
                 parameter_values[param.name] = script_options['coupling_g']
-        transpiled_circuit_with_final_measurement.assign_parameters(parameter_values, inplace=True)
-        transpiled_circuit_with_final_measurement.measure_all()
-        transpiled_circuit_with_final_measurement = transpile(transpiled_circuit_with_final_measurement, simulator, optimization_level=3)
-        transpiled_circuits_with_assigned_params.append(transpiled_circuit_with_final_measurement)
-
-    if _mps_n_qubits_overridden:
-        simulator._set_configuration_option("n_qubits", original_simulator_n_qubits)
+        transpiled_circuits_with_assigned_params.append(
+            transpiled_circuit_with_final_measurement.assign_parameters(parameter_values))
     print(f"Gate counts for circuit(s) after transpiling with set params for '{script_options['method']}' simulation method:\n{transpiled_circuits_with_assigned_params[0].count_ops()}")
 
     # Execute circuits.
